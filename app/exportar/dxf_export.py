@@ -336,6 +336,7 @@ def _export_valvulas(win, doc, msp):
         return
     import math
     from nucleo import valvulas as _V
+    from nucleo import terreno as _terreno
     lugares = _V.ubicar_todas(win.pipes, win.structures, vs, ft)
     win._valvulas_omitidas = sum(1 for v, l in zip(vs, lugares) if not _V.exportable(v, l))
     if "PDFCAD" not in doc.appids: doc.appids.add("PDFCAD")
@@ -360,10 +361,14 @@ def _export_valvulas(win, doc, msp):
             (1000, f"DIR_X={(x2 - x) / n:.9f}"),
             (1000, f"DIR_Y={(y2 - y) / n:.9f}"),
             (1000, f"ESTIMADA={1 if lug.estimada else 0}"),
-            (1000, f"TIPO={v.get('tipo') or ''}"),            # "" = compuerta (unión con dev_santos_v2)
+            # el tipo del plano es solo un DATO (va al XDATA del sólido); la pieza siempre es la de compuerta
+            (1000, f"TIPO={v.get('tipo') or ''}"),
             (1000, f"UTILIDAD={v.get('utilidad') or ''}"),
             (1000, f"ESTADO={v.get('estado') or ''}"),
             (1000, f"ORIGEN={v.get('origen') or ''}"),
+            # caja de la válvula: de la corona hasta el suelo en su punto (`nucleo/terreno`; hoy la cota 0)
+            (1000, f"CAJA_TOPE_Z={_terreno.cota_en(lug.x, lug.y):g}"),
+            (1000, f"CAJA_DIAM_IN={_V.CAJA_DIAM_IN:g}"),
         ])
 
 

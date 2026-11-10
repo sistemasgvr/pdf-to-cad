@@ -133,7 +133,8 @@ def lineas_codo(e, d, ang, vertical, mat, top):
 
 
 def lineas_valvula(e, d, union, engranes, top):
-    """Válvula de compuerta (2026-11-05). Espejo de `PerfilTextos.LineasValvula` del plugin."""
+    """Válvula (2026-11-05): una sola válvula genérica, la de compuerta (2026-11-08). Espejo de
+    `PerfilTextos.LineasValvula` del plugin."""
     u = "MJ" if (union or "").strip().upper() == "RG" and not engranes else "FLG"
     return [_sta(e), unir(diametro(d), u, "GATE VALVE", "W/ GEAR OP" if engranes else ""), _top(top)]
 

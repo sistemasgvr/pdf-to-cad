@@ -40,6 +40,7 @@ namespace Civil3DBasico
         public double LargoTotalFt = double.NaN;
         public string MaterialXData = "", RedXData = "";
         public string UnionXData = ""; public bool EngranesXData;   // válvula: FLG|RG y operador de engranes
+        public double CajaTopeZ = double.NaN, CajaDiamIn = double.NaN;     // válvula: su caja hasta la superficie
         public bool RamalVertical; public string SentidoVertical = "";   // "UP" | "DOWN" | "" (H.3)
         public List<int> Tramos = new List<int>();
     }
@@ -234,6 +235,7 @@ namespace Civil3DBasico
         public string Nombre = ""; public int Numero;    // D.1: "PERFIL {red} ({n})"
         public ObjectId AlignId = ObjectId.Null, TerrenoId = ObjectId.Null;
         public bool SinSuperficie;
+        public bool InsercionArriba;                     // PuntoInsercion = esquina SUPERIOR izquierda (perfiles de la app)
         public EstilosPerfil Estilos;
         public List<ParteEnVista> Partes = new List<ParteEnVista>();
         public ResumenPerfil Resumen = new ResumenPerfil();

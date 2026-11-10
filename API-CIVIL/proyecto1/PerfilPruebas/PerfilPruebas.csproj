@@ -10,9 +10,11 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\proyecto1\PerfilRecorrido.cs" />
+    <Compile Include="..\proyecto1\PerfilRecorridoEntre.cs" />
     <Compile Include="..\proyecto1\PerfilDiseno.cs" />
     <Compile Include="..\proyecto1\PerfilDisenoFranjas.cs" />
     <Compile Include="..\proyecto1\PerfilDisenoFila.cs" />
+    <Compile Include="..\proyecto1\PerfilDisenoDespeje.cs" />
     <Compile Include="..\proyecto1\PerfilTextos.cs" />
     <Compile Include="..\proyecto1\EnderezarNucleo.cs" />
     <Compile Include="..\proyecto1\ValvulaReceta.cs" />

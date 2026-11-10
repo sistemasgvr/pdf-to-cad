@@ -31,7 +31,7 @@ class DibujarAccesoriosMixin:
     def dibujar_accesorio(self, tipo, angulo=None):
         """Arranca la herramienta del accesorio `tipo` ("valvula" | "codo" | "tee" | "wye" | "cruz")."""
         if tipo == "valvula":
-            self.insertar_valvula()
+            self.insertar_valvula()                 # una sola válvula genérica (compuerta)
             return
         if not DA.hay_presion(self.pipes):
             self._info(motivo_sin_presion())
@@ -180,7 +180,7 @@ def motivo_sin_presion():
 
 # (tipo, ángulo, icono, texto, ayuda) del menú «Accesorios» de Dibujar
 MENU = (
-    ("valvula", None, "valve", N_("Válvula"), N_("Válvula de compuerta: clic sobre un tramo recto.")),
+    ("valvula", None, "valve", N_("Válvula"), N_("Haz clic sobre un tramo recto de agua o gas.")),
     ("codo", None, "acc-codo", N_("Codo"), N_("Desde la punta de una tubería: el tramo nuevo gira ese ángulo.")),
     ("tee", None, "acc-tee", N_("Tee · ramal a 90°"), N_("Sobre un tramo recto: un ramal nuevo a 90°.")),
     ("wye", None, "acc-wye", N_("Wye · ramal a 45°"), N_("Sobre un tramo recto: un ramal nuevo a 45°, hacia adelante "
@@ -206,7 +206,8 @@ def llenar_menu(win, menu):
     wa.setEnabled(False)
     menu.addAction(wa)
     d = getattr(win, "_acc_dib", None) if win.mode == "insert_acc" else None
-    actual = ("valvula", None) if win.mode == "insert_valv" else ((d["tipo"], d.get("angulo")) if d else None)
+    actual = (("valvula", None) if win.mode == "insert_valv"
+              else ((d["tipo"], d.get("angulo")) if d else None))
     for tipo, _ang, ic, txt, ayuda in MENU:
         color = t.text if hay else t.text3
         if tipo == "codo":

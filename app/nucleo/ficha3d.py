@@ -101,15 +101,19 @@ def de_conflicto(obj):
 
 
 def de_valvula(obj, pipes, nombre_utilidad=lambda c: c):
-    """(título, filas) de una válvula de compuerta (`valvulas3d`): la pieza que pone el plugin."""
+    """(título, filas) de una válvula (`valvulas3d`): la pieza que pone el plugin (siempre compuerta; el tipo del
+    plano, si lo hay, es solo un dato)."""
     d = float(obj.get("diam_in") or 0)
-    titulo = t(N_("Válvula de compuerta {d}\"")).format(d=f"{d:g}")
+    nombre = t(N_("Válvula de compuerta"))
+    titulo = t(N_("{v} {d}\"")).format(v=nombre, d=f"{d:g}")
     une = [i for i in obj.get("pipes") or [] if 0 <= i < len(pipes)]
-    filas = [(N_("Accesorio"), t(N_("Válvula de compuerta"))), (N_("Diámetro"), f'{d:g}"'),
+    filas = [(N_("Accesorio"), nombre), (N_("Diámetro"), f'{d:g}"'),
              (N_("Pieza"), obj.get("bloque") or ""), (N_("Unión"), obj.get("union") or ""),
              (N_("Material"), obj.get("material") or ""),
              (N_("Largo (ft)"), _valor(round(float(obj.get("largo_ft") or 0), 3))),
              (N_("Utilidad"), nombre_utilidad(obj.get("capa") or ""))]
+    if (obj.get("valv_tipo") or "") not in ("", "Válvula", "Compuerta"):
+        filas.append((N_("Tipo en el plano"), t(obj["valv_tipo"])))
     if une:
         filas.append((N_("En la utilidad"), ", ".join(f"#{i + 1}" for i in une)))
     if obj.get("eje_z") is not None:

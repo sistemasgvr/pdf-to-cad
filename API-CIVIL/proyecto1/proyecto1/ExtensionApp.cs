@@ -15,6 +15,13 @@ namespace Civil3DBasico
     {
         public void Initialize()
         {
+            // moño y caja de válvula en los perfiles: siguen a su vista en todo dibujo abierto (PerfilValvulasSeguir)
+            try
+            {
+                foreach (Document d in Application.DocumentManager) PerfilValvulasSeguir.Activar(d);
+                Application.DocumentManager.DocumentCreated += (s, e) => PerfilValvulasSeguir.Activar(e.Document);
+            }
+            catch { }
             try
             {
                 var doc = Application.DocumentManager.MdiActiveDocument;

@@ -97,6 +97,8 @@ def invertir(p):
         q["vertex_kinds"] = list(reversed(p["vertex_kinds"]))
     if p.get("fillets"):
         q["fillets"] = {n - 1 - int(k): r for k, r in p["fillets"].items()}
+    if p.get("flujo") in (1, -1):         # el sentido del flujo es por el orden de los vértices: sigue igual
+        q["flujo"] = -p["flujo"]
     return q
 
 

@@ -110,6 +110,19 @@
    "version": 1
   },
   {
+   "autor": "User",
+   "fecha": "2026-11-06T21:50:42",
+   "fuera": "ajeno",
+   "id": "2d5dff114a0e",
+   "modelo": "qwen3-vl:8b-instruct",
+   "pregunta": "En perfil longitudinal, por qué tenemos auto, básico y completo? cuál es la diferencia?",
+   "proyecto": "OF_proyecto_prueba",
+   "referencias": [],
+   "respuesta": "Solo puedo ayudarte con este proyecto y con el uso de PDF-a-CAD (utilidades, conflictos, avisos, normativas, cotas, cómo hacer algo en la app…).",
+   "segundos": 4.54,
+   "version": 2
+  },
+  {
    "autor": "bernu",
    "fecha": "2026-10-29T17:17:12",
    "id": "2f85c1fca4a4",
@@ -1016,6 +1029,13 @@
    "fecha": "2026-10-26T11:09:52",
    "modelo": "qwen3-vl:8b-instruct",
    "texto": "Agua y Telecomunicaciones se cruzan a la misma cota sin conexión: sepáralas en altura o en planta."
+  },
+  "296cced5e084f483729040fd1d313f3d0c1011d2": {
+   "ambito": "ayuda",
+   "autor": "User",
+   "fecha": "2026-11-06T21:52:24",
+   "modelo": "qwen3-vl:8b-instruct",
+   "texto": "Abre el perfil longitudinal con **Ver → Perfil longitudinal** o presiona **F4** o haz clic en el botón del riel.  \nLuego, haz clic en una tubería del plano para que la app cree automáticamente el recorrido del perfil.  \nPuedes mover el cursor para ver el punto en el plano y la línea en el perfil.  \nUsa **Inicio / Fin** para ir al primer o último punto del recorrido.  \nCon **Limitar hasta…**, fija el final con un clic.  \nArrastra los puntos del nodo o usa **↑ ↓** (con Mayús para 1 ft) para cambiar cotas.  \nHaz clic en **⋯** para guardar, cargar o encuadrar perfiles.  \nMás en: [Perfil longitudinal]"
   },
   "2a30f7229558d5f97e77c60976af866062945492": {
    "ambito": "proyecto",

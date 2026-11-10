@@ -12,7 +12,8 @@ using Exception = System.Exception;
 //   · Nombre único «PERFIL {red} ({n})» contra ejes (con y sin sitio) y vistas.
 //   · Creación del eje en la capa PDFCAD_PERFIL_EJE con
 //     ComandosAlineamientos.CrearAlineamientoDesdePts (sobrecarga con capa/estilo/
-//     juego) y ReferencePointStation para que N0 quede en 1+00.
+//     juego) y ReferencePointStation para que N0 quede en EST_INICIAL = 0+00, la estación real del inicio del
+//     eje (2026-11-09; antes 1+00 y el perfil no coincidía con las estaciones del eje).
 //   · Estaciones definitivas con StationOffset (T1a) y consultas sobre el
 //     recorrido: cota de eje, corona, fondo y terreno por estación (D.3, D.4).
 //   · Muestreo del terreno en T0 con Surface.FindElevationAtXY (D.4).
@@ -67,7 +68,7 @@ namespace Civil3DBasico
 
         /// <summary>
         /// D.2 (T1a): crea el eje desde rec.Traza (capa CapaEjeId, EjeStyle, LabelSetEjeVacio; reintento con estilos [0]),
-        /// fija ReferencePointStation = 100 − (s0 − StartingStation) y comprueba StationOffset(N0) = 100.00 ± 0.01.
+        /// fija ReferencePointStation = EST_INICIAL − (s0 − StartingStation) y comprueba StationOffset(N0) = EST_INICIAL ± 0.01.
         /// Devuelve ObjectId.Null si no se pudo crear (fatal para el comando).
         /// </summary>
         internal static ObjectId Crear(Transaction tr, Database db, CivilDocument civDoc, Recorrido rec, string nombre, EstilosPerfil est)
@@ -94,7 +95,8 @@ namespace Civil3DBasico
                 a.ReferencePointStation = PerfilRecorrido.EST_INICIAL - (s0 - a.StartingStation);
                 double chk = 0, off2 = 0;
                 a.StationOffset(n0.X, n0.Y, ref chk, ref off2);
-                if (Math.Abs(chk - PerfilRecorrido.EST_INICIAL) > 0.01) PerfilLog.Log("EJE", $"N0 queda en {chk:0.000} (esperado 100.00)");
+                if (Math.Abs(chk - PerfilRecorrido.EST_INICIAL) > 0.01)
+                    PerfilLog.Log("EJE", $"N0 queda en {chk:0.000} (esperado {PerfilRecorrido.EST_INICIAL:0.00})");
             }
             catch (Exception ex) { PerfilLog.Error("EJE", "ReferencePointStation", ex); }
             return id;

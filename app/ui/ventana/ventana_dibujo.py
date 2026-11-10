@@ -274,6 +274,8 @@ class DibujoMixin:
             if sel and self.mode == "move": self._handles(p["pts"])
             elif i == self.sel_pipe:
                 self._vertices_libres(p)                # eléctrico/telecom: vértices que pueden ser curva
+            if i == self.sel_pipe:
+                self._flujo_en_plano(i)                 # gravedad con sentido indicado: flechas (ventana_flujo)
             if sel and 0 <= self.sel_seg_idx < len(p["pts"]) - 1:
                 a, b = p["pts"][self.sel_seg_idx], p["pts"][self.sel_seg_idx + 1]
                 pen_hi = QtGui.QPen(QtGui.QColor(255, 50, 220), 6.0); pen_hi.setCosmetic(True)

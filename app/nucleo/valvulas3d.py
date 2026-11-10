@@ -21,12 +21,14 @@ from nucleo import valvula_receta as VR
 
 # colores de las capas que crea el plugin (ACI de AutoCAD): 5 = azul, 40 = naranja
 COLOR_CAPA = {0: (0.0, 0.0, 1.0, 1.0), 1: (1.0, 191 / 255, 0.0, 1.0)}
+COLOR_CAJA = (0.5, 0.5, 0.5, 1.0)       # caja de la válvula (V-PRES-VALV-CAJA, ACI 8)
 
 _MALLAS = {}
 
 
 def malla(n, union):
-    """(posiciones ft (m, 3), normales (m, 3), capa por vértice) de la válvula de n pulgadas, una vez."""
+    """(posiciones ft (m, 3), normales (m, 3), capa por vértice) de la válvula de n pulgadas (siempre la de
+    compuerta, `valvula_receta`), una vez."""
     clave = (round(float(n), 4), VR.tipo_de(float(n), union))
     if clave not in _MALLAS:
         pos, nor, capa = VM.malla(VR.receta(n, union))
@@ -86,6 +88,15 @@ def dibujar(ar, pipes, valvulas, id0, z_eje):
             m = capa == c
             if m.any():
                 ar.op.append(M._vertices(pos[m], nor[m], color, ident))
+        # caja de la válvula (valve box): vertical, de la corona a la superficie (`valvulas.caja`)
+        from nucleo import valvulas as VV
+        cj = VV.caja(ze, d_in, p.get("layer"), x, y)
+        if cj:
+            z0c, z1c = cj
+            cpos, cnor = VM.pieza(("cil", 2, "z", (0.0, 0.0, 0.0), (z1c - z0c) * 12.0, VV.CAJA_DIAM_IN / 2.0))
+            cpos = cpos / 12.0 + np.array([centro[0], centro[1], centro[2] + (z0c - ze)])
+            ar.op.append(M._vertices(cpos, cnor, COLOR_CAJA, ident))
+            pos = np.concatenate([pos, cpos])
         ex, _ey, _ez = base(eje)
         L = float(v["largo_ft"])
         A, B = centro - ex * L / 2.0, centro + ex * L / 2.0
@@ -93,7 +104,7 @@ def dibujar(ar, pipes, valvulas, id0, z_eje):
         ar.registrar(ident, "accesorio", ident, pos, acc_tipo="valvula", pipes=[i], capa=p.get("layer"),
                      x=x, y=y, eje_z=float(ze), diam_in=d_in, bloque=v.get("bloque") or "",
                      union=v.get("union") or "", material=v.get("material") or "", largo_ft=L,
-                     estimada=bool(v.get("estimada")))
+                     estimada=bool(v.get("estimada")), valv_tipo=v.get("tipo") or "")
         plano = math.hypot(ex[0], ex[1])
         if plano > 1e-9:                               # el tubo se corta en las dos caras (medido en planta)
             d = (ex[0] / plano, ex[1] / plano)

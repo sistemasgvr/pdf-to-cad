@@ -104,10 +104,13 @@ def reorganizar(win):
                                                         win.lbl_prop_family, win.lbl_prop_size) and \
                 c is not win.prop_nettype:
             orden.append(fila(c))
+    flujo = win._flujo_construir() if hasattr(win, "_flujo_construir") else None   # gravedad (ventana_flujo)
     orden += [fila(win.prop_amp), fila(win.prop_nettype),
               "Catálogo de Civil 3D", fila(win.prop_family), fila(win._prop_size_box),
-              "Cotas", fila(win.prop_inv0), fila(win.prop_inv1), fila(win.lbl_pendiente),
-              "Estado", (None, win.sw_abandonada),
+              "Cotas", fila(win.prop_inv0), fila(win.prop_inv1), fila(win.lbl_pendiente)]
+    if flujo is not None:
+        orden.append(flujo)
+    orden += ["Estado", (None, win.sw_abandonada),
               "Normativa", fila(win.lbl_normas_pipe), (None, win.box_normativa),
               (None, win.tarjeta_sugerencia), (None, win._diam_ia_construir())]
     orden += list(por_campo.values())                # lo que quede, al final (nada se pierde)
@@ -165,6 +168,8 @@ def refrescar(win):
         win._ic_sugerencia.setPixmap(_icon("mdi:creation", color=t.accent).pixmap(16, 16))
     if hasattr(win, "_diam_ia_refrescar"):          # diámetro según la IA (`ventana_diametro_ia`)
         win._diam_ia_refrescar()
+    if hasattr(win, "_flujo_refrescar"):            # sentido del flujo (gravedad, `ventana_flujo`)
+        win._flujo_refrescar()
 
 
 def _avisos(win, i):

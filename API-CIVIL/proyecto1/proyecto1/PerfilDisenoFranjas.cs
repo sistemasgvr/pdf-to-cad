@@ -269,9 +269,12 @@ namespace Civil3DBasico
                     if (e.EstIni - (Math.Max(0, -lmin) + MARGEN_MARCO) * s >= 0) start = 0;
                     else if (!st.Hechas.Contains("neg")) { st.Hechas.Add("neg"); r.Avisos.Add("Estaciones negativas en el marco"); }
                 }
-                if (acotado && start < e.EstMinPermitida) start = RedondearArriba(e.EstMinPermitida, REDONDEO_EST);
+                // El eje mide lo mismo que la tubería (2026-11-09): sus extremos SON el primer y el último nodo. Recortar
+                // al múltiplo de REDONDEO_EST hacia adentro dejaba fuera el último nodo (4+25.10 → 4+25: «Rótulo omitido»)
+                // y parte del tubo (Dren 1+34 → 1+30): el límite va EXACTO.
+                if (acotado && start < e.EstMinPermitida) start = e.EstMinPermitida;
                 double end = RedondearArriba(e.EstFin + padR * s, REDONDEO_EST);
-                if (acotado) end = Math.Min(end, RedondearAbajo(e.EstMaxPermitida, REDONDEO_EST));
+                if (acotado) end = Math.Min(end, e.EstMaxPermitida);
                 if (end <= start) end = start + REDONDEO_EST;
                 AjustarEstacionesExtremo(ref start, ref end, s, r.Int.EstMayor, acotado ? e.EstMinPermitida : double.NegativeInfinity,
                                          acotado ? e.EstMaxPermitida : double.PositiveInfinity);

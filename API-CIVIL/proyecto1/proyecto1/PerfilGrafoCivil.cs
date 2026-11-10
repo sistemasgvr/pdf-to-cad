@@ -26,6 +26,15 @@ namespace Civil3DBasico
         private static double Dist2D(Point3d a, Point3d b) { return Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y)); }
         private static V2 V(Point3d p) { return new V2(p.X, p.Y); }
 
+        /// <summary>Tubo VERTICAL (conexión cruzada): menos de LARGO_MIN_TUBO en planta Y sube más de lo que avanza.
+        /// Antes bastaba lo primero y las curvas cortas de un conducto (≈0.6 ft, radio automático) salían del grafo:
+        /// la red quedaba en trozos y el perfil se cortaba («ELE-P1», 2026-11-08).</summary>
+        internal static bool EsVertical(Point3d a, Point3d b)
+        {
+            double d = Dist2D(a, b);
+            return d < PerfilRecorrido.LARGO_MIN_TUBO && Math.Abs(b.Z - a.Z) >= d;
+        }
+
         /// <summary>
         /// C.1: red de la entidad (Pipe/Structure/PressurePipe), TipoRed (Gravedad/Conduit/Presion), NombreRed y SuperficieId.
         /// null + <paramref name="mensaje"/> (español, con ✗/⚠) si no hay red o si la tubería elegida es vertical (&lt; LARGO_MIN_TUBO).
@@ -41,13 +50,13 @@ namespace Civil3DBasico
                 ObjectId netId = ObjectId.Null;
                 if (obj is CivilDB.Pipe p)
                 {
-                    if (Dist2D(p.StartPoint, p.EndPoint) < PerfilRecorrido.LARGO_MIN_TUBO) { mensaje = VERTICAL; return null; }
+                    if (EsVertical(p.StartPoint, p.EndPoint)) { mensaje = VERTICAL; return null; }
                     netId = p.NetworkId;
                 }
                 else if (obj is CivilDB.Structure st) netId = st.NetworkId;
                 else if (obj is CivilDB.PressurePipe pp)
                 {
-                    if (Dist2D(pp.StartPoint, pp.EndPoint) < PerfilRecorrido.LARGO_MIN_TUBO) { mensaje = VERTICAL; return null; }
+                    if (EsVertical(pp.StartPoint, pp.EndPoint)) { mensaje = VERTICAL; return null; }
                     netId = pp.NetworkId; red.Tipo = TipoRed.Presion;
                 }
                 if (netId.IsNull || !netId.IsValid) { mensaje = "✗ La entidad no pertenece a ninguna red."; return null; }
@@ -120,7 +129,7 @@ namespace Civil3DBasico
                 catch (Exception ex) { PerfilLog.Aviso("GRAFO", "Tubo ilegible " + pid.Handle + ": " + ex.Message); continue; }
                 Point3d a, b;
                 try { a = p.StartPoint; b = p.EndPoint; } catch { continue; }
-                if (Dist2D(a, b) < PerfilRecorrido.LARGO_MIN_TUBO)
+                if (EsVertical(a, b))
                 {
                     PerfilLog.Log("GRAFO", "tubo degenerado excluido " + pid.Handle);
                     red.Verticales.Add(new VerticalConexion { X = a.X, Y = a.Y, ZMin = Math.Min(a.Z, b.Z), ZMax = Math.Max(a.Z, b.Z), Red = red.NombreRed, PipeId = pid });
@@ -146,9 +155,13 @@ namespace Civil3DBasico
                 t.NodoB = NodoExtremo(tr, red, porEstructura, SafeId(() => p.EndStructureId), b);
                 red.Tramos.Add(t);
                 red.Nodos[t.NodoA].Tramos.Add(t.Id); red.Nodos[t.NodoB].Tramos.Add(t.Id);
+                PerfilLog.Log("GRAFO", $"  tubo {pid.Handle}{(t.Curva ? " (curvo)" : "")}: ({a.X:0.##},{a.Y:0.##}) nodo {t.NodoA}" +
+                                       $" → ({b.X:0.##},{b.Y:0.##}) nodo {t.NodoB}");
             }
             foreach (var n in red.Nodos)
                 if (n.Tipo == TipoNodo.Extremo && n.Tramos.Count >= 2) n.Tipo = TipoNodo.Union;
+            PerfilLog.Log("GRAFO", $"red '{red.NombreRed}': {red.Tramos.Count} tubos ({red.Tramos.Count(x => x.Curva)} curvos), " +
+                                   $"{red.Nodos.Count} nodos, {red.Nodos.Count(x => x.Tramos.Count == 1)} puntas sueltas");
             ArmarGrafoPuro(red);
             return red.GAristas.Any(e => e.Valida);
         }
@@ -161,6 +174,11 @@ namespace Civil3DBasico
             if (!sid.IsNull && sid.IsValid)
             {
                 if (porEstructura.TryGetValue(sid, out int ex)) return ex;
+                // otra estructura (o punta suelta) en el MISMO punto = la misma unión: en los conductos cada tubo
+                // puede llevar su propia estructura en la punta y el recorrido se cortaba ahí («ELE-P1»)
+                foreach (var o in red.Nodos)
+                        if (Math.Sqrt((o.X - p.X) * (o.X - p.X) + (o.Y - p.Y) * (o.Y - p.Y)) <= PerfilRecorrido.TOL_COINCIDE)
+                        { porEstructura[sid] = o.Id; return o.Id; }
                 var n = new NodoPerfil { Id = red.Nodos.Count, Tipo = TipoNodo.Estructura, X = p.X, Y = p.Y, EstructuraId = sid };
                 try
                 {
@@ -175,8 +193,10 @@ namespace Civil3DBasico
                 red.Nodos.Add(n); porEstructura[sid] = n.Id;
                 return n.Id;
             }
+            // punta SIN estructura (el tubo curvo de un conducto se une al recto sin pieza): la misma unión que la
+            // estructura NULA del tubo vecino en ese punto (si no, el recorrido se cortaba en la curva: «ELE-P1»)
             foreach (var n in red.Nodos)
-                if (n.EstructuraId.IsNull && Math.Sqrt((n.X - p.X) * (n.X - p.X) + (n.Y - p.Y) * (n.Y - p.Y)) <= PerfilRecorrido.TOL_COINCIDE) return n.Id;
+                if ((n.EstructuraId.IsNull || n.Tipo == TipoNodo.EstructuraNula) && Math.Sqrt((n.X - p.X) * (n.X - p.X) + (n.Y - p.Y) * (n.Y - p.Y)) <= PerfilRecorrido.TOL_COINCIDE) return n.Id;
             var nuevo = new NodoPerfil { Id = red.Nodos.Count, Tipo = TipoNodo.Extremo, X = p.X, Y = p.Y };
             red.Nodos.Add(nuevo);
             return nuevo.Id;
@@ -227,7 +247,7 @@ namespace Civil3DBasico
 
         /// <summary>
         /// C.4 + C.5 + D.3 (T0): recorrido desde la entidad elegida (tubo → Recorrer; estructura → RecorrerDesdeNodo),
-        /// sentido de estaciones (gravedad: menor invert; resto: oeste/sur), Pasos, Ramales, Traza con EXT_EJE = max(25, PAD_MAX·s + 10),
+        /// sentido de estaciones (gravedad: menor invert; resto: oeste/sur), Pasos, Ramales, Traza sin prolongar (el eje = la tubería),
         /// DistN0, estaciones PRELIMINARES (EstNodo, EstP*, Z*) y EstMin/MaxPermitida. null + mensaje si queda sin tubos.
         /// </summary>
         /// <summary>Inicio/fin del perfil que mandó la app (`PDFCAD_PERFIL` INI/FIN). null = recorrido completo
@@ -261,6 +281,21 @@ namespace Civil3DBasico
             return pasos.GetRange(i0, i1 - i0 + 1);
         }
 
+        /// <summary>Con inicio A y fin B de la app: el camino más corto por la red del tramo de A al de B, como hace la app
+        /// (`perfil_recorrido.entre`). null sin límites o si no hay camino (entonces se recorta el recorrido automático).</summary>
+        private static List<PasoG> CaminoEntreLimites(RedPerfil red)
+        {
+            if (LimiteIni == null || LimiteFin == null) return null;
+            var tramos = red.Tramos.Select(t => (t.PIni.X, t.PIni.Y, t.PFin.X, t.PFin.Y, red.GAristas[t.Id].Valida)).ToList();
+            int eA = PerfilRecorridoEntre.MasCercana(tramos, LimiteIni.Value.X, LimiteIni.Value.Y, LIMITE_TOL_FT);
+            int eB = PerfilRecorridoEntre.MasCercana(tramos, LimiteFin.Value.X, LimiteFin.Value.Y, LIMITE_TOL_FT);
+            if (eA < 0 || eB < 0) { PerfilLog.Aviso("GRAFO", $"Inicio o fin de la app a más de {LIMITE_TOL_FT} ft de un tubo de la red: se usa el recorrido automático"); return null; }
+            var p = PerfilRecorridoEntre.Entre(red.GNodos, red.GAristas, eA, eB);
+            if (p.Count == 0) { PerfilLog.Aviso("GRAFO", "El inicio y el fin de la app no están unidos en la red de Civil 3D: se usa el recorrido automático"); return null; }
+            PerfilLog.Log("GRAFO", $"camino de A a B (como la app): {p.Count} tubo(s), del {red.Tramos[eA].PipeId.Handle} al {red.Tramos[eB].PipeId.Handle}");
+            return p;
+        }
+
         internal static Recorrido ArmarRecorrido(RedPerfil red, ObjectId entidadId, double s, out string mensaje)
         {
             mensaje = "";
@@ -275,7 +310,8 @@ namespace Civil3DBasico
                 pasos = PerfilRecorrido.RecorrerDesdeNodo(red.GNodos, red.GAristas, nd);
             }
             if (pasos == null || pasos.Count == 0) { mensaje = "✗ No se pudo formar un recorrido desde esa entidad."; return null; }
-            pasos = RecortarALimites(red, pasos);
+            var entreAB = CaminoEntreLimites(red);
+            pasos = entreAB ?? RecortarALimites(red, pasos);
             var rec = new Recorrido { Red = red };
             Func<PasoG, int> desde = p => p.Invertida ? red.GAristas[p.Arista].B : red.GAristas[p.Arista].A;
             Func<PasoG, int> hasta = p => p.Invertida ? red.GAristas[p.Arista].A : red.GAristas[p.Arista].B;
@@ -291,6 +327,29 @@ namespace Civil3DBasico
             {
                 var n0 = red.GNodos[desde(pasos[0])]; var nk = red.GNodos[hasta(pasos[pasos.Count - 1])];
                 invertir = PerfilRecorrido.DebeInvertirOesteSur(n0.X, n0.Y, nk.X, nk.Y);
+            }
+            // Perfil elegido en la app con inicio A y fin B (2026-11-06): las estaciones empiezan en A (LimiteIni),
+            // aunque la regla automática (solera más baja / oeste-sur) diga lo contrario.
+            if (LimiteIni != null && LimiteFin != null && pasos.Count > 0)
+            {
+                double DistA(TramoRed t)
+                {
+                    var p = LimiteIni.Value;
+                    double ax = t.PIni.X, ay = t.PIni.Y, dx = t.PFin.X - ax, dy = t.PFin.Y - ay, l2 = dx * dx + dy * dy;
+                    double u = l2 <= 1e-12 ? 0 : Math.Max(0, Math.Min(1, ((p.X - ax) * dx + (p.Y - ay) * dy) / l2));
+                    return Math.Sqrt(Math.Pow(ax + dx * u - p.X, 2) + Math.Pow(ay + dy * u - p.Y, 2));
+                }
+                if (pasos.Count > 1) invertir = DistA(tk) < DistA(t0);
+                else
+                {
+                    // A y B en el MISMO tubo: de A hacia B a lo largo del tubo (antes quedaba la regla oeste/sur y el
+                    // perfil podía salir al revés que en la app). A y B son los clics sobre el tubo, no sus puntas.
+                    var n0 = red.GNodos[desde(pasos[0])]; var nk = red.GNodos[hasta(pasos[0])];
+                    double ux = nk.X - n0.X, uy = nk.Y - n0.Y;
+                    double tA = (LimiteIni.Value.X - n0.X) * ux + (LimiteIni.Value.Y - n0.Y) * uy;
+                    double tB = (LimiteFin.Value.X - n0.X) * ux + (LimiteFin.Value.Y - n0.Y) * uy;
+                    invertir = tA > tB;
+                }
             }
             if (invertir)
             {
@@ -311,7 +370,10 @@ namespace Civil3DBasico
             // traza del eje (C.5)
             var nodosV = rec.Nodos.Select(i => new V2(red.GNodos[i].X, red.GNodos[i].Y)).ToList();
             var bulges = pasos.Select(p => (p.Invertida ? -1 : 1) * red.GAristas[p.Arista].Bulge).ToList();
-            double ext = Math.Max(25.0, PerfilDiseno.PAD_MAX * s + 10.0);
+            // el eje mide JUSTO lo que la tubería (pedido del usuario 2026-11-09): antes se prolongaba max(25, PAD_MAX·s + 10)
+            // ft a cada lado para dar margen a la vista (ELE-P1: eje de 505 ft para 325 ft de tubería, empezando en 0+10).
+            // La vista ya se limita al eje (EstMin/MaxPermitida): empieza en 1+00 y termina en el fin de la tubería.
+            const double ext = 0.0;
             var logTraza = new List<string>();
             try { rec.Traza = PerfilRecorrido.Traza(nodosV, bulges, ext, logTraza); }
             catch (InvalidOperationException ex) { mensaje = ex.Message; return null; }

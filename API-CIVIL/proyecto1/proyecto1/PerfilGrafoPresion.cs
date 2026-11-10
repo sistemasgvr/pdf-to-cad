@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
@@ -43,7 +44,7 @@ namespace Civil3DBasico
                 try { a = pp.StartPoint; b = pp.EndPoint; } catch { continue; }
                 x0 = Math.Min(x0, Math.Min(a.X, b.X)); y0 = Math.Min(y0, Math.Min(a.Y, b.Y));
                 x1 = Math.Max(x1, Math.Max(a.X, b.X)); y1 = Math.Max(y1, Math.Max(a.Y, b.Y));
-                if (Dist2D(a, b) < PerfilRecorrido.LARGO_MIN_TUBO)
+                if (EsVertical(a, b))
                 {
                     red.Verticales.Add(new VerticalConexion { X = a.X, Y = a.Y, ZMin = Math.Min(a.Z, b.Z), ZMax = Math.Max(a.Z, b.Z), Red = red.NombreRed, PipeId = pid });
                     continue;
@@ -70,6 +71,24 @@ namespace Civil3DBasico
             var cands = LeerAccesorios(tr, db, x0 - 10, y0 - 10, x1 + 10, y1 + 10, solidos, xdatas);
             PerfilLog.Log("PRESION", $"{red.Tramos.Count} tubos, {red.Verticales.Count} verticales, {cands.Count} accesorios candidatos");
 
+            NodoPerfil NodoAcc(int accId, int id)
+            {
+                var c = cands.First(k => k.Id == accId);
+                var d = xdatas.TryGetValue(accId, out var dd) ? dd : new Dictionary<string, string>();
+                var n = new NodoPerfil
+                {
+                    Id = id, Tipo = TipoNodo.Accesorio, X = c.X, Y = c.Y, ZEje = c.Z,
+                    SolidoId = solidos.TryGetValue(accId, out var sid) ? sid : ObjectId.Null,
+                    Accesorio = TipoAcc(PerfilTextos.Txt(d, "TIPO")), AnguloXData = PerfilTextos.Num(d, "ANGULO"),
+                    DiamPrincipalIn = PerfilTextos.Num(d, "DIAM_PRINCIPAL_IN"), DiamRamalIn = PerfilTextos.Num(d, "DIAM_RAMAL_IN"),
+                    MaterialXData = PerfilTextos.Txt(d, "MATERIAL"), RedXData = PerfilTextos.Txt(d, "RED"),
+                    LargoTotalFt = PerfilTextos.Num(d, "LARGO_TOTAL_FT"),
+                    UnionXData = PerfilTextos.Txt(d, "UNION"),
+                    EngranesXData = PerfilTextos.Txt(d, "BLOQUE").EndsWith("_GEAR", StringComparison.OrdinalIgnoreCase),
+                    CajaTopeZ = PerfilTextos.Num(d, "CAJA_TOPE_Z"), CajaDiamIn = PerfilTextos.Num(d, "CAJA_DIAM_IN"),
+                };
+                return n;
+            }
             // C.3-3: asignación de cada extremo a un accesorio en 3D
             var ext = new List<ExtremoP>();
             foreach (var t in red.Tramos)
@@ -101,19 +120,7 @@ namespace Civil3DBasico
             var nodoDeAcc = new Dictionary<int, int>();
             foreach (int accId in ext.Where(e => e.Acc >= 0).Select(e => e.Acc).Distinct().OrderBy(i => i))
             {
-                var c = cands.First(k => k.Id == accId);
-                var d = xdatas.TryGetValue(accId, out var dd) ? dd : new Dictionary<string, string>();
-                var n = new NodoPerfil
-                {
-                    Id = red.Nodos.Count, Tipo = TipoNodo.Accesorio, X = c.X, Y = c.Y, ZEje = c.Z,
-                    SolidoId = solidos.TryGetValue(accId, out var sid) ? sid : ObjectId.Null,
-                    Accesorio = TipoAcc(PerfilTextos.Txt(d, "TIPO")), AnguloXData = PerfilTextos.Num(d, "ANGULO"),
-                    DiamPrincipalIn = PerfilTextos.Num(d, "DIAM_PRINCIPAL_IN"), DiamRamalIn = PerfilTextos.Num(d, "DIAM_RAMAL_IN"),
-                    MaterialXData = PerfilTextos.Txt(d, "MATERIAL"), RedXData = PerfilTextos.Txt(d, "RED"),
-                    LargoTotalFt = PerfilTextos.Num(d, "LARGO_TOTAL_FT"),
-                    UnionXData = PerfilTextos.Txt(d, "UNION"),
-                    EngranesXData = PerfilTextos.Txt(d, "BLOQUE").EndsWith("_GEAR", StringComparison.OrdinalIgnoreCase),
-                };
+                var n = NodoAcc(accId, red.Nodos.Count);
                 red.Nodos.Add(n); nodoDeAcc[accId] = n.Id;
             }
             // C.3-4: extremos sin accesorio → uniones / extremos libres (≤ 0.5 ft en planta y |Δz| ≤ 0.5)

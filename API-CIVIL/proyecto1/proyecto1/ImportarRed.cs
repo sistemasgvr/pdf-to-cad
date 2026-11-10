@@ -4695,7 +4695,11 @@ namespace Civil3DBasico
                 // (opuesta a la tangente natural cuando el endpoint es el END).
                 if (loIsEndpoint) dirLower = DireccionAlejandoseDelCruce(pipeLower, cc.X, cc.Y);
                 if (hiIsEndpoint) dirUpper = DireccionAlejandoseDelCruce(pipeUpper, cc.X, cc.Y);
-                ed.WriteMessage($"\n[CROSS #{idx}]   Dir efectiva inferior=({dirLower.X:F2},{dirLower.Y:F2}), superior=({dirUpper.X:F2},{dirUpper.Y:F2}).");
+                // El brazo hacia cada utilidad sigue su PENDIENTE (como la Vista 3D de la app, 2026-11-08): antes se
+                // armaba a nivel y una utilidad empinada entraba torcida al codo.
+                dirLower = ConPendienteDelTubo(tr, civilDoc, cc.X, cc.Y, zLoCenter, dirLower);
+                dirUpper = ConPendienteDelTubo(tr, civilDoc, cc.X, cc.Y, zHiCenter, dirUpper);
+                ed.WriteMessage($"\n[CROSS #{idx}]   Dir efectiva inferior=({dirLower.X:F2},{dirLower.Y:F2},{dirLower.Z:F3}), superior=({dirUpper.X:F2},{dirUpper.Y:F2},{dirUpper.Z:F3}).");
 
                 PresStyles.PressurePartSize partLo = null, partHi = null;
                 CivilDB.PressurePartType tipoLo = CivilDB.PressurePartType.Tee;
@@ -5183,6 +5187,43 @@ namespace Civil3DBasico
             return (dx0 * dx0 + dy0 * dy0 <= tol2) || (dxN * dxN + dyN * dyN <= tol2);
         }
 
+        // La misma dirección en planta con la pendiente del tubo a presión de Civil 3D que pasa por (x, y, z) con ese
+        // rumbo (≤ 0.5 ft en planta, ≤ 1 ft en cota, ±10°). Sin tubo, la de antes (a nivel).
+        private static Vector3d ConPendienteDelTubo(Transaction tr, CivilDocument civilDoc, double x, double y, double z, Vector3d dir)
+        {
+            var d2 = new Vector2d(dir.X, dir.Y);
+            if (d2.Length < 1e-9) return dir;
+            d2 = d2.GetNormal();
+            double mejor = 0.5, pendiente = double.NaN;
+            try
+            {
+                foreach (ObjectId nid in civilDoc.GetPressurePipeNetworkIds())
+                {
+                    if (!(tr.GetObject(nid, OpenMode.ForRead) is CivilDB.PressurePipeNetwork red) || red.Name == "CROSS-CONNECTS") continue;
+                    foreach (ObjectId pid in red.GetPipeIds())
+                    {
+                        if (!(tr.GetObject(pid, OpenMode.ForRead) is CivilDB.PressurePipe pp)) continue;
+                        Point3d a = pp.StartPoint, b = pp.EndPoint;
+                        var ab = new Vector2d(b.X - a.X, b.Y - a.Y);
+                        double L = ab.Length;
+                        if (L < 1e-6) continue;
+                        var u = ab / L;
+                        double cos = u.DotProduct(d2);
+                        if (Math.Abs(cos) < Math.Cos(10.0 * Math.PI / 180.0)) continue;
+                        double t = Math.Max(0, Math.Min(1, ((x - a.X) * u.X + (y - a.Y) * u.Y) / L));
+                        double px = a.X + ab.X * t - x, py = a.Y + ab.Y * t - y, dp = Math.Sqrt(px * px + py * py);
+                        double zt = a.Z + (b.Z - a.Z) * t;
+                        if (dp > mejor || Math.Abs(zt - z) > 1.0) continue;
+                        mejor = dp;
+                        pendiente = (b.Z - a.Z) / L * Math.Sign(cos);      // subida por pie en planta, en el sentido de dir
+                    }
+                }
+            }
+            catch { return dir; }
+            if (double.IsNaN(pendiente)) return dir;
+            return new Vector3d(d2.X, d2.Y, pendiente).GetNormal();
+        }
+
         // Dirección "alejándose del cruce" en un endpoint: si el cruce coincide
         // con el START (Vertices[0]) devuelve la tangente hacia Vertices[1];
         // si coincide con el END (Vertices[N-1]) devuelve el vector hacia
@@ -5545,8 +5586,10 @@ namespace Civil3DBasico
                 double ramalIn = diamRamalIn > 0 ? diamRamalIn : troncoIn;
                 double troncoFt = troncoIn / 12.0, ramalFt = ramalIn / 12.0;
 
+                // el brazo de la utilidad con su pendiente (ConPendienteDelTubo); más de 45° no es una horizontal
                 Vector3d dh = new Vector3d(dirHoriz.X, dirHoriz.Y, 0);
                 if (dh.Length < 1e-9) dh = Vector3d.XAxis;
+                else if (Math.Abs(dirHoriz.Z) < dh.Length) dh = new Vector3d(dirHoriz.X, dirHoriz.Y, dirHoriz.Z);
                 dh = dh.GetNormal();
                 Vector3d dv = branchArriba ? Vector3d.ZAxis : Vector3d.ZAxis.Negate();
 

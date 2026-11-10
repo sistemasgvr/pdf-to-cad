@@ -231,9 +231,14 @@ namespace Civil3DBasico
                     d.Linetype = disc ? est.Linetype : "Continuous"; if (disc) d.LinetypeScale = est.LinetypeEscala;
                 });
             }
-            if (tipo == 0) { D(PipeDisplayStyleProfileType.OutsideWalls, true, 7, LineWeight.LineWeight050); D(PipeDisplayStyleProfileType.EndLine, true, 7, LineWeight.LineWeight025); D(PipeDisplayStyleProfileType.CrossingPipeOutsideWall, true, 7, LineWeight.LineWeight035); }
-            else if (tipo == 1) { D(PipeDisplayStyleProfileType.OutsideWalls, true, 7, LineWeight.LineWeight025, true); D(PipeDisplayStyleProfileType.EndLine, true, 7, LineWeight.LineWeight018); D(PipeDisplayStyleProfileType.CrossingPipeOutsideWall, true, 7, LineWeight.LineWeight025, true); }
-            else { D(PipeDisplayStyleProfileType.CrossingPipeOutsideWall, true, 7, LineWeight.LineWeight035); D(PipeDisplayStyleProfileType.OutsideWalls, true, 8, LineWeight.LineWeight025); D(PipeDisplayStyleProfileType.EndLine, true, 8, LineWeight.LineWeight018); }
+            // recorrido (0) y abandonado (1) SIN el componente de cruce (2026-11-09): Civil 3D toma por «cruce» los tubos
+            // muy cortos o casi alineados del recorrido (las curvas de 0.6 ft de un conducto) y les dibujaba una elipse
+            // larga encima, que parecía un buzón que no existe
+            if (tipo == 0) { D(PipeDisplayStyleProfileType.OutsideWalls, true, 7, LineWeight.LineWeight050); D(PipeDisplayStyleProfileType.EndLine, true, 7, LineWeight.LineWeight025); D(PipeDisplayStyleProfileType.CrossingPipeOutsideWall, false); }
+            else if (tipo == 1) { D(PipeDisplayStyleProfileType.OutsideWalls, true, 7, LineWeight.LineWeight025, true); D(PipeDisplayStyleProfileType.EndLine, true, 7, LineWeight.LineWeight018); D(PipeDisplayStyleProfileType.CrossingPipeOutsideWall, false); }
+            // cruce: SOLO su sección (la elipse). Con las paredes y los extremos visibles, un tubo que cruza en ángulo se
+            // proyectaba entero sobre el eje (pedido del usuario 2026-11-09: «no debería generarse todo el cuerpo, nunca»)
+            else { D(PipeDisplayStyleProfileType.CrossingPipeOutsideWall, true, 7, LineWeight.LineWeight035); D(PipeDisplayStyleProfileType.OutsideWalls, false); D(PipeDisplayStyleProfileType.EndLine, false); }
             foreach (var t in new[] { PipeDisplayStyleProfileType.Centerline, PipeDisplayStyleProfileType.InsideWalls, PipeDisplayStyleProfileType.Hatch,
                                       PipeDisplayStyleProfileType.CrossingPipeInsideWall, PipeDisplayStyleProfileType.CrossingPipeHatch,
                                       PipeDisplayStyleProfileType.HydraulicGradeLine, PipeDisplayStyleProfileType.EnergyGradeLine })
@@ -257,9 +262,12 @@ namespace Civil3DBasico
                     d.Linetype = disc ? est.Linetype : "Continuous"; if (disc) d.LinetypeScale = est.LinetypeEscala;
                 });
             }
-            if (tipo == 0) { D(PressurePipeDisplayStyleProfileType.OutsideWalls, true, 7, LineWeight.LineWeight050); D(PressurePipeDisplayStyleProfileType.EndLine, true, 7, LineWeight.LineWeight025); D(PressurePipeDisplayStyleProfileType.CrossingPipeOutsideWall, true, 7, LineWeight.LineWeight035); }
-            else if (tipo == 1) { D(PressurePipeDisplayStyleProfileType.OutsideWalls, true, 7, LineWeight.LineWeight025, true); D(PressurePipeDisplayStyleProfileType.EndLine, true, 7, LineWeight.LineWeight018); D(PressurePipeDisplayStyleProfileType.CrossingPipeOutsideWall, true, 7, LineWeight.LineWeight025, true); }
-            else { D(PressurePipeDisplayStyleProfileType.CrossingPipeOutsideWall, true, 7, LineWeight.LineWeight035); D(PressurePipeDisplayStyleProfileType.OutsideWalls, true, 8, LineWeight.LineWeight025); D(PressurePipeDisplayStyleProfileType.EndLine, true, 8, LineWeight.LineWeight018); }
+            // recorrido y abandonado sin el componente de cruce (ver TuboGrav): los trozos cortos entre válvulas salían
+            // con una elipse larga encima («Pressure Part Profile»)
+            if (tipo == 0) { D(PressurePipeDisplayStyleProfileType.OutsideWalls, true, 7, LineWeight.LineWeight050); D(PressurePipeDisplayStyleProfileType.EndLine, true, 7, LineWeight.LineWeight025); D(PressurePipeDisplayStyleProfileType.CrossingPipeOutsideWall, false); }
+            else if (tipo == 1) { D(PressurePipeDisplayStyleProfileType.OutsideWalls, true, 7, LineWeight.LineWeight025, true); D(PressurePipeDisplayStyleProfileType.EndLine, true, 7, LineWeight.LineWeight018); D(PressurePipeDisplayStyleProfileType.CrossingPipeOutsideWall, false); }
+            // cruce: SOLO su sección (ver TuboGrav)
+            else { D(PressurePipeDisplayStyleProfileType.CrossingPipeOutsideWall, true, 7, LineWeight.LineWeight035); D(PressurePipeDisplayStyleProfileType.OutsideWalls, false); D(PressurePipeDisplayStyleProfileType.EndLine, false); }
             foreach (var t in new[] { PressurePipeDisplayStyleProfileType.Centerline, PressurePipeDisplayStyleProfileType.InsideWalls, PressurePipeDisplayStyleProfileType.Hatch,
                                       PressurePipeDisplayStyleProfileType.CrossingPipeInsideWall, PressurePipeDisplayStyleProfileType.CrossingPipeHatch })
                 D(t, false);

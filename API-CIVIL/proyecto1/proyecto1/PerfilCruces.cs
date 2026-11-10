@@ -37,20 +37,32 @@ namespace Civil3DBasico
             var propios = new HashSet<ObjectId>(rec.Pasos.Select(p => p.Tramo.PipeId));
             var nodos = rec.Nodos.Select(i => rec.Red.Nodos[i]).ToList();
             double estPrimer = PerfilRecorrido.EST_INICIAL - rec.DistN0;
+            int nTubos = 0, nVert = 0, nNodo = 0, nSinCorte = 0, nAngulo = 0, nFuera = 0;   // diagnóstico (log)
             bool TocaNodo(Point3d p) { return nodos.Any(n => Math.Sqrt((n.X - p.X) * (n.X - p.X) + (n.Y - p.Y) * (n.Y - p.Y)) <= PerfilRecorrido.TOL_COINCIDE); }
 
             void Procesar(ObjectId pid, bool presion, bool gravedad, string red)
             {
                 if (propios.Contains(pid)) return;
+                nTubos++;
                 Curve cv; Point3d a, b;
-                try { cv = (Curve)tr.GetObject(pid, OpenMode.ForRead); a = cv.StartPoint; b = cv.EndPoint; } catch { return; }
+                // las puntas con la propiedad del TUBO (Pipe/PressurePipe): `Curve.StartPoint` de la clase base no da las
+                // puntas reales y todos los tubos parecían de < 1 ft («verticales»): 0 cruces en todo perfil (2026-11-08)
+                try
+                {
+                    cv = (Curve)tr.GetObject(pid, OpenMode.ForRead);
+                    if (cv is CivilDB.PressurePipe ppx) { a = ppx.StartPoint; b = ppx.EndPoint; }
+                    else if (cv is CivilDB.Pipe px) { a = px.StartPoint; b = px.EndPoint; }
+                    else { a = cv.StartPoint; b = cv.EndPoint; }
+                }
+                catch (Exception ex) { PerfilLog.Log("CRUCE", $"  {pid.Handle} ({red}) ilegible: {ex.Message}"); return; }
                 double d2 = Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
                 if (d2 < PerfilRecorrido.LARGO_MIN_TUBO)
                 {
                     if (presion) verts.Add(new VerticalConexion { X = a.X, Y = a.Y, ZMin = Math.Min(a.Z, b.Z), ZMax = Math.Max(a.Z, b.Z), Red = red, PipeId = pid });
+                    nVert++;
                     return;
                 }
-                if (TocaNodo(a) || TocaNodo(b)) return;
+                if (TocaNodo(a) || TocaNodo(b)) { nNodo++; return; }
                 var pts = new List<Point3d>();
                 bool curva = false;
                 try { curva = presion ? ((CivilDB.PressurePipe)cv).IsCurve : ((CivilDB.Pipe)cv).SubEntityType == CivilDB.PipeSubEntityType.Curved; } catch { }
@@ -58,16 +70,33 @@ namespace Civil3DBasico
                 {
                     try
                     {
-                        double p0 = cv.StartParam, p1 = cv.EndParam;
-                        for (int k = 0; k <= CUERDAS_CURVA; k++) pts.Add(cv.GetPointAtParameter(p0 + (p1 - p0) * k / CUERDAS_CURVA));
+                        // solo gravedad/conducto: el arco en planta del tubo (Curve2d) y la cota lineal; presión = cuerda
+                        if (!presion)
+                        {
+                            var arc = ((CivilDB.Pipe)cv).Curve2d;
+                            var iv = arc.GetInterval();
+                            for (int k = 0; k <= CUERDAS_CURVA; k++)
+                            {
+                                double f = (double)k / CUERDAS_CURVA;
+                                Point2d q = arc.EvaluatePoint(iv.LowerBound + (iv.UpperBound - iv.LowerBound) * f);
+                                pts.Add(new Point3d(q.X, q.Y, a.Z + (b.Z - a.Z) * f));
+                            }
+                            // el arco debe ir de A a B (si no, se usa la cuerda)
+                            if (pts.Count > 1 && (new Point2d(pts[0].X, pts[0].Y).GetDistanceTo(new Point2d(a.X, a.Y)) > PerfilRecorrido.TOL_COINCIDE
+                                                  || new Point2d(pts[pts.Count - 1].X, pts[pts.Count - 1].Y).GetDistanceTo(new Point2d(b.X, b.Y)) > PerfilRecorrido.TOL_COINCIDE))
+                                pts.Clear();
+                        }
                     }
                     catch { pts.Clear(); }
                 }
                 if (pts.Count < 2) { pts.Add(a); pts.Add(b); }
+                bool corta = false, angulo = false;
                 for (int k = 0; k + 1 < pts.Count; k++)
                 {
-                    var cortes = PerfilRecorrido.CortarTraza(rec.Traza, estPrimer, new V2(pts[k].X, pts[k].Y), new V2(pts[k + 1].X, pts[k + 1].Y))
-                        .Where(c => c.AnguloDeg >= ANGULO_MIN_DEG && c.Estacion >= rec.EstIni + 0.5 && c.Estacion <= rec.EstFin - 0.5).ToList();
+                    var todos = PerfilRecorrido.CortarTraza(rec.Traza, estPrimer, new V2(pts[k].X, pts[k].Y), new V2(pts[k + 1].X, pts[k + 1].Y));
+                    corta |= todos.Count > 0;
+                    angulo |= todos.Any(c => c.AnguloDeg >= ANGULO_MIN_DEG);
+                    var cortes = todos.Where(c => c.AnguloDeg >= ANGULO_MIN_DEG && c.Estacion >= rec.EstIni + 0.5 && c.Estacion <= rec.EstFin - 0.5).ToList();
                     if (cortes.Count == 0) continue;
                     var ct = cortes[0];
                     double z = pts[k].Z + (pts[k + 1].Z - pts[k].Z) * ct.T;
@@ -78,6 +107,13 @@ namespace Civil3DBasico
                     c.ClaroFt = c.Encima ? (c.ZEje - c.AltoExtFt / 2.0) - (zr + ar / 2.0) : (zr - ar / 2.0) - (c.ZEje + c.AltoExtFt / 2.0);
                     r.Add(c);
                     return;                                                   // un solo corte por tubo
+                }
+                if (!corta) nSinCorte++;
+                else if (!angulo) nAngulo++;
+                else
+                {
+                    nFuera++;
+                    PerfilLog.Log("CRUCE", $"  {pid.Handle} ({red}) corta el eje fuera de [{rec.EstIni:0.##}, {rec.EstFin:0.##}]");
                 }
             }
 
@@ -96,7 +132,9 @@ namespace Civil3DBasico
                             try { if (!PerfilGrafoCivil.EsEstructuraNula((CivilDB.Structure)tr.GetObject(sid, OpenMode.ForRead))) { conduit = false; break; } } catch { }
                     }
                     catch { }
-                    try { foreach (ObjectId pid in net.GetPipeIds()) Procesar(pid, false, !conduit, nombre); } catch { }
+                    foreach (ObjectId pid in net.GetPipeIds())
+                        try { Procesar(pid, false, !conduit, nombre); }
+                        catch (Exception ex) { PerfilLog.Error("CRUCE", $"tubo {pid.Handle} ({nombre})", ex); }
                 }
             }
             catch (Exception ex) { PerfilLog.Error("CRUCE", "redes de gravedad", ex); }
@@ -107,12 +145,17 @@ namespace Civil3DBasico
                     CivilDB.PressurePipeNetwork net;
                     try { net = (CivilDB.PressurePipeNetwork)tr.GetObject(nid, OpenMode.ForRead); } catch { continue; }
                     string nombre = ""; try { nombre = net.Name; } catch { }
-                    try { foreach (ObjectId pid in net.GetPipeIds()) Procesar(pid, true, false, nombre); } catch { }
+                    foreach (ObjectId pid in net.GetPipeIds())
+                        try { Procesar(pid, true, false, nombre); }
+                        catch (Exception ex) { PerfilLog.Error("CRUCE", $"tubo {pid.Handle} ({nombre})", ex); }
                 }
             }
             catch (Exception ex) { PerfilLog.Error("CRUCE", "redes de presión", ex); }
             r.Sort((x, y) => x.Estacion.CompareTo(y.Estacion));
             PerfilLog.Log("CRUCE", $"{r.Count} cruces, {verticales.Count} conexiones verticales de presión");
+            PerfilLog.Log("CRUCE", $"  revisados {nTubos} tubos de otras redes/tramos: {nVert} verticales, {nNodo} tocan un nodo del recorrido, " +
+                                   $"{nSinCorte} no cortan el eje, {nAngulo} lo cortan a < {ANGULO_MIN_DEG}°, {nFuera} fuera del tramo; " +
+                                   $"eje {rec.Traza.Count} vértices, est {rec.EstIni:0.##}–{rec.EstFin:0.##}, DistN0 {rec.DistN0:0.##}");
             return r;
         }
 
@@ -150,11 +193,17 @@ namespace Civil3DBasico
             catch (Exception ex) { PerfilLog.Log("CRUCE", "dimensiones de " + c.PipeId.Handle + ": " + ex.Message); }
         }
 
-        /// <summary>F.11: asigna Grupo y EtiquetaDelGrupo (representante = primero del grupo por estación). Devuelve el número de grupos.</summary>
+        /// <summary>
+        /// F.11: asigna Grupo y EtiquetaDelGrupo. Desde 2026-11-09 (pedido del usuario: «sigue sin agregarse una etiqueta»
+        /// para el 2.º conducto de TELECOM-23, a 1 ft del 1.º) cada cruce es su propio grupo y lleva SU etiqueta, como en
+        /// la app; antes `PerfilDiseno.AgruparCruces` juntaba los de la misma red a ≤ max(2, 0.3·S) ft en un «(2) …
+        /// CONDUITS» con el leader solo al primero. Devuelve el número de grupos.
+        /// </summary>
         internal static int Agrupar(List<Cruce> cruces, double s)
         {
             if (cruces == null || cruces.Count == 0) return 0;
-            var grupos = PerfilDiseno.AgruparCruces(cruces.Select(c => c.Estacion).ToList(), cruces.Select(c => c.Red).ToList(), s);
+            var grupos = Enumerable.Range(0, cruces.Count).OrderBy(i => cruces[i].Estacion).ThenBy(i => i)
+                                   .Select(i => new List<int> { i }).ToList();
             for (int g = 0; g < grupos.Count; g++)
             {
                 var orden = grupos[g].OrderBy(i => cruces[i].Estacion).ToList();

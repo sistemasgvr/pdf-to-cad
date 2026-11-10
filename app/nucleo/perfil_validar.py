@@ -5,13 +5,13 @@ Junta, sobre las estaciones del recorrido, lo que conviene ver en el perfil:
   recorrido, llevados a su estación (pendiente, separación, diámetro, buzones…); la «separación» se pega al cruce
   más cercano;
 - el RECUBRIMIENTO en cada nodo con tapa: tapa − corona < el mínimo de su utilidad (`model.COVER_MIN_FT`);
-- en gravedad, la CONTRAPENDIENTE (un tramo que baja en el sentido de las estaciones: las estaciones empiezan en la
-  solera más baja, así que el agua corre hacia el inicio) y la pendiente nula.
+- en gravedad, la CONTRAPENDIENTE (un tramo que SUBE hacia donde va el fluido: el sentido de cada paso lo da
+  `perfil_datos.Paso.flujo` —el que indicó el usuario en la utilidad o, automático, hacia el extremo más bajo del
+  recorrido—, así que no depende de dónde se puso A) y la pendiente nula (2026-11-09).
 Solo avisa: nada se mueve.
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 from traduccion.i18n_core import t
@@ -36,14 +36,12 @@ def _sobre(pasos, x, y, tol_px):
     """(paso, estación) del punto (x, y) proyectado sobre el recorrido, o None si queda lejos."""
     mejor = None
     for i, p in enumerate(pasos):
-        dx, dy = p.p1[0] - p.p0[0], p.p1[1] - p.p0[1]
-        L2 = dx * dx + dy * dy
-        if L2 <= 1e-12:
+        r = p.proyectar(x, y)                         # sobre el paso tal como se dibuja (con sus curvas)
+        if r is None:
             continue
-        u = max(0.0, min(1.0, ((x - p.p0[0]) * dx + (y - p.p0[1]) * dy) / L2))
-        d = math.hypot(p.p0[0] + dx * u - x, p.p0[1] + dy * u - y)
+        d, e = r
         if d <= tol_px and (mejor is None or d < mejor[0]):
-            mejor = (d, i, p.e0 + (p.e1 - p.e0) * u)
+            mejor = (d, i, e)
     return None if mejor is None else (mejor[1], mejor[2])
 
 
@@ -92,15 +90,18 @@ def validar(perfil, avisos, cover_min_ft, tol_px):
                                   t("Recubrimiento {c} ft, menor que el mínimo de {m} ft").format(
                                       c=f"{cov:.2f}", m=f"{cover_min_ft:g}"),
                                   "ERROR" if cov < 0 else "AVISO", nodo=k))
-    # gravedad: contrapendiente / pendiente nula
+    # gravedad: contrapendiente (el tramo SUBE hacia donde va el fluido) / pendiente nula
     if perfil.tipo == "gravity":
         for i, p in enumerate(perfil.pasos):
             s = p.pendiente
-            if s < -PENDIENTE_CERO:
-                out.append(Alerta((p.e0 + p.e1) / 2, "contrapendiente",
-                                  t("Contrapendiente {p}: este tramo baja en el sentido del perfil y el agua no corre "
-                                    "hacia el inicio").format(p=f"{s * 100:.2f} %"), "ERROR", paso=i))
+            hacia = getattr(p, "flujo", 0) or -1          # sin dato: hacia A (la regla de siempre)
+            if s * hacia > PENDIENTE_CERO:
+                msg = t("Contrapendiente {p}: el tramo sube hacia donde va el fluido ({x}).").format(
+                    p=f"{abs(s) * 100:.2f} %", x="A" if hacia < 0 else "B")
+                if not getattr(p, "flujo_fijo", False):
+                    msg += " " + t("Si el fluido va al revés, haz clic en la flecha del tramo.")
+                out.append(Alerta((p.e0 + p.e1) / 2, "contrapendiente", msg, "ERROR", paso=i))
             elif abs(s) <= PENDIENTE_CERO:
-                out.append(Alerta((p.e0 + p.e1) / 2, "pendiente", t("Pendiente nula: el agua no corre"), paso=i))
+                out.append(Alerta((p.e0 + p.e1) / 2, "pendiente", t("Pendiente nula: el fluido no corre"), paso=i))
     out.sort(key=lambda a: a.e)
     return out

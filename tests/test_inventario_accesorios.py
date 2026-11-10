@@ -48,7 +48,7 @@ def test_lista_filtro_y_seleccion(win):
     assert '8" × 6"' in textos[1] and "#1 #2" in textos[1]
     win._do_insert_valvula(250, 302)
     textos = _visibles(win)
-    assert len(textos) == 3 and textos[2].startswith('Válvula 8"')
+    assert len(textos) == 3 and textos[2].startswith('Válvula de compuerta 8"')
     chips = {clave: b for b, clave, _t in win._chips_acc}
     assert chips["valvula"].text() == "Válvulas (1)" and chips[""].text() == "Todos (3)"
     chips["tee"].click()

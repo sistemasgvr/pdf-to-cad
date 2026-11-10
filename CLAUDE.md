@@ -2455,8 +2455,17 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     Vista 3D y al perfil solo las `valvulas.exportable` (caben y no «por confirmar»): un único `PDFCAD_VALVULA` con las
     claves de antes + TIPO, UTILIDAD, ESTADO, ORIGEN (el `dxf_valvulas.py` y `capa_valvulas.py` de Santos se quitaron).
     Capa «VALVULAS» de «Capas ▾» (`valvulas.CAPA`, `_sync_capa_valvulas`), Tabla de datos (`_filas_valvulas`), menú con
-    Tipo/Unión/Material/Confirmar/Quitar. `valvulas.nueva(x, y, …)` = la de Santos con todos los campos; `de_lugar(lug)` =
-    la del usuario. Pendiente: la FORMA de cada tipo (hoy todas son compuerta) en `valvula_receta`, `valvulas3d` y el plugin.
+    Unión/Material/Confirmar/Quitar. `valvulas.nueva(x, y, …)` = la de Santos con todos los campos; `de_lugar(lug)` =
+    la del usuario. UNA SOLA VÁLVULA (2026-11-08, decisión del usuario: «un solo tipo
+    de válvula genérica»): todas se dibujan, miden y exportan como la de COMPUERTA (`valvula_receta` / `ValvulaReceta.cs`);
+    las 6 formas del 2026-11-06 (`valvula_formas.py`, `ValvulaFormas.cs`, pieza `esfera`, rótulos BUTTERFLY/CHECK…) se
+    quitaron. `v["tipo"]` (el que lee el reconocimiento del texto del plano) queda SOLO como dato: globo/lista
+    (`ventana_valvulas.nombre_tipo`), ficha 3D («Tipo en el plano», `valv_tipo`), DXF `TIPO=` y en Civil 3D el XDATA
+    `TIPO_PLANO=` del sólido; no hay menú para elegirlo. Sin probar dentro de Civil 3D.
+    CAJA de la válvula (valve box, 2026-11-06): `valvulas.caja(z_eje, d, capa)` = de la corona a la cota
+    `CAJA_TOPE_Z`=0 (aún sin terreno; None si la corona ya está encima), Ø `CAJA_DIAM_IN`=5.25; `perfil_datos.Valvula.z_caja`, `valvulas3d`
+    (gris, `COLOR_CAJA`), DXF `CAJA_TOPE_Z`/`CAJA_DIAM_IN`; plugin: cilindro en `V-PRES-VALV-CAJA` y, en el perfil,
+    `PerfilValvulasVista` (fase T5v: moño + vástago + caja como polilíneas con `FindXY`).
     **Válvulas en agua y gas** (2026-11-04): `nucleo/valvulas.py` (PURO; catálogo = `ValvulaLogica.cs` del plugin de
     válvulas del equipo, 3"–54", RG ≤16", ≥18" FLG_GEAR) + `ui/ventana/ventana_valvulas.ValvulasMixin` (modo `insert_valv`,
     Dibujar → «Válvula», pista verde, clic derecho unión/material/quitar) + `ui/comun/valvula_item.py` (moño real + mínimo
@@ -2551,8 +2560,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     de codo 90° + 0.05 → `inclinada`: ramal hacia el vértice siguiente de la que termina y su punta sube/baja a la Wye
     (`_utilidad(ajustes=)`). Piezas registradas como «accesorio» (`vertical=True`) con ficha. Desde 2026-10-16 el
     brazo hacia la utilidad sigue su PENDIENTE (`_Dibujo.brazo_3d` con `z_eje`; recorte `corte_brazo` en planta):
-    una utilidad que sube 17° desde el cruce entraba torcida a un codo armado a nivel. OJO: el plugin
-    (`ColocarFittingYOrientar` con `DireccionAlejandoseDelCruce`, z = 0) aún lo arma a nivel. Sin «Accesorios» a la
+    una utilidad que sube 17° desde el cruce entraba torcida a un codo armado a nivel. El plugin también
+    (`ImportarRed.ConPendienteDelTubo`: pendiente del tubo de Civil 3D en el cruce, solo en el modo sólido). Sin «Accesorios» a la
     vista: solo la vertical. Test: `test_conexiones_verticales_con_codos_tee_y_wye_como_el_plugin`. Largos y diámetros 3D = DXF (verificado: diferencia 0); «sin tipo» no se marca (como
     en el plano). Ids: utilidad i+1, estructura `ID_ESTRUCTURA`+j+1, accesorio, aviso (`objeto_de`). Suelo
     automático = tapa más alta o 3 ft sobre el tope de la tubería más alta. `nucleo/mallas3d.py`: primitivas
@@ -2647,7 +2656,8 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (`API-CIVIL/proyecto1/docs/PERFIL_DISENO.md`). PUROS: `nucleo/perfil_recorrido.py` (grafo de la RED = `red_de` +
     tipo; nodos = vértices juntados a ≤`TOL_FT`=0.5 ft y la punta de otra utilidad sobre un tramo lo PARTE (T);
     continuación C.4: menor deflexión ≤45° y sin empate <10°; `recorrer` ida y vuelta, `entre` = Dijkstra,
-    `extender`/`acortar`, `desde(pipes, i, x, y, ft)`; estaciones desde 1+00: gravedad desde la solera más baja
+    `extender`/`acortar`, `desde(pipes, i, x, y, ft)`; estaciones desde 0+00 (`ESTACION_INICIAL_FT` = `EST_INICIAL` del plugin = 0 desde
+    2026-11-09: la estación real del eje; antes 1+00; la vista no muestra estaciones antes del inicio): gravedad desde la solera más baja
     —`marcar_soleras` antes—, si no al OESTE o al SUR si |ΔX|<0.3|ΔY|; la Y del lienzo va hacia ABAJO),
     `nucleo/perfil_textos.py` (= `PerfilTextos.cs`: estación, cota, ángulo estándar ±1°, material DI/RCP/…, callouts
     H.3, fila H.4, cruces H.5, título H.7; grado «°») y `nucleo/perfil_datos.py` (`armar` → `Perfil`: pasos con
@@ -2683,7 +2693,39 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `PerfilGrafoCivil.LimiteIni/LimiteFin` (los pone `CrearAutomatico`) → `RecortarALimites` deja solo los pasos
     entre los tramos más cercanos (≤2 ft); si alguno no cae en el recorrido automático del plugin, sale completo
     (log).
-    **Ramales (mismo día)**: `perfil_recorrido.ramales(rec, k)` (aristas del nodo fuera del recorrido) y
+    **Inicio A y fin B** (2026-11-06, reemplaza a «Limitar hasta…»): `ventana_perfil_ab.PerfilABMixin` — franja guía
+    `lbl_perfil_guia` (`_perfil_paso` a|b|mover_a|mover_b; Enter/Esc en `_on_enter/_on_escape` → `_perfil_ab_tecla`), fichas
+    `btn_perfil_ab` «A 0+00»/«B …», ⇄ `perfil_invertir` (`perfil_recorrido.invertir`), ↺; banderas A/B en el plano
+    (`_perfil_banderas`) y en el perfil (`VistaPerfil._marcas_ab`). `_perfil_poner(a=)` orienta las estaciones desde A
+    (`_perfil_orientar`); el plugin también (`PerfilGrafoCivil.ArmarRecorrido`: con LimiteIni/Fin empieza en LimiteIni).
+    «Nuevo perfil» (`perfil_nuevo`) y «Limpiar» (`perfil_limpiar`) en el menú ⋯ (Extender/Acortar se quitaron del menú
+    el 2026-11-09; `perfil_extender/acortar` siguen); botón «Nuevo perfil» en la cabecera. Pista con imán al elegir A/B:
+    `_perfil_pista` (desde `_perfil_raton`; roja = otra red). Con un paso A/B activo, `on_click` manda el clic DIRECTO a
+    `_perfil_clic_directo` (punto de `_perfil_snap`), antes que accesorios y `_pick`: si no, un clic en un buzón elegía
+    el buzón y A/B quedaba pendiente hasta otro redibujo. SENTIDO DEL FLUJO (gravedad y presión, NO conductos —eléctrico,
+    telecom—; 2026-11-09): `pipe["flujo"]` 1/-1/sin clave (`nucleo/flujo.py`: `REDES`, `aplica`; `unir_utilidades.
+    invertir` lo invierte); `perfil_datos.Paso.flujo` (1 = hacia B, 0 = sin indicar) y `flujo_fijo` (automático: en
+    gravedad hacia el extremo más bajo del recorrido, `_z_punta`; a presión 0 = sin indicar, doble flecha); `perfil_validar`
+    juzga la contrapendiente (solo gravedad) con él. UI: `ui/comun/perfil_vista_flujo` (flecha redonda por tramo, clic =
+    invertir —sin indicar → hacia B—, clic derecho = submenú; señal `flujoCambiado(paso, hacia, todo)`) y
+    `ui/ventana/ventana_flujo.FlujoMixin` (fila «Flujo» en Cotas del inspector, solo si `FL.aplica`, flechas giradas como
+    la utilidad en el plano, globo de «Auto» según la red; `poner_flujo`, `perfil_flujo`: un `_push`; flechas en el plano
+    de la utilidad elegida con sentido indicado). No va al DXF todavía.
+    CURVAS (2026-11-10, el resalte iba por la esquina): `nucleo/perfil_trazo.py` (PURO) da a cada `Paso` su `traza`
+    en planta (recto + medio arco de cada curva CV, `limpieza_tramos.curvas` = editor/3D/plugin), `s` (parámetro
+    sobre la cuerda) y `acum` (largo exacto, arcos con r·Δ): estaciones por el arco (= eje de Civil 3D), nodo de la
+    curva en el punto medio del arco; `Paso.puntos`/`e_en(t)`/`punto_en(e)`/`proyectar(x, y)` los usan el resalte,
+    el ratón plano↔perfil, banderas A/B, cruces, válvulas y `perfil_validar`. Sin curvas: la cuerda (lo de antes).
+    TAMAÑO FIJO (2026-11-06): sin Auto/Básico/Completo; `VistaPerfil` a su escala (`PX_POR_PULGADA`/s × zoom,
+    VE fija) dentro de `AreaPerfil` (QScrollArea; `_ajustar_tam` = mínimo natural), Ctrl+rueda = zoom.
+    Partido 2026-11-08 (deuda técnica): `perfil_vista` + `_base` (constantes) + `_dibujo` + `_raton`; `ventana_perfil` +
+    `_ramales`, `_guardados`, `_plano`, `_estado` (métodos tal cual). Escala = `VistaPerfil._ppp()` (ppp lógicos de la
+    pantalla). Banderas A/B arrastrables (`Canvas` → `_perfil_agarra_bandera`/`_perfil_soltar_bandera`, `AGARRE_PX`).
+    Espejo app ↔ plugin del recorrido: `tests/test_perfil_espejo.py`. Plugin (2026-11-08): con A/B, `PerfilRecorridoEntre.Entre`
+    (= `perfil_recorrido.entre`) en vez de recortar el automático; T5 termina con `PerfilDisenoDespeje` (rótulos medidos);
+    moño/caja de válvula con XDATA `PDFCAD_PERFIL_VALV` → `PerfilValvulasSeguir` los recoloca al terminar un comando que
+    cambió su ProfileView; `PerfilLog` siempre agrega (tope `MAX_BYTES`). SUELO: `nucleo/terreno.py` (`Terreno.cota(x, y)`,
+    hoy `TerrenoPlano(0)`; `cota_en`, `usar`): la caja de la válvula llega a él (`valvulas.caja(…, x, y)`). **Ramales (mismo día)**: `perfil_recorrido.ramales(rec, k)` (aristas del nodo fuera del recorrido) y
     `ramal(g, n, e)` (desde la T, alejándose de la principal). Vista: `con_ramal` (nodos cuyo rótulo es ENLACE, color
     `accent`), `_zonas` (rect del rótulo por nodo, en `_callouts`/`_etiquetas`), `ramal_en(pos)` → `ramalPedido`.
     Panel: `perfil_ramal(k, indice=None)` (varios = menú) apila (anclas, nombre, título, punto de la T) en

@@ -123,10 +123,9 @@ class ListaAccesoriosMixin:
             from ui.ventana.ventana_valvulas import globo_valvula
             for k, (v, lug) in enumerate(zip(vs, self._lugares_valvulas())):
                 from ui.ventana.ventana_valvulas import nombre_tipo
-                tipo = "" if not v.get("tipo") or v.get("tipo") == "Válvula" else " " + nombre_tipo(v["tipo"]).lower()
                 if lug.ok:
                     capa = pipes[lug.pipe].get("layer") or ""
-                    partes = [_tr("Válvula") + tipo + f' {lug.diam_in:g}" {lug.union}', self._tipo(capa),
+                    partes = [nombre_tipo(v.get("tipo")) + f' {lug.diam_in:g}" {lug.union}', self._tipo(capa),
                               f"#{lug.pipe + 1}"]
                     if v.get("certeza") == "por_confirmar":
                         partes.append(_tr("por confirmar"))

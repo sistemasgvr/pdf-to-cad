@@ -215,6 +215,43 @@ namespace Civil3DBasico
             catch { return false; }
         }
 
+        /// <summary>Caja del TEXTO de la etiqueta (sin guía ni flecha): la explota en memoria y une los MText/DBText.
+        /// false si no se pudo o no tiene texto.</summary>
+        internal static bool MedirTexto(Transaction tr, ObjectId etiquetaId, out Extents3d ext)
+        {
+            ext = new Extents3d();
+            bool hay = false;
+            try
+            {
+                var ent = (Entity)tr.GetObject(etiquetaId, OpenMode.ForRead);
+                var partes = new DBObjectCollection();
+                ent.Explode(partes);
+                var pila = new Stack<DBObject>(partes.Cast<DBObject>());
+                while (pila.Count > 0)
+                {
+                    var o = pila.Pop();
+                    try
+                    {
+                        if (o is MText || o is DBText)
+                        {
+                            var e = ((Entity)o).GeometricExtents;
+                            if (hay) ext.AddExtents(e); else { ext = e; hay = true; }
+                        }
+                        else if (o is BlockReference || o is Table)
+                        {
+                            var sub = new DBObjectCollection();
+                            ((Entity)o).Explode(sub);
+                            foreach (DBObject x in sub) pila.Push(x);
+                        }
+                    }
+                    catch { }
+                    finally { o.Dispose(); }
+                }
+            }
+            catch { return false; }
+            return hay && ext.MaxPoint.X - ext.MinPoint.X > 1e-6 && ext.MaxPoint.Y - ext.MinPoint.Y > 1e-6;
+        }
+
         /// <summary>F.10: problema de unidades/escala ⇔ dispersion &lt; 0.15 y |r − 1| &gt; 0.05.</summary>
         internal static bool ProblemaUnidades(double r, double dispersion) { return dispersion < 0.15 && Math.Abs(r - 1.0) > 0.05; }
 
@@ -302,23 +339,49 @@ namespace Civil3DBasico
             return fuera;
         }
 
+        /// <summary>Cajas MEDIDAS (in, en el marco) de los rótulos de la hoja, con su etiqueta. G.12.</summary>
+        private static List<(Caja caja, ObjectId lbl)> CajasMedidas(Transaction tr, ContextoPerfil ctx, HojaPerfil h)
+        {
+            var r = new List<(Caja, ObjectId)>();
+            var pv = (CivilDB.ProfileView)tr.GetObject(h.PvId, OpenMode.ForRead);
+            double s = ctx.S, ve = s / ctx.V;
+            PerfilVista.FindXY(pv, ve, h.Final.StationStart, h.Final.ElevationMin, out double ox, out double oy);
+            foreach (var d in Destinos(ctx, h))
+            {
+                // solo el TEXTO: la guía va hasta su estación y no se mueve con él (con ella el despeje no avanzaba)
+                if (!MedirTexto(tr, d.lbl, out Extents3d ext) && !MedirEtiqueta(tr, d.lbl, out ext)) continue;
+                var k = new Caja { Id = d.id, X0 = (ext.MinPoint.X - ox) / s, Y0 = (ext.MinPoint.Y - oy) / s, X1 = (ext.MaxPoint.X - ox) / s, Y1 = (ext.MaxPoint.Y - oy) / s };
+                if (d.franja != 0) { k.Y0 = d.franja == -1 ? k.Y0 : Math.Max(k.Y0, d.y0); k.Y1 = d.franja == -1 ? Math.Min(k.Y1, d.y0 + d.h) : k.Y1; }
+                r.Add((k, d.lbl));
+            }
+            return r;
+        }
+
+        /// <summary>T5d (2026-11-08): con las cajas MEDIDAS, separa los rótulos encimados y mete en el marco los que salen
+        /// (`PerfilDisenoDespeje`). Antes solo lo avisaba la verificación. Devuelve cuántos movió.</summary>
+        internal static int Despejar(Transaction tr, ContextoPerfil ctx, HojaPerfil h)
+        {
+            if (h.PvId.IsNull || h.Final == null) return 0;
+            var med = CajasMedidas(tr, ctx, h);
+            var mov = PerfilDisenoDespeje.Despejar(med.Select(m => m.caja).ToList(), h.Final.AnchoMarco, h.Final.AltoMarco);
+            int n = 0;
+            foreach (var m in med)
+                if (mov.TryGetValue(m.caja.Id, out var d))
+                {
+                    Mover(tr, m.lbl, new Vector3d(d.dx * ctx.S, d.dy * ctx.S, 0));
+                    PerfilLog.Log("DESPEJE", $"hoja {h.Indice + 1}: {m.caja.Id} d=({d.dx:0.###},{d.dy:0.###}) in");
+                    n++;
+                }
+            return n;
+        }
+
         /// <summary>G.12 (T6, lectura): solapes, fuera de marco, cruces de leaders y cortes con cajas MEDIDAS → log y avisos. Devuelve el nº de problemas.</summary>
         internal static int Verificar(Transaction tr, ContextoPerfil ctx)
         {
             int total = 0;
             foreach (var h in ctx.Hojas.Where(k => !k.PvId.IsNull && k.Final != null))
             {
-                var pv = (CivilDB.ProfileView)tr.GetObject(h.PvId, OpenMode.ForRead);
-                double s = ctx.S, ve = s / ctx.V;
-                PerfilVista.FindXY(pv, ve, h.Final.StationStart, h.Final.ElevationMin, out double ox, out double oy);
-                var cajas = new List<Caja>(); var leaders = new List<Leader>();
-                foreach (var d in Destinos(ctx, h))
-                {
-                    if (!MedirEtiqueta(tr, d.lbl, out Extents3d ext)) continue;
-                    var k = new Caja { Id = d.id, X0 = (ext.MinPoint.X - ox) / s, Y0 = (ext.MinPoint.Y - oy) / s, X1 = (ext.MaxPoint.X - ox) / s, Y1 = (ext.MaxPoint.Y - oy) / s };
-                    if (d.franja != 0) { k.Y0 = d.franja == -1 ? k.Y0 : Math.Max(k.Y0, d.y0); k.Y1 = d.franja == -1 ? Math.Min(k.Y1, d.y0 + d.h) : k.Y1; }
-                    cajas.Add(k);
-                }
+                var cajas = CajasMedidas(tr, ctx, h).Select(m => m.caja).ToList();
                 var sol = PerfilDiseno.Solapes(cajas);
                 var fue = PerfilDiseno.FueraDeMarco(cajas, h.Final.AnchoMarco, h.Final.AltoMarco);
                 foreach (string x in sol) PerfilLog.Log("VERIFICACION", $"hoja {h.Indice + 1}: solape {x}");

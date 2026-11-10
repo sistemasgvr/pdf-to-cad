@@ -25,7 +25,8 @@ from nucleo.model import network_kind
 TOL_FT = 0.5
 DEFLEXION_MAX_DEG = 45.0
 EMPATE_DEG = 10.0
-ESTACION_INICIAL_FT = 100.0          # «1+00»
+ESTACION_INICIAL_FT = 0.0            # «0+00»: la estación real del inicio del eje (= EST_INICIAL del plugin; antes 1+00)
+OESTE_SUR_RAZON = 0.3                # |ΔX| < esto·|ΔY| = recorrido «vertical»: empieza al sur (si no, al oeste)
 
 
 @dataclass
@@ -303,7 +304,7 @@ def _al_reves(g, nodos, aristas):
         if za is not None and zb is not None and abs(za - zb) > 1e-6:
             return zb < za
     dx, dy = b[0] - a[0], b[1] - a[1]
-    if abs(dx) < 0.3 * abs(dy):
+    if abs(dx) < OESTE_SUR_RAZON * abs(dy):
         return dy > 0                                 # empieza en el SUR (Y del lienzo mayor)
     return dx < 0                                     # empieza en el OESTE (X menor)
 
@@ -419,6 +420,16 @@ def rehacer(rec):
     nodos = list(rec.nodos)
     aristas = [p.arista for p in rec.pasos]
     return _orientar(rec.grafo, nodos, aristas, rec.ambiguo_ini, rec.ambiguo_fin)
+
+
+def invertir(rec):
+    """El mismo recorrido en el otro sentido (las estaciones empiezan en la otra punta). Sin reorientar: lo pide
+    el usuario («⇄», o al elegir A y B en el plano)."""
+    g = rec.grafo
+    nodos = list(reversed(rec.nodos))
+    aristas = [p.arista for p in reversed(rec.pasos)]
+    pasos = [Paso(e, g.aristas[e].a != nodos[k]) for k, e in enumerate(aristas)]
+    return Recorrido(g, pasos, nodos, [], rec.ambiguo_fin, rec.ambiguo_ini)
 
 
 def ramales(rec, k):

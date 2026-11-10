@@ -22,12 +22,13 @@ from ui.comun import valvula_item
 from ui.comun.ui_common import layer_qcolor
 
 CLIC_PX = 14.0                     # radio del clic y del globo, en pantalla
-# Tipos que el usuario puede elegir ("" = compuerta). Un tipo leído del plano que no esté aquí se conserva.
-TIPOS_MENU = ("", "Mariposa", "Retención", "Retención doble", "Reguladora de presión", "Aire", "Purga")
-
-
 def nombre_tipo(tipo):
-    return _tr("Compuerta") if not tipo or tipo == "Válvula" else _tr(tipo)
+    """«Válvula de compuerta», o «… · en el plano: Purga» si el plano dice su tipo. Todas se dibujan igual (compuerta, pedido del
+    usuario 2026-11-08: una sola válvula genérica); el tipo del plano queda solo como dato."""
+    t = (tipo or "").strip()
+    if not t or t in ("Válvula", "Compuerta"):
+        return _tr("Válvula de compuerta")
+    return _tr("Válvula de compuerta · en el plano: {t}").format(t=_tr(t))
 
 
 class ValvulasMixin:
@@ -79,7 +80,7 @@ class ValvulasMixin:
 
     def _texto_valvula(self, v, lug=None) -> str:
         """Una línea para el globo y la barra de estado."""
-        partes = [_tr("Válvula de {t}").format(t=nombre_tipo(v.get("tipo")).lower())]
+        partes = [nombre_tipo(v.get("tipo"))]
         if lug is not None and lug.ok:
             partes.append(f'{lug.diam_in:g}" {lug.union}')
         if v.get("utilidad"):
@@ -119,6 +120,7 @@ class ValvulasMixin:
 
     # ── herramienta ──────────────────────────────────────────────────────
     def insertar_valvula(self):
+        """Herramienta «Válvula» (Dibujar → Accesorios → Válvula): una sola válvula genérica (compuerta)."""
         if not hay_lineas_para_valvula(self):
             self._info(motivo_sin_lineas())
             return
@@ -141,8 +143,9 @@ class ValvulasMixin:
         ft = self._ft_px_valv()
         self._pista_valv = valvula_item.agregar(sc, lug.x, lug.y, lug.ux, lug.uy, lug.largo_ft / ft,
                                                 lug.brida_ft / ft, QtGui.QColor(30, 200, 60, 160), True, Z_MARK + 20)
-        texto = _tr("Clic para poner una válvula de {d}\" ({b}) sobre {u} (Esc para salir).").format(
-            d=f"{lug.diam_in:g}", b=lug.bloque, u=model_ops.nombre_por_defecto(self.pipes[lug.pipe], lug.pipe))
+        texto = _tr("Clic para poner: {v} de {d}\" ({b}) sobre {u} (Esc para salir).").format(
+            v=nombre_tipo(""), d=f"{lug.diam_in:g}", b=lug.bloque,
+            u=model_ops.nombre_por_defecto(self.pipes[lug.pipe], lug.pipe))
         if lug.movida:
             texto += " " + _tr("Se corre para caber en el tramo recto.")
         self._info(texto)
@@ -224,12 +227,6 @@ class ValvulasMixin:
             sub.addAction(_tr("Confirmar válvula"), lambda: self.confirmar_valvula(k))
         if lug is not None and not lug.ok:
             sub.addAction(_tr("Correr al lugar libre más cercano"), lambda: self.correr_valvula(k))
-        tipos = sub.addMenu(_tr("Tipo"))
-        actual = "" if (v.get("tipo") or "") == "Válvula" else (v.get("tipo") or "")
-        for tp in TIPOS_MENU + (() if actual in TIPOS_MENU else (actual,)):
-            a = tipos.addAction(nombre_tipo(tp), lambda tp=tp: self.cambiar_valvula(k, tipo=tp))
-            a.setCheckable(True)
-            a.setChecked(actual == tp)
         for u, txt in (("FLG", _tr("Unión con bridas (FLG)")), ("RG", _tr("Junta mecánica (RG)"))):
             a = sub.addAction(txt, lambda u=u: self.cambiar_valvula(k, union=u))
             a.setCheckable(True)
@@ -247,7 +244,7 @@ class ValvulasMixin:
         menu.addSeparator()
         return True
 
-    def cambiar_valvula(self, k, union=None, material=None, tipo=None):
+    def cambiar_valvula(self, k, union=None, material=None):
         vs = list(getattr(self, "valvulas", None) or [])
         if not (0 <= k < len(vs)):
             return False
@@ -256,8 +253,6 @@ class ValvulasMixin:
             v["union"] = union if union in V.UNIONES else "FLG"
         if material is not None:
             v["material"] = material if material in V.MATERIALES else ""
-        if tipo is not None:
-            v["tipo"] = tipo or ""
         if v == vs[k]:
             return False
         self._push()
@@ -317,8 +312,8 @@ class ValvulasMixin:
 
 def globo_valvula(lug, v=None):
     v = v or {}
-    t = _tr("Válvula de {tp} {d}\" · {b} · {m} · largo {L} ft").format(
-        tp=nombre_tipo(v.get("tipo")).lower(), d=f"{lug.diam_in:g}", b=lug.bloque, m=lug.material,
+    t = _tr("{v} {d}\" · {b} · {m} · largo {L} ft").format(
+        v=nombre_tipo(v.get("tipo")), d=f"{lug.diam_in:g}", b=lug.bloque, m=lug.material,
         L=f"{lug.largo_ft:.2f}")
     extra = []
     if v.get("certeza") == V.POR_CONFIRMAR:

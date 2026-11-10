@@ -137,6 +137,9 @@ class Agente:
         self._tools = herramientas_ollama(catalogo) + self.app.herramientas(catalogo)
         self._base = sistema if sistema is not None else SISTEMA
         self.cerrar = cerrar                            # al agotar los pasos, responder sin herramientas
+        # Insistir si responde un pedido de datos sin consultar (solo el chat de Civil 3D: el del proyecto, con sus
+        # propias instrucciones, marca las cifras inventadas a su manera)
+        self.insistir = sistema is None
 
     @property
     def _sistema(self):
@@ -161,7 +164,7 @@ class Agente:
             llamadas = m.get("tool_calls") or []
             msgs.append({"role": "assistant", "content": m.get("content") or "", "tool_calls": llamadas})
             if not llamadas:
-                if not res.llamadas and not insistio and pide_datos(texto):
+                if self.insistir and not res.llamadas and not insistio and pide_datos(texto):
                     # Respondió un pedido de datos SIN consultar el dibujo (reporte 2026-11-06: «Comparé…» con
                     # «Sin consultar el dibujo»): una vez más, pidiéndole que consulte.
                     insistio = True

@@ -59,7 +59,7 @@ namespace Civil3DBasico
         public const double UMBRAL_PRESION_DEG = 1.0;    // C.6: nodo sin callout por debajo
         public const double UMBRAL_CONDUIT_DEG = 2.0;
         public const double PASO_TERRENO = 2.0;          // ft sobre la traza (D.4)
-        public const double EST_INICIAL = 100.0;         // estación de N0 (1+00)
+        public const double EST_INICIAL = 0.0;           // estación de N0 (0+00, la real del eje; antes 1+00 — 2026-11-09)
         public const double TOL_ARCO_VERIFICADO = 0.1;   // ft (C.2-3 / C.3-2)
         private const int CUERDAS_ARCO = 16;             // arcos discretizados (C.5 / C.7)
 
@@ -384,7 +384,7 @@ namespace Civil3DBasico
             return res;
         }
 
-        /// <summary>Estación preliminar de un punto: 100 + DistanciaEnTraza − distN0. D.3 (T0).</summary>
+        /// <summary>Estación preliminar de un punto: EST_INICIAL (0) + DistanciaEnTraza − distN0. D.3 (T0).</summary>
         internal static double EstacionPreliminar(List<V2Bulge> traza, double distN0, V2 p)
         {
             return EST_INICIAL + DistanciaEnTraza(traza, p) - distN0;

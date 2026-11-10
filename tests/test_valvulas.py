@@ -128,6 +128,7 @@ def test_va_al_proyecto_y_al_dxf(win):
     xd = dict(v.split("=", 1) for _c, v in pts[0].get_xdata("PDFCAD")[1:])
     assert xd["PIPE_IDX"] == "0" and xd["BLOQUE"] == "VALV_8_FLG" and xd["UNION"] == "FLG"
     assert float(xd["DIAMETER"]) == 8 and float(xd["LARGO_IN"]) == pytest.approx(11.5)
+    assert float(xd["CAJA_TOPE_Z"]) == 0.0 and float(xd["CAJA_DIAM_IN"]) == 5.25   # caja hasta la superficie
     v = win.valvulas[0]
     x, y = win._to_cad(v["x"], v["y"])
     assert pts[0].dxf.location[0] == pytest.approx(x) and pts[0].dxf.location[1] == pytest.approx(y)
@@ -161,12 +162,19 @@ def test_3d_pieza_del_catalogo_en_el_eje_y_tubo_cortado_en_sus_caras():
     assert len(ident) == 1
     o = e.objetos[ident[0]]
     T = e.opacos
-    m = T[T[:, 10] == np.float32(ident[0])]
+    todo = T[T[:, 10] == np.float32(ident[0])]
+    gris = np.all(np.isclose(todo[:, 6:9], V3.COLOR_CAJA[:3]), axis=1)
+    m, caja = todo[~gris], todo[gris]                               # la válvula y su caja (valve box)
     pos, _nor, _capa = V3.malla(8.0, "FLG")
     assert len(m) == len(pos)                                       # la pieza entera, triángulo por triángulo
     # centro en el eje de la tubería y vástago hacia arriba (Z del bloque = vertical)
     assert np.mean(m[:, 0]) == pytest.approx(50.0, abs=0.05) and abs(np.mean(m[:, 1])) < 0.01
     assert m[:, 2].max() - o["eje_z"] == pytest.approx(pos[:, 2].max(), abs=0.02)
+    # caja: vertical sobre el centro, de la corona (eje + 4") hasta la cota 0 (aún sin terreno)
+    assert len(caja) and np.mean(caja[:, 0]) == pytest.approx(50.0, abs=0.05)
+    assert caja[:, 2].min() == pytest.approx(o["eje_z"] + 8 / 24, abs=1e-3)
+    assert caja[:, 2].max() == pytest.approx(0.0, abs=1e-3)
+    assert np.ptp(caja[:, 0]) == pytest.approx(V.CAJA_DIAM_IN / 12, abs=0.01)
     assert o["eje_z"] == pytest.approx(modelo3d._z_eje([p], 0, lug.x, lug.y))
     # el tubo llega exacto a las dos caras de la válvula y no pasa por dentro
     tubo = T[T[:, 10] == np.float32(1)]
@@ -279,6 +287,8 @@ def test_valvula_en_el_perfil(win):
     pa = paso.p0
     assert va.e == pytest.approx(paso.e0 + math.hypot(v["x"] - pa[0], v["y"] - pa[1]) * FT, abs=1e-6)
     assert va.lineas[1] == '8" FLG GATE VALVE' and va.largo_ft == pytest.approx(11.5 / 12)
+    assert va.z_caja == 0.0                                             # caja: de la corona hasta la cota 0
+    assert d.z_max >= va.z_caja - 1e-9                                  # cabe en el perfil
     win.perfil_vista.resize(900, 320)
     assert not win.perfil_vista.grab().isNull()            # se dibuja sin errores
     # quitar la válvula la saca del perfil
@@ -498,3 +508,16 @@ def test_ventana_capa_deshacer_guardar_y_dxf(win_rec, tmp_path):
         datos = _xdata(puntos[0])
         assert {"TIPO", "UTILIDAD", "ESTADO", "DIAMETER", "ORIGEN", "PIPE_IDX", "UNION", "BLOQUE"} <= set(datos)
         assert datos["UTILIDAD"] == "AGUA" and datos["ORIGEN"] == "capa"
+
+
+def test_la_caja_de_la_valvula_llega_al_terreno_del_proyecto():
+    """El suelo sale de `nucleo/terreno` (hoy plano en la cota 0); con otro terreno, la caja llega a ese suelo."""
+    from nucleo import terreno
+    assert V.caja(-5.0, 12.0) == (-4.5, 0.0)
+    assert V.caja(1.0, 12.0) is None                        # la corona ya está sobre el suelo
+    anterior = terreno.usar(terreno.TerrenoPlano(3.5))
+    try:
+        assert V.caja(-5.0, 12.0, x=10, y=20) == (-4.5, 3.5)
+    finally:
+        terreno.usar(anterior)
+    assert terreno.cota_en(1, 2) == 0.0

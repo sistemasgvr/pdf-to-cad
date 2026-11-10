@@ -91,7 +91,7 @@ namespace Civil3DBasico
                 try
                 {
                     h.Nombre = PerfilEje.NombreHoja(ctx.Nombre, h.Indice);
-                    h.Insercion = InsercionHoja(ctx.PuntoInsercion, altos, h.Indice, ctx.S);
+                    h.Insercion = InsercionHoja(ctx.PuntoInsercion, altos, h.Indice, ctx.S, ctx.InsercionArriba);
                     h.PvId = CivilDB.ProfileView.Create(ctx.AlignId, h.Insercion, h.Nombre, ctx.Estilos.BandSetVacio, ctx.Estilos.VistaStyle);
                     var pv = (CivilDB.ProfileView)tr.GetObject(h.PvId, OpenMode.ForWrite);
                     try { pv.Layer = PerfilEstilos.CAPA; } catch (Exception ex) { PerfilLog.Log("VISTA", "capa: " + ex.Message); }
@@ -111,10 +111,13 @@ namespace Civil3DBasico
         }
 
         /// <summary>G.4-4 / G.9-3: inserción de la hoja k: pt + (0, −Σ_{j&lt;k}(altoMarco_j + 2.5)·s, 0).</summary>
-        internal static Point3d InsercionHoja(Point3d pt, IReadOnlyList<double> altosMarco, int k, double s)
+        internal static Point3d InsercionHoja(Point3d pt, IReadOnlyList<double> altosMarco, int k, double s, bool arriba = false)
         {
             double dy = 0;
             for (int j = 0; j < k && j < altosMarco.Count; j++) dy += (altosMarco[j] + SEPARACION_HOJAS_IN) * s;
+            // `arriba` (perfiles que crea IMPORTAR_RED): pt es la esquina SUPERIOR; la vista (su Location es la de
+            // abajo) baja también su propio alto, así no queda encima de lo que ya hay arriba (el plano, otro perfil).
+            if (arriba && k < altosMarco.Count) dy += altosMarco[k] * s;
             return new Point3d(pt.X, pt.Y - dy, pt.Z);
         }
 
@@ -224,12 +227,17 @@ namespace Civil3DBasico
             return ObjectId.Null;
         }
 
-        private static bool Dentro(Transaction tr, ObjectId id, Extents3d ev)
+        /// <summary>La pieza de la vista cae en la vista: entera, o (con <paramref name="toca"/>, para los cruces: su dibujo
+        /// puede salirse del marco) que la toque.</summary>
+        private static bool Dentro(Transaction tr, ObjectId id, Extents3d ev, bool toca = false)
         {
             try
             {
                 var e = ((Entity)tr.GetObject(id, OpenMode.ForRead)).GeometricExtents;
                 double tol = 1.0;
+                if (toca)
+                    return e.MaxPoint.X >= ev.MinPoint.X - tol && e.MinPoint.X <= ev.MaxPoint.X + tol
+                        && e.MaxPoint.Y >= ev.MinPoint.Y - tol && e.MinPoint.Y <= ev.MaxPoint.Y + tol;
                 return e.MinPoint.X >= ev.MinPoint.X - tol && e.MaxPoint.X <= ev.MaxPoint.X + tol
                     && e.MinPoint.Y >= ev.MinPoint.Y - tol && e.MaxPoint.Y <= ev.MaxPoint.Y + tol;
             }
@@ -248,20 +256,28 @@ namespace Civil3DBasico
                 var h = ctx.Hojas[p.Hoja];
                 ObjectId r = p.Capturados.FirstOrDefault(id => !usados.Contains(id) && ModeloDe(tr, id) == p.ModeloId);
                 ExtentsVista(tr, h.PvId, out Extents3d ev);
+                bool toca = p.Rol == RolParte.Cruce;
                 if (r.IsNull)
-                    r = cap.Nuevos.FirstOrDefault(id => !usados.Contains(id) && ModeloDe(tr, id) == p.ModeloId && Dentro(tr, id, ev));
+                    r = cap.Nuevos.FirstOrDefault(id => !usados.Contains(id) && ModeloDe(tr, id) == p.ModeloId && Dentro(tr, id, ev, toca));
                 if (r.IsNull)
                 {
                     try
                     {
                         var pv = (CivilDB.ProfileView)tr.GetObject(h.PvId, OpenMode.ForRead);
                         var btr = (BlockTableRecord)tr.GetObject(pv.OwnerId, OpenMode.ForRead);
+                        // por la CLASE (como CapturaPartes): el nombre interno de la clase no lleva «ProfileView» y este
+                        // respaldo nunca encontraba nada — una pieza que ya estaba en otro perfil (cruce de los dos)
+                        // quedaba sin su pieza en esta vista y sin rótulo (2026-11-09)
+                        RXClass cGrav = null, cPres = null;
+                        try { cGrav = RXObject.GetClass(typeof(CivilDB.ProfileViewPart)); } catch { }
+                        try { cPres = RXObject.GetClass(typeof(CivilDB.ProfileViewPressurePart)); } catch { }
                         foreach (ObjectId id in btr)
                         {
                             if (usados.Contains(id)) continue;
-                            string dxf = ""; try { dxf = id.ObjectClass.Name; } catch { }
-                            if (dxf.IndexOf("ProfileView", StringComparison.OrdinalIgnoreCase) < 0) continue;
-                            if (ModeloDe(tr, id) == p.ModeloId && Dentro(tr, id, ev)) { r = id; break; }
+                            bool esParte = false;
+                            try { var c = id.ObjectClass; esParte = (cGrav != null && c.IsDerivedFrom(cGrav)) || (cPres != null && c.IsDerivedFrom(cPres)); } catch { }
+                            if (!esParte) continue;
+                            if (ModeloDe(tr, id) == p.ModeloId && Dentro(tr, id, ev, toca)) { r = id; break; }
                         }
                     }
                     catch (Exception ex) { PerfilLog.Log("VISTA", "respaldo BTR: " + ex.Message); }
@@ -308,20 +324,25 @@ namespace Civil3DBasico
                 try { pv = (CivilDB.ProfileView)tr.GetObject(h.PvId, OpenMode.ForWrite); } catch { continue; }
                 var partes = ctx.Partes.Where(p => p.Hoja == h.Indice).ToList();
                 var vistos = new HashSet<ObjectId>();
+                int nTub = 0, nEst = 0, nPres = 0;
                 void Aplicar(CivilDB.GraphOverride o, ObjectId modelo)
                 {
-                    var p = partes.FirstOrDefault(k => k.ModeloId == modelo);
+                    // el id del override puede ser el de la pieza del MODELO o el de su pieza en la vista
+                    var p = partes.FirstOrDefault(k => k.ModeloId == modelo) ?? partes.FirstOrDefault(k => !k.PvPartId.IsNull && k.PvPartId == modelo);
+                    if (p != null) modelo = p.ModeloId;
                     if (p == null) return;
                     ObjectId st = EstiloDe(ctx.Estilos, p);
                     try { o.Draw = true; if (!st.IsNull) { o.OverrideStyleId = st; o.UseOverrideStyle = true; } vistos.Add(modelo); }
                     catch (Exception ex) { PerfilLog.Log("VISTA", "override " + modelo.Handle + ": " + ex.Message); }
                 }
-                try { foreach (var o in pv.PipeOverrides) Aplicar(o, o.PipeId); } catch (Exception ex) { PerfilLog.Log("VISTA", "PipeOverrides: " + ex.Message); }
-                try { foreach (var o in pv.StructureOverrides) Aplicar(o, o.StructId); } catch (Exception ex) { PerfilLog.Log("VISTA", "StructureOverrides: " + ex.Message); }
-                try { foreach (var o in CivilDB.ProfileViewPressurePipesExtension.GetPressurePipeOverrides(pv)) Aplicar(o, o.PressurePartId); }
+                try { foreach (var o in pv.PipeOverrides) { nTub++; Aplicar(o, o.PipeId); } } catch (Exception ex) { PerfilLog.Log("VISTA", "PipeOverrides: " + ex.Message); }
+                try { foreach (var o in pv.StructureOverrides) { nEst++; Aplicar(o, o.StructId); } } catch (Exception ex) { PerfilLog.Log("VISTA", "StructureOverrides: " + ex.Message); }
+                try { foreach (var o in CivilDB.ProfileViewPressurePipesExtension.GetPressurePipeOverrides(pv)) { nPres++; Aplicar(o, o.PressurePartId); } }
                 catch (Exception ex) { PerfilLog.Log("VISTA", "PressurePipeOverrides: " + ex.Message); }
+                PerfilLog.Log("VISTA", $"hoja {h.Indice + 1}: overrides de la vista: {nTub} tubos, {nEst} estructuras, {nPres} presión; " +
+                                       $"{vistos.Count} de {partes.Count} piezas con su estilo");
                 foreach (var p in partes.Where(k => !vistos.Contains(k.ModeloId)))
-                    PerfilLog.Log("VISTA", "override no encontrado " + p.ModeloId.Handle);
+                    PerfilLog.Log("VISTA", "override no encontrado " + p.ModeloId.Handle + (p.PvPartId.IsNull ? "" : " (en la vista " + p.PvPartId.Handle + ")"));
             }
         }
 
@@ -364,10 +385,10 @@ namespace Civil3DBasico
                 {
                     var pv = (CivilDB.ProfileView)tr.GetObject(h.PvId, OpenMode.ForWrite);
                     FijarRango(pv, h.Final.StationStart, h.Final.StationEnd, h.Final.ElevationMin, h.Final.ElevationMax);
-                    if (h.Indice > 0)
+                    if (h.Indice > 0 || ctx.InsercionArriba)
                     {
                         FindXY(pv, ve, h.Final.StationStart, h.Final.ElevationMin, out double xa, out double ya);
-                        h.Insercion = InsercionHoja(ctx.PuntoInsercion, altos, h.Indice, ctx.S);
+                        h.Insercion = InsercionHoja(ctx.PuntoInsercion, altos, h.Indice, ctx.S, ctx.InsercionArriba);
                         pv.Location = h.Insercion;
                         FindXY(pv, ve, h.Final.StationStart, h.Final.ElevationMin, out double xb, out double yb);
                         PerfilLog.Log("VISTA", $"reapilado hoja {h.Indice + 1}: origen ({xa:0.##},{ya:0.##}) → ({xb:0.##},{yb:0.##})");

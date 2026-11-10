@@ -5,7 +5,8 @@ using System.Text;
 
 // ============================================================================
 //  LOG DEL PERFIL (DISENO.md A.1, G.0, G.13)
-//   · %TEMP%\PDFCAD_Perfil.log, se SOBRESCRIBE en cada ejecución.
+//   · %TEMP%\PDFCAD_Perfil.log: cada ejecución se AGREGA al final (CREAR_PERFIL_RED suelto o los
+//     perfiles de IMPORTAR_RED); pasado MAX_BYTES se conserva solo la parte final.
 //   · Lista de avisos para el resumen de la línea de comandos.
 //   · Solo System.IO: nunca lanza (todo en try; un log roto no tumba el comando).
 // ============================================================================
@@ -39,16 +40,37 @@ namespace Civil3DBasico
             try { File.AppendAllText(Ruta, linea + Environment.NewLine, Encoding.UTF8); } catch { }
         }
 
-        /// <summary>Vacía avisos y reescribe el archivo con la cabecera (fecha, versión). G.0.</summary>
-        internal static void Iniciar()
+        /// <summary>Tope del archivo: al pasarlo, Iniciar deja solo la última mitad (se pierden los perfiles más viejos).</summary>
+        internal const long MAX_BYTES = 4L * 1024 * 1024;
+
+        /// <summary>Vacía avisos y AGREGA al archivo la cabecera (fecha, versión y nombre del perfil si se conoce). G.0.
+        /// Antes reescribía el archivo y el log de un perfil se perdía con el siguiente («ELE-P1»).</summary>
+        internal static void Iniciar(string nombre = null)
         {
             _avisos.Clear();
             try
             {
+                Recortar();
                 string ver = "";
                 try { ver = typeof(PerfilLog).Assembly.GetName().Version?.ToString() ?? ""; } catch { }
-                File.WriteAllText(Ruta, "CREAR_PERFIL_RED — " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " — plugin " + ver
-                                        + Environment.NewLine, Encoding.UTF8);
+                bool hay = File.Exists(Ruta) && new FileInfo(Ruta).Length > 0;
+                var cab = (hay ? Environment.NewLine + new string('=', 70) + Environment.NewLine : "")
+                          + "CREAR_PERFIL_RED — " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " — plugin " + ver
+                          + (string.IsNullOrWhiteSpace(nombre) ? "" : " — perfil «" + nombre + "»") + Environment.NewLine;
+                File.AppendAllText(Ruta, cab, Encoding.UTF8);
+            }
+            catch { }
+        }
+
+        private static void Recortar()
+        {
+            try
+            {
+                var fi = new FileInfo(Ruta);
+                if (!fi.Exists || fi.Length <= MAX_BYTES) return;
+                string txt = File.ReadAllText(Ruta, Encoding.UTF8);
+                int corte = txt.IndexOf("CREAR_PERFIL_RED — ", txt.Length / 2, StringComparison.Ordinal);
+                File.WriteAllText(Ruta, corte > 0 ? txt.Substring(corte) : txt.Substring(txt.Length / 2), Encoding.UTF8);
             }
             catch { }
         }

@@ -1,9 +1,9 @@
 """2.0.0 — Cabecera del inspector (panel derecho), como el prototipo: punto de color + nombre de lo elegido,
-insignias (tipo, red, abandonada, avisos), acciones (centrar en el plano, ver en 3D, ⋯) y pestañas
-Propiedades · Cotas · Datos.
+insignias (tipo, red, abandonada, avisos), acciones (centrar en el plano, ver en 3D, ⋯). Sin pestañas (2026-11-06,
+pedido del usuario: el panel es una sola lista; «Cotas» solo desplazaba el scroll).
 
 Los campos de siempre NO se mueven (la lógica de guardar mira en qué grupo está cada uno: `isVisibleTo(gprop)`):
-las pestañas llevan a su parte del panel (desplazan el scroll) y el menú ⋯ pulsa los botones de siempre
+el menú ⋯ pulsa los botones de siempre
 (Cambiar tipo, Editar/mover, Editar texto, Ver datos extendidos, Eliminar).
 """
 import re
@@ -12,7 +12,6 @@ from ui.ventana.ventana_comun import *  # noqa: F401,F403
 from ui.comun import rediseno as R
 
 _RX = re.compile(r"^\d+\.\s*(.*?)\s*·\s*(.*)\s\(([^()]*)\)$")
-PESTANAS = ["Propiedades", "Cotas", "Datos"]
 
 
 class CabeceraInspector(QtWidgets.QFrame):
@@ -47,26 +46,6 @@ class CabeceraInspector(QtWidgets.QFrame):
         self.insignias = QtWidgets.QHBoxLayout()
         self.insignias.setSpacing(6)
         lay.addLayout(self.insignias)
-        seg = QtWidgets.QFrame()
-        seg.setObjectName("segmentado")
-        sl = QtWidgets.QHBoxLayout(seg)
-        sl.setContentsMargins(3, 3, 3, 3)
-        sl.setSpacing(2)
-        self.grupo = QtWidgets.QButtonGroup(seg)
-        for i, clave in enumerate(PESTANAS):
-            b = QtWidgets.QPushButton()
-            _bind(b, "setText", clave)
-            b.setProperty("kind", "seg")
-            b.setCheckable(True)
-            b.setChecked(i == 0)
-            b.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)
-            b.setMinimumWidth(40)
-            self.grupo.addButton(b, i)
-            sl.addWidget(b, 1)
-        self.grupo.idClicked.connect(self._ir)
-        seg.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
-        self.seg = seg
-        lay.addWidget(seg)
         _theme.THEME_BUS.changed.connect(lambda _n: self.refrescar())
 
     # ── qué hay elegido ──
@@ -131,7 +110,6 @@ class CabeceraInspector(QtWidgets.QFrame):
         self.nombre.setText(nombre)
         self.nombre.setToolTip(texto)
         self.btn_3d.setVisible(tipo == "pipe")
-        self.seg.setVisible(tipo == "pipe")
         while self.insignias.count():
             it = self.insignias.takeAt(0)
             if it.widget() is not None:
@@ -184,20 +162,6 @@ class CabeceraInspector(QtWidgets.QFrame):
         if self._visible(w.btn_del):
             self.menu.addAction(_icon("mdi:trash-can-outline", color=_theme.tokens().danger),
                                 w.btn_del.text().strip(), w.btn_del.click)
-
-    def _ir(self, i):
-        """Las pestañas llevan a su parte del panel (los campos no se mueven)."""
-        w = self.win
-        area = w.pila_derecha.widget(0)
-        destino = {0: w.gprop, 1: w.prop_inv0, 2: w.gprop}[i]
-        if isinstance(area, QtWidgets.QScrollArea):
-            if i == 0:
-                area.verticalScrollBar().setValue(0)
-            else:
-                area.ensureWidgetVisible(destino, 0, 40)
-        if i == 2:                                      # Datos = los datos extendidos de siempre
-            self.grupo.button(0).setChecked(True)
-            w.btn_xd.click()
 
 
 def _insignia(txt, tono, t):

@@ -82,6 +82,7 @@ from ui.ventana.ventana_menu import MenuMixin
 from ui.ventana.ventana_diametro_ia import DiametroIAMixin
 from ui.ventana.ventana_anotaciones import AnotacionesMixin
 from ui.ventana.ventana_valvulas import ValvulasMixin
+from ui.ventana.ventana_flujo import FlujoMixin
 from ui.ventana.ventana_panel_izq import PanelIzquierdoMixin
 from ui.ventana.ventana_panel_der import PanelDerechoMixin
 from ui.ventana.ventana_modos import ModosMixin
@@ -136,7 +137,7 @@ from ui.ventana.ventana_pasos import PasosVivosMixin
 
 class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, SinAccesorioMixin, ListaAccesoriosMixin, DibujarAccesoriosMixin, SeleccionAccesorioMixin, PerfilMixin, AccionesIAMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
-           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, QtWidgets.QMainWindow):
+           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, FlujoMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"
@@ -1796,6 +1797,11 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             _reg = data.get("conflictos_registro")
             self._conf_registro = _conf_mod.Registro.de_dict(_reg) if _reg else None
             self.capas_apagadas = set(data.get("capas_apagadas") or ())   # «Capas» (ventana_capas)
+            if data.get("pdf_opacidad") is not None:                       # opacidad y fondo del lienzo
+                self.canvas.set_pdf_opacity(float(data["pdf_opacidad"]))
+                self.lbl_opacity.setText(f"{round(self.canvas.pdf_opacity * 100)}%")
+            if data.get("pdf_fondo_negro") is not None:
+                self.canvas.set_pdf_bg(QtGui.QColor(0, 0, 0) if data["pdf_fondo_negro"] else QtGui.QColor(255, 255, 255))
             self.anotaciones = data.get("anotaciones", []) or []            # rótulos del plano (ventana_anotaciones)
             self.valvulas = data.get("valvulas", []) or []                  # válvulas (ventana_valvulas)
             self._valvula_sel = -1

@@ -52,6 +52,19 @@ ALCANCE_ACC_D = 1.70           # brazo 1.25·D + campana 0.45·D de un codo/Tee/
 TUBO_MIN_FT = limpieza_tramos.TRAMO_MIN_FT   # tubo libre entre la válvula y lo que haya a cada lado (1 ft)
 SOBRE_TOL_FT = 0.05            # una válvula guardada sigue «en su lugar» si se corre menos que esto
 EPS = 1e-9
+# Caja de la válvula (valve box, 2026-11-06): el tubo de 5-1/4" que sube de la válvula a la superficie para meter la
+# llave (Tyler 6850 / AWWA). Va de la corona de la tubería hasta el SUELO (`nucleo/terreno`: hoy la cota 0, pedido
+# del usuario 2026-11-06), lo mismo en el perfil, la Vista 3D y Civil 3D (el DXF lleva CAJA_TOPE_Z de cada una).
+CAJA_DIAM_IN = 5.25
+
+
+def caja(z_eje, diam_in, capa=None, x=None, y=None):
+    """(cota de la base, cota del tope) de la caja de una válvula en (x, y) del plano: de la corona (eje + D/2) al
+    suelo (`terreno.cota_en`), o None si la corona ya está en el suelo o encima (no hay caja que dibujar)."""
+    from nucleo import terreno
+    base = float(z_eje) + float(diam_in or 0.0) / 24.0
+    tope = terreno.cota_en(x, y)
+    return (base, tope) if base < tope - 1e-6 else None
 
 
 def diametro_valido(d_in):
@@ -61,7 +74,9 @@ def diametro_valido(d_in):
 
 
 def pieza(n, union="FLG"):
-    """(bloque, unión efectiva, largo in, OD del extremo in, avisos) de la válvula de n pulgadas."""
+    """(bloque, unión efectiva, largo in, OD del extremo in, avisos) de la válvula de n pulgadas. Todas se dibujan
+    como la de COMPUERTA (`valvula_receta`; pedido del usuario 2026-11-08: una sola válvula genérica); el tipo que
+    traiga del plano queda solo como dato."""
     rec = VR.receta(n, union)
     avisos = []
     u = "RG" if rec.tipo == "RG" else "FLG"

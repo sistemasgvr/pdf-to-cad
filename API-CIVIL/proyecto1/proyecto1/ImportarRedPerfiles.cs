@@ -28,7 +28,7 @@ namespace Civil3DBasico
             try
             {
                 var u = Autodesk.Civil.ApplicationServices.CivilApplication.ActiveDocument.Settings.DrawingSettings.UnitZoneSettings;
-                if (u.DrawingScale > 0 && u.DrawingScale <= 1000) s = u.DrawingScale;
+                if (u.DrawingScale > 0 && u.DrawingScale <= 1000) s = Math.Max(u.DrawingScale, PerfilDiseno.S_MIN_PERFIL);
             }
             catch { }
             double x0 = 0, y = 0;

@@ -213,7 +213,7 @@ internal sealed class Recorrido {
     public List<PasoRecorrido> Pasos = new List<PasoRecorrido>();  // Pasos[i]: Nodos[i] → Nodos[i+1]
     public Dictionary<int, double> EstNodo = new Dictionary<int, double>();
     public Dictionary<int, List<Ramal>> Ramales = new Dictionary<int, List<Ramal>>();
-    public double EstIni, EstFin;                                 // EstIni = 100.00
+    public double EstIni, EstFin;                                 // EstIni = EST_INICIAL = 0.00
     public List<V2Bulge> Traza = new List<V2Bulge>();
     public double DistN0;                                         // distancia sobre la traza hasta N0
     public double[] TerrenoEst = new double[0], TerrenoZ = new double[0]; // D.4 (NaN = sin superficie)
@@ -483,7 +483,7 @@ internal static List<PasoG> RecorrerDesdeNodo(IReadOnlyList<GNodo> n, IReadOnlyL
   - Con 1 arista: esa arista.
   - Con 0: vacío, con el mensaje «La estructura no tiene tuberías».
 
-**Sentido de las estaciones** (1+00 al inicio):
+**Sentido de las estaciones** (0+00 al inicio = la estación real del eje; hasta 2026-11-09 era 1+00):
 - Gravedad: empieza en el extremo de MENOR invert (`z eje − RadioIntFt`).
 - Conduit y presión: empieza en el extremo más al OESTE. Si `|ΔX| < 0.3·|ΔY|`, en el más al SUR.
 
@@ -510,7 +510,7 @@ internal static List<PasoG> RecorrerDesdeNodo(IReadOnlyList<GNodo> n, IReadOnlyL
   1. Se fusionan los vértices consecutivos a menos de 0.01 ft; se conserva el bulge no nulo. Log `[GRAFO] conexión vertical` si los fusionados eran dos nodos distintos.
   2. Se elimina todo vértice interior con deflexión < 1e-6 rad cuyos segmentos adyacentes tengan ambos bulge 0 (colineal). Las estaciones de los nodos salen de `StationOffset`, así que no se pierden.
   3. Si quedan menos de 2 vértices, error «✗ No se pudo formar la traza del eje».
-- `ext = EXT_EJE = max(25, PAD_MAX·S + 10)` ft. `ReferencePointStation` puede quedar negativa (se admite; el eje va en su propia capa, D.2).
+- `ext = 0` desde 2026-11-09 (pedido del usuario: el eje mide lo mismo que la tubería y empieza en 1+00; antes `max(25, PAD_MAX·S + 10)` ft, ELE-P1 daba un eje de 505 ft para 325 ft de tubería). La vista queda dentro del eje (I-6), sin margen antes de N0 ni después del último nodo.
 
 **Utilidades puras**
 - `LargoTraza(traza)`.
@@ -547,7 +547,7 @@ internal static List<CorteTraza> CortarTraza(List<V2Bulge> traza, double estPrim
   - si el cruce va debajo: `ClaroFt = (ZEjeRec − AltoExtRec/2) − (ZEje + AltoExt/2)`;
   - si va encima: `ClaroFt = (ZEje − AltoExt/2) − (ZEjeRec + AltoExtRec/2)`.
 - Estación preliminar en T0 (distancia sobre la traza, D.3). En T1 se toma la definitiva con `StationOffset`; si `|off| > 0.1` ft, log.
-- Agrupación: F.11 (`AgruparCruces`).
+- Agrupación: F.11 (`AgruparCruces`; desde 2026-11-09 cada cruce va solo, con su etiqueta).
 
 ---
 
@@ -604,8 +604,10 @@ public static ObjectId CrearAlineamientoDesdePts(Database db, CivilDocument civi
    - Si vuelve a dar Null: error fatal «✗ No se pudo crear el eje del perfil». Se aborta T1a.
 3. `Alignment` ForWrite:
    - `s0` = estación de N0 con `StationOffset(N0.X, N0.Y, ref s, ref o)`, leída antes del cambio.
-   - `ReferencePointStation = 100.0 − (s0 − StartingStation)`.
-4. Comprobación: `StationOffset(N0)` debe dar 100.00 ± 0.01. Si no, log `[EJE]`.
+   - `ReferencePointStation = EST_INICIAL − (s0 − StartingStation)`, con `EST_INICIAL = 0` (2026-11-09, pedido del
+     usuario: el perfil empieza en la estación REAL del eje, 0+00; antes 100 = 1+00 y no coincidía con las
+     estaciones del eje ni con los otros ejes del dibujo).
+4. Comprobación: `StationOffset(N0)` debe dar EST_INICIAL ± 0.01. Si no, log `[EJE]`.
 
 Firmas:
 - `prop Double ReferencePointStation {get;set;}`
@@ -766,9 +768,9 @@ Colecciones: gravedad en `Styles.PipeStyles`; presión en `StylesRootPressurePip
 
 | Nombre | Profile encendidos (color/grosor/linetype) | Apagados |
 |---|---|---|
-| `"PDFCAD Perfil Tubo"` | `OutsideWalls` 7/050/Continuous; `EndLine` 7/025; `CrossingPipeOutsideWall` 7/035 | `Centerline`, `InsideWalls`, `Hatch`, `CrossingPipeInsideWall`, `CrossingPipeHatch`; en gravedad también `HydraulicGradeLine` y `EnergyGradeLine` |
-| `"PDFCAD Perfil Tubo Abandonado S{S}"` | `OutsideWalls` 7/025/discontinuo (con escala); `EndLine` 7/018; `CrossingPipeOutsideWall` 7/025/discontinuo | ídem |
-| `"PDFCAD Perfil Cruce"` | `CrossingPipeOutsideWall` 7/035; `OutsideWalls` 8/025; `EndLine` 8/018 | ídem |
+| `"PDFCAD Perfil Tubo"` | `OutsideWalls` 7/050/Continuous; `EndLine` 7/025 (2026-11-09: sin `CrossingPipeOutsideWall`: Civil 3D dibujaba como cruce los tubos cortos del recorrido) | `CrossingPipeOutsideWall`, `Centerline`, `InsideWalls`, `Hatch`, `CrossingPipeInsideWall`, `CrossingPipeHatch`; en gravedad también `HydraulicGradeLine` y `EnergyGradeLine` |
+| `"PDFCAD Perfil Tubo Abandonado S{S}"` | `OutsideWalls` 7/025/discontinuo (con escala); `EndLine` 7/018 | ídem + `CrossingPipeOutsideWall` |
+| `"PDFCAD Perfil Cruce"` | `CrossingPipeOutsideWall` 7/035 (2026-11-09: sin `OutsideWalls` ni `EndLine`: un tubo que cruza en ángulo se proyectaba entero sobre el eje; solo su sección) | ídem + `OutsideWalls`, `EndLine` |
 
 - `ProfileOption`: `WallSizeType = UsePartDimensions`, `EndSizeType = DrawToOuterWall`.
 - `"PDFCAD Perfil Estructura"` (`Styles.StructureStyles`):
@@ -991,8 +993,9 @@ Coordenadas:
     - `padR = clamp(max(PAD_MIN, Rmax − Lr + MARGEN_MARCO), PAD_MIN, PAD_MAX)`, con `Lr = (EstFin − EstIni)/S`.
   - `StationStart = RedondearAbajo(EstIni − padL·S, REDONDEO_EST)`:
     - Si `StationStart < 0` y `EstIni − (max(0, −Lmin) + MARGEN_MARCO)·S ≥ 0`, los bloques caben sin estaciones negativas: `StationStart = 0` (se sacrifica relleno para evitar «-0+xx»). Si no, se admite negativa con aviso.
-    - Si queda por debajo de `EstMinPermitida`: `RedondearArriba(EstMinPermitida, 5)`.
-  - `StationEnd = RedondearArriba(EstFin + padR·S, 5)`, acotado con `RedondearAbajo(EstMaxPermitida, 5)`.
+    - Si queda por debajo de `EstMinPermitida`: `EstMinPermitida` exacta.
+  - `StationEnd = RedondearArriba(EstFin + padR·S, 5)`, acotado con `EstMaxPermitida` exacta (2026-11-09: con el eje
+    del largo de la tubería, redondear hacia adentro dejaba fuera el último nodo y su rótulo).
   - `AjustarEstacionesExtremo` (F.11).
   - `AnchoMarco = (StationEnd − StationStart)/S`.
 - c. **Empaquetado con límites**, en `[MARGEN_MARCO, AnchoMarco − MARGEN_MARCO]`, con segmentos (F.6.b) y fila (F.7). Paso a paso de desactivación de paredes (F.6.b) si un segmento desborda.
@@ -1203,6 +1206,9 @@ Durante las reglas el rango horizontal SÍ se recalcula: cada pasada vuelve a F.
 **`AgruparCruces`**
 - Se ordenan por estación.
 - Un cruce entra en el grupo anterior si es de la misma `red` y está a `≤ max(2, 0.3·S)` ft del último del grupo.
+- **Ya no se usa** (2026-11-09, pedido del usuario): `PerfilCruces.Agrupar` deja cada cruce en su propio grupo, con
+  su etiqueta y su leader, como la app (el «(2) … CONDUITS» solo apuntaba al primero y el segundo quedaba sin
+  etiqueta). La función sigue en el arnés.
 
 **`CotaSeparacionCabe`**: `claroFt/V ≥ LargoLinea("0.00'", hTexto) + 0.10`.
 
@@ -1787,7 +1793,7 @@ Un tramo es una racha de pasos con el mismo `DiamIn` redondeado, `Material` y `A
 | I-3 | Semántica de `DimensionAnchor`. | No se usa. |
 | I-4 | Marcador Null en `StationElevationLabel.Create`. | Siempre se pasa el marcador invisible; reintento con Null; si falla, se omite. |
 | I-5 | `\P` y `%%d` dentro del override. | T2 detecta un bloque de n líneas medido como si fuera 1 línea → se reescribe con `"  "` entre líneas y se avisa `[FORMATO]`. `%%d`: si sale literal, se cambia la constante `GRADO` a `"\u00B0"`. J lo verifica. |
-| I-6 | `StationStart` fuera del eje. | Prolongaciones `EXT_EJE`; rango acotado a `[StartingStation, EndingStation]`. |
+| I-6 | `StationStart` fuera del eje. | Rango acotado a `[StartingStation, EndingStation]` (sin prolongaciones desde 2026-11-09). |
 | I-7 | `GeometricExtents` sin regenerar. | Transacciones separadas, `QueueForGraphicsFlush` + `FlushGraphics` tras cada commit y lecturas en try. Extensión nula → predicción con aviso. |
 | I-8 | Captura del `ProfileViewPart`. | T1a/T1b separados, manejador activo hasta después del commit, ventanas por llamada y respaldos. Sin id → cruce sin etiqueta y aviso. |
 | I-9 | Nombre de la flecha. | Se hereda de la base; nunca se escribe un literal. |
@@ -1868,7 +1874,7 @@ Objetivo: validar I-1, I-2, I-5 e I-19 en Civil 3D en 1 minuto.
 
 **Eje, vista y partes**
 - [ ] Nombre único que incluye los ejes siteless y de sitios, y los nombres de las hojas `- H{k}`.
-- [ ] Eje en la capa `PDFCAD_PERFIL_EJE`; `StationOffset(N0)` = 100.00 ± 0.01 (log).
+- [ ] Eje en la capa `PDFCAD_PERFIL_EJE`; `StationOffset(N0)` = 0.00 ± 0.01 (log).
 - [ ] Terreno muestreado en T0 con `FindElevationAtXY`, cada muestra en su try. Sin superficie → sin terreno, con aviso.
 - [ ] Una `ProfileView` por hoja (`PartirEnHojas`), apiladas y reapiladas en T3.
 - [ ] Rango en `UserSpecified` en orden seguro, bandas vacías y vista en `PDFCAD_PERFIL`.

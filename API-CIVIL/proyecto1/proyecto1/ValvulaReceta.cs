@@ -30,12 +30,15 @@ namespace Civil3DBasico
         public double[] Min, Max, Inicio, Centro;
         public char Eje;
         public double Largo, Rt;
+
+        /// <summary>Copia (para correr la pieza: ValvulaFormas, doble retención).</summary>
+        public PiezaValvula MemberwiseCloneValvula() => (PiezaValvula)MemberwiseClone();
     }
 
     internal sealed class RecetaValvula
     {
         public double N;
-        public string Tipo;          // FLG | RG | GEAR
+        public string Tipo;          // FLG | RG | GEAR (la unión; la forma va en ValvulaFormas)
         public string Bloque;        // VALV_8_FLG, VALV_24_FLG_GEAR…
         public double Largo;         // pulgadas, a lo largo del eje
         public double OdExtremo;     // pulgadas
@@ -99,7 +102,7 @@ namespace Civil3DBasico
 
         /// <summary>Medidas de norma para N: la fila de la tabla o la recta entre las dos vecinas (fuera del rango, la
         /// de los dos extremos). Nº de pernos: múltiplo de 4.</summary>
-        private static double[] Interpolar(double n, out bool estimada)
+        internal static double[] Interpolar(double n, out bool estimada)
         {
             foreach (var f in TABLA)
                 if (f[0] == n) { estimada = false; return f; }

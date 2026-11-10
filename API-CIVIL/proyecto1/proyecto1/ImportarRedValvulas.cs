@@ -32,6 +32,7 @@ namespace Civil3DBasico
     {
         private const string CAPA_VALVULA_CUERPO = "V-PRES-VALV-DIA";    // ACI 5 (como el plugin de válvulas)
         private const string CAPA_VALVULA_INTERIOR = "V-PRES-VALV-INT";  // ACI 40
+        private const string CAPA_VALVULA_CAJA = "V-PRES-VALV-CAJA";     // ACI 8: caja de la válvula (valve box)
         private const double VALVULA_TOL_FT = 0.5;        // la tubería pasa a ≤ esto del centro
         private const double VALVULA_TUBO_MIN_FT = 0.02;  // el plugin no crea tubos más cortos
 
@@ -42,7 +43,9 @@ namespace Civil3DBasico
             public Vector2d Dir;
             public double DiamIn, LargoIn;
             public string Union = "FLG", Bloque = "", Material = "";
+            public string Tipo = "";   // el del plano: solo un DATO (la pieza siempre es la de compuerta, 2026-11-08)
             public bool Estimada;
+            public double CajaTopeZ = 0.0, CajaDiamIn = 5.25;     // caja: de la corona a la cota CAJA_TOPE_Z (app `valvulas.caja`)
         }
 
         private static ImportValvula LeerValvula(DBPoint pt, Dictionary<string, string> xd)
@@ -57,7 +60,10 @@ namespace Civil3DBasico
                 Bloque = XdStr(xd, "BLOQUE", ""),
                 Material = XdStr(xd, "MATERIAL", ""),
                 Estimada = XdStr(xd, "ESTIMADA", "0") == "1",
+                Tipo = XdStr(xd, "TIPO", ""),
             };
+            if (!string.IsNullOrWhiteSpace(XdStr(xd, "CAJA_TOPE_Z", ""))) v.CajaTopeZ = XdDouble(xd, "CAJA_TOPE_Z");
+            if (!string.IsNullOrWhiteSpace(XdStr(xd, "CAJA_DIAM_IN", ""))) v.CajaDiamIn = XdDouble(xd, "CAJA_DIAM_IN");
             var d = new Vector2d(XdDouble(xd, "DIR_X"), XdDouble(xd, "DIR_Y"));
             v.Dir = d.Length > 1e-9 ? d.GetNormal() : new Vector2d(1, 0);
             return v;
@@ -162,6 +168,7 @@ namespace Civil3DBasico
                 catch (Exception exC) { ed.WriteMessage($"\n  ⚠ Válvula {v.Bloque}: no se pudo reconectar una pieza ({exC.Message})."); }
             }
 
+
             // 3) La válvula: misma orientación que en la app (X = dirección del tramo de la app).
             Vector3d ex = u;
             if (new Vector2d(u.X, u.Y).DotProduct(v.Dir) < 0) ex = -u;
@@ -173,7 +180,7 @@ namespace Civil3DBasico
             Matrix3d m = Matrix3d.AlignCoordinateSystem(Point3d.Origin, Vector3d.XAxis, Vector3d.YAxis, Vector3d.ZAxis,
                                                         c, ex, ey, ez)
                          * Matrix3d.Scaling(1.0 / 12.0, Point3d.Origin);
-            var rec = ValvulaReceta.Receta(v.DiamIn, v.Union);
+            var rec = ValvulaReceta.Receta(v.DiamIn, v.Union);   // una sola válvula genérica: la de compuerta
             AsegurarCapaValvula(tr, db, CAPA_VALVULA_CUERPO, 5);
             AsegurarCapaValvula(tr, db, CAPA_VALVULA_INTERIOR, 40);
             var ms = (BlockTableRecord)tr.GetObject(SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite);
@@ -198,9 +205,28 @@ namespace Civil3DBasico
                     new TypedValue((int)DxfCode.ExtendedDataAsciiString, "MATERIAL=" + v.Material),
                     new TypedValue((int)DxfCode.ExtendedDataAsciiString, "PARTE=" + (capaPieza == 0 ? "CUERPO" : "VASTAGO")),
                     new TypedValue((int)DxfCode.ExtendedDataAsciiString, "ESTIMADA=" + (rec.Estimada ? "1" : "0")),
+                    new TypedValue((int)DxfCode.ExtendedDataAsciiString, "TIPO_PLANO=" + v.Tipo),
                     new TypedValue((int)DxfCode.ExtendedDataAsciiString, "PIPE_IDX=" + idxPipe.ToString(CultureInfo.InvariantCulture)));
                 if (capaPieza == 0)
                     MarcarComoAccesorio(tr, db, s, rec, v, c, 2 * medio, nombreRed);
+            }
+            // 4) Caja de la válvula (valve box): cilindro VERTICAL de la corona (eje + D/2) hasta la cota CAJA_TOPE_Z
+            //    (0: aún no hay terreno), como en el perfil y la Vista 3D de la app. Sin caja si la corona ya está encima.
+            double baseCaja = c.Z + v.DiamIn / 24.0;
+            if (v.CajaTopeZ - baseCaja > 1e-6 && v.CajaDiamIn > 1e-6)
+            {
+                AsegurarCapaValvula(tr, db, CAPA_VALVULA_CAJA, 8);
+                var caja = CilindroSol(v.CajaDiamIn / 24.0, v.CajaTopeZ - baseCaja, new Point3d(c.X, c.Y, baseCaja), 'z');
+                caja.Layer = CAPA_VALVULA_CAJA;
+                caja.ColorIndex = 256;
+                ms.AppendEntity(caja);
+                tr.AddNewlyCreatedDBObject(caja, true);
+                caja.XData = new ResultBuffer(
+                    new TypedValue((int)DxfCode.ExtendedDataRegAppName, "PDFCAD"),
+                    new TypedValue((int)DxfCode.ExtendedDataAsciiString, "PDFCAD_VALVULA_SOLIDO"),
+                    new TypedValue((int)DxfCode.ExtendedDataAsciiString, "BLOQUE=" + rec.Bloque),
+                    new TypedValue((int)DxfCode.ExtendedDataAsciiString, "PARTE=CAJA"),
+                    new TypedValue((int)DxfCode.ExtendedDataAsciiString, "PIPE_IDX=" + idxPipe.ToString(CultureInfo.InvariantCulture)));
             }
             Dl(ed, $"\n  [VALVULA] {rec.Bloque} en ({c.X:F2},{c.Y:F2},{c.Z:F3}) largo {2 * medio:F3} ft — tubo partido en {h1.Handle}/{h2.Handle}.");
             return null;
@@ -236,6 +262,9 @@ namespace Civil3DBasico
                 new TypedValue((int)DxfCode.ExtendedDataAsciiString, "RED=" + red),
                 new TypedValue((int)DxfCode.ExtendedDataAsciiString, "UNION=" + (rec.Tipo == "RG" ? "RG" : "FLG")),
                 new TypedValue((int)DxfCode.ExtendedDataAsciiString, "BLOQUE=" + rec.Bloque),
+                new TypedValue((int)DxfCode.ExtendedDataAsciiString, "TIPO_PLANO=" + v.Tipo),      // dato: el tipo que dice el plano
+                new TypedValue((int)DxfCode.ExtendedDataAsciiString, "CAJA_TOPE_Z=" + F(v.CajaTopeZ, "0.###")),
+                new TypedValue((int)DxfCode.ExtendedDataAsciiString, "CAJA_DIAM_IN=" + F(v.CajaDiamIn, "0.###")),
                 new TypedValue((int)DxfCode.ExtendedDataAsciiString, "ORIGEN=PDFCAD_VALVULA")))
             {
                 cuerpo.XData = rb;                     // se suma al XDATA «PDFCAD» (otra app)

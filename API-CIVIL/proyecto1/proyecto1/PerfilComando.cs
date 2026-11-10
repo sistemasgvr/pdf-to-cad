@@ -57,6 +57,7 @@ namespace Civil3DBasico
             Fase("T3", () => T3(ctx));
             Fase("T4", () => T4(ctx));
             Fase("T5", () => T5(ctx));
+            Fase("T5v", () => PerfilValvulasVista.Dibujar(ctx));   // moño y caja de cada válvula (como en la app)
             Fase("T6", () => T6(ctx));
             Resumen(ctx);
             return true;
@@ -70,8 +71,10 @@ namespace Civil3DBasico
         internal static bool CrearAutomatico(Point2d semilla, Point2d? fin, Point3d insercion, string nombreApp)
         {
             ContextoPerfil ctx = null;
-            try { ctx = Preparar(); } catch (Exception ex) { PerfilLog.Error("CMD", "preparación", ex); }
+            try { ctx = Preparar(nombreApp); } catch (Exception ex) { PerfilLog.Error("CMD", "preparación", ex); }
             if (ctx == null) return false;
+            PerfilLog.Log("CMD", $"perfil de la app «{nombreApp}»: inicio ({semilla.X:0.###}, {semilla.Y:0.###})" +
+                                 (fin.HasValue ? $", fin ({fin.Value.X:0.###}, {fin.Value.Y:0.###})" : ", sin fin"));
             ctx.EntidadId = TuberiaMasCercana(ctx, semilla, out double dist);
             if (ctx.EntidadId.IsNull || dist > 2.0)
             {
@@ -82,7 +85,7 @@ namespace Civil3DBasico
             // inicio y fin del perfil de la app: el recorrido se corta ahí (sin fin = completo, como siempre)
             PerfilGrafoCivil.LimiteIni = fin.HasValue ? semilla : (Point2d?)null;
             PerfilGrafoCivil.LimiteFin = fin;
-            try { return Ejecutar(ctx, () => { ctx.PuntoInsercion = insercion; return true; }); }
+            try { return Ejecutar(ctx, () => { ctx.PuntoInsercion = insercion; ctx.InsercionArriba = true; return true; }); }
             finally { PerfilGrafoCivil.LimiteIni = PerfilGrafoCivil.LimiteFin = null; }
         }
 
@@ -142,11 +145,11 @@ namespace Civil3DBasico
         // ------------------------------------------------------------ fases (C4)
 
         /// <summary>G.0: doc/ed/db/civDoc, PerfilLog.Iniciar, S (DrawingScale válido 0 &lt; S ≤ 1000; si no 20 con aviso) y unidades.</summary>
-        private static ContextoPerfil Preparar()
+        private static ContextoPerfil Preparar(string nombre = null)
         {
             Document doc = Application.DocumentManager.MdiActiveDocument;
             if (doc == null) return null;
-            PerfilLog.Iniciar();
+            PerfilLog.Iniciar(nombre);
             var ctx = new ContextoPerfil { Doc = doc, Ed = doc.Editor, Db = doc.Database, CivDoc = CivilApplication.ActiveDocument };
             try
             {
@@ -379,6 +382,20 @@ namespace Civil3DBasico
                 Flush(ctx.Doc);
                 PerfilLog.Log("CORRECCION", $"iteración {it + 1}: {fuera} etiqueta(s) movidas");
                 if (fuera == 0) break;
+            }
+            // despeje con las medidas reales: los destinos de G.11 pueden pisarse o salir del marco (2026-11-08)
+            for (int it = 0; it < 2; it++)
+            {
+                int n = 0;
+                using (Transaction tr = ctx.Db.TransactionManager.StartTransaction())
+                {
+                    foreach (var h in ctx.Hojas.Where(h => !h.PvId.IsNull && h.Final != null))
+                        n += PerfilMaquetacion.Despejar(tr, ctx, h);
+                    tr.Commit();
+                }
+                Flush(ctx.Doc);
+                PerfilLog.Log("DESPEJE", $"vuelta {it + 1}: {n} rótulo(s) movidos");
+                if (n == 0) break;
             }
         }
 

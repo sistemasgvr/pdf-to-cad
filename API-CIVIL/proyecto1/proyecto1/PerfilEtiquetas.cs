@@ -39,13 +39,18 @@ namespace Civil3DBasico
         /// H.3 (T0): callouts de los nodos del recorrido (inicio/fin, tee, wye, cruz, codo, reducción, deflexión, quiebre, estructura),
         /// con franja/prioridad/flags de la tabla H.3, ancla (corona/fondo/rim; presión: extremo de tubo más cercano) y Lineas saneadas.
         /// </summary>
+        /// <summary>Curva de un conducto/gravedad hasta este largo (ft): sus dos puntas llevan UN rótulo.</summary>
+        internal const double CURVA_UNIR_FT = 2.0;
+
         internal static List<Callout> ArmarCallouts(Transaction tr, ContextoPerfil ctx)
         {
             var r = new List<Callout>();
             var rec = ctx.Rec; var red = ctx.Red;
             bool grav = red.Tipo == TipoRed.Gravedad, pres = red.Tipo == TipoRed.Presion;
+            var unidos = new HashSet<int>();          // nodos cuyo rótulo ya va con el del nodo anterior (curva corta)
             for (int i = 0; i < rec.Nodos.Count; i++)
             {
+                if (unidos.Contains(i)) continue;
                 try
                 {
                     int nd = rec.Nodos[i]; var n = red.Nodos[nd];
@@ -79,6 +84,27 @@ namespace Civil3DBasico
                         double d = PerfilRecorrido.Deflexion(llegada, salida); dh = double.IsNaN(d) ? 0 : d;
                         dv = PerfilRecorrido.DeflexionVertical(PerfilRecorrido.Pendiente(pin.ZIni, pin.ZFin, pin.Tramo.Longitud2D),
                                                                PerfilRecorrido.Pendiente(pout.ZIni, pout.ZFin, pout.Tramo.Longitud2D));
+                    }
+                    // CURVA CORTA de un conducto/gravedad (≤ CURVA_UNIR_FT): un solo rótulo en su medio con el ángulo entre
+                    // el tramo de antes y el de después, como la app (un quiebre = un vértice). Antes salían dos rótulos
+                    // casi encimados con la mitad del ángulo cada uno («1+58.80 6.2°» y «1+59.38 6.3°», 2026-11-09).
+                    if (!pres && pin != null && pout != null && i + 2 < rec.Nodos.Count && pout.Tramo.Curva
+                        && pout.Tramo.Longitud2D <= CURVA_UNIR_FT && n.Tipo != TipoNodo.Estructura && ramales.Count == 0)
+                    {
+                        int nd2 = rec.Nodos[i + 1]; var n2 = red.Nodos[nd2]; var pnext = rec.Pasos[i + 1];
+                        bool ramal2 = rec.Ramales.TryGetValue(nd2, out var r2) && r2.Count > 0;
+                        if (n2.Tipo != TipoNodo.Estructura && !ramal2)
+                        {
+                            var ein = red.GAristas[pin.Tramo.Id]; var enx = red.GAristas[pnext.Tramo.Id];
+                            V2 llegada = (ein.A == nd ? ein.DirSalidaA : ein.DirSalidaB) * -1.0;
+                            V2 salida = enx.A == nd2 ? enx.DirSalidaA : enx.DirSalidaB;
+                            double d = PerfilRecorrido.Deflexion(llegada, salida); dh = double.IsNaN(d) ? 0 : d;
+                            dv = PerfilRecorrido.DeflexionVertical(PerfilRecorrido.Pendiente(pin.ZIni, pin.ZFin, pin.Tramo.Longitud2D),
+                                                                   PerfilRecorrido.Pendiente(pnext.ZIni, pnext.ZFin, pnext.Tramo.Longitud2D));
+                            est = estA = (est + rec.EstNodo[nd2]) / 2.0;
+                            top = PerfilEje.Corona(rec, est); fondo = PerfilEje.Fondo(rec, est);
+                            unidos.Add(i + 1);
+                        }
                     }
                     bool vertical = dv > dh;
                     if (double.IsNaN(ang)) ang = Math.Max(dh, dv);

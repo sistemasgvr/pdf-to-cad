@@ -10,6 +10,8 @@ from ui.ventana.ventana_comun import *  # noqa: F401,F403  (mismos nombres que a
 class ModosMixin:
     # ─────────────────────────── Estado / modos ───────────────────────────
     def _on_enter(self):
+        if self._perfil_ab_tecla(True):                # eligiendo A/B del perfil: se queda el recorrido de ahora
+            return
         # Enter termina lo que se está dibujando; sin nada en curso (otro Enter), sale del modo.
         en_curso = {"pipe": self.cur_pts, "erase": self._erase_pts, "centerline": self._cl_pts}
         if self.mode in en_curso and not en_curso[self.mode]:
@@ -23,6 +25,8 @@ class ModosMixin:
             self.set_mode("idle"); self._info(_tr("Edición terminada (Enter)"))
 
     def _on_escape(self):
+        if self._perfil_ab_tecla(False):
+            return
         if self.mode == "pipe" and self.cur_pts:
             self._push(); self.cur_pts = []; self._extending = False; self._ext_pipe = None; self._ext_at = None
             self._update_ui(); self._redraw(); self._info(_tr("Puntos cancelados"))

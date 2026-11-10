@@ -23,6 +23,10 @@ class ClicsMixin:
         # abre el diálogo de aprobación para conectar con válvula. Tiene
         # prioridad sobre cualquier otro modo — el usuario no debe estar
         # esperando resolver un conflicto y que el click empiece a dibujar.
+        # Perfil esperando el inicio A o el fin B: el clic va DIRECTO al perfil, con el punto del imán (antes un
+        # buzón o un accesorio bajo el clic se elegía y A/B quedaba pendiente hasta otro redibujo; 2026-11-09).
+        if button == QtCore.Qt.LeftButton and self.mode == "idle" and self._perfil_clic_directo(x, y):
+            return
         # Clic en un accesorio (codo/Tee/Wye/cruz/válvula) → se elige en Inventario «Accesorios» (2026-11-06). Antes
         # que las marcas de cruce: en una Tee la marca solo decía «Unión en Civil 3D».
         if button == QtCore.Qt.LeftButton and self.mode == "idle"                 and not (QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ControlModifier)                 and self._elegir_accesorio_en(x, y):

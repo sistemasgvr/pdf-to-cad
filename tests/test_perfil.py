@@ -1,5 +1,7 @@
 """Perfil longitudinal en la app (pedido del usuario 2026-10-31): recorrido como el plugin (CREAR_PERFIL_RED),
 estaciones, rótulos y cruces."""
+import math
+
 import pytest
 
 from nucleo import perfil_datos as PD, perfil_recorrido as PR, perfil_textos as T
@@ -34,8 +36,8 @@ def test_recorrido_sigue_de_frente_y_no_toma_el_ramal():
     # presión: empieza al OESTE
     assert rec.grafo.nodos[rec.nodos[0]][0] == pytest.approx(1000)
     perfil = PD.armar(pipes, [], [], rec, FT)
-    assert perfil.e_ini == pytest.approx(100.0)
-    assert perfil.e_fin == pytest.approx(100 + 100 + ((1000 ** 2 + 364 ** 2) ** 0.5) * FT)
+    assert perfil.e_ini == pytest.approx(0.0)                 # 0+00: la estación real del inicio del eje
+    assert perfil.e_fin == pytest.approx(100 + ((1000 ** 2 + 364 ** 2) ** 0.5) * FT)
     assert perfil.pasos[0].z0 == pytest.approx(-4.0)
     # el ramal del agua parte la principal en 1500 (T)
     assert any(abs(n.x - 1500) < 1e-6 for n in perfil.nodos)
@@ -163,18 +165,14 @@ def test_ux_sincronia_detalle_barra_y_corte(win):
     v.grab()
     # plano → perfil: el ratón sobre la tubería marca su estación
     win._perfil_raton(1200, 501)
-    assert v._cursor_e == pytest.approx(100 + 200 * FT)
+    assert v._cursor_e == pytest.approx(200 * FT)            # desde 0+00
     win._perfil_raton(1200, 900)
     assert v._cursor_e is None
     # perfil → plano: un punto en el plano
-    win._perfil_marcar_estacion(150.0)
+    win._perfil_marcar_estacion(50.0)                       # 0+50 = 500 px desde el inicio (1000)
     assert win._perfil_marca.isVisible() and win._perfil_marca.pos().x() == pytest.approx(1500)
     win._perfil_marcar_estacion(float("nan"))
     assert not win._perfil_marca.isVisible()
-    # nivel de detalle: básico = una línea por callout
-    n = next(n for n in d.nodos if len(n.lineas) > 1)
-    v.set_detalle("basico")
-    assert len(v.lineas(n.lineas)) == 1 and v.lineas(n.lineas)[0] == n.lineas[1]
     v.grab()
     # barra de datos y teclado (Inicio / Fin / ← →)
     QtWidgets.QApplication.sendEvent(v, QtGui.QKeyEvent(QtCore.QEvent.KeyPress, QtCore.Qt.Key_End,
@@ -229,13 +227,13 @@ def test_edicion_precisa_y_alertas_en_la_ventana(win):
     assert not win.btn_perfil_alertas.isHidden() and v.alertas
     a = win.perfil_siguiente_alerta()
     assert a is not None and "Diámetro" in win.lbl_perfil_datos.text()
-    v.resize(900, 320); v.grab()
+    v.grab()                                               # a su tamaño natural
     # pasar el ratón por todo el perfil (nodos y alertas con su globo): antes, sobre un nodo con texto,
     # «'float' object has no attribute 'globalPosition'» (la estación pisaba al evento)
     from PySide6 import QtCore, QtGui
     globos = []
-    for x in range(0, 900, 4):
-        for y in range(0, 320, 8):
+    for x in range(0, v.width(), 4):
+        for y in range(0, v.height(), 8):
             p = QtCore.QPointF(x, y)
             ev = QtGui.QMouseEvent(QtCore.QEvent.MouseMove, p, v.mapToGlobal(p), QtCore.Qt.NoButton,
                                    QtCore.Qt.NoButton, QtCore.Qt.NoModifier)
@@ -243,6 +241,12 @@ def test_edicion_precisa_y_alertas_en_la_ventana(win):
             if v._hover >= 0:
                 globos.append(v._hover)
     assert globos                                          # pasó por algún nodo
+    # globo con PRIORIDAD: sobre el «!» solo el texto de su alerta; justo encima de él (misma estación), no la alerta
+    c, lst = v._marcas_alerta()[0]
+    assert v._texto_globo(c) == "\n".join("• " + x.mensaje for x in lst)
+    assert "Diámetro" not in v._texto_globo(QtCore.QPointF(c.x(), c.y() - 60))
+    ev = QtGui.QHelpEvent(QtCore.QEvent.ToolTip, c.toPoint(), v.mapToGlobal(c.toPoint()))
+    assert v.event(ev)                                     # el globo de Qt también lo resuelve la vista
 
 
 def test_dxf_lleva_inicio_y_fin(win):
@@ -291,3 +295,292 @@ def test_en_el_ramal_la_t_dice_el_principal_y_vuelve(win):
     assert kt in win.perfil_vista.con_ramal and "Ramal de" in win.lbl_perfil.text()
     win.perfil_ramal(kt)                                   # clic en la T de origen = volver
     assert {p.pipe for p in win._perfil_datos.pasos} == {0, 1}
+
+
+def test_inicio_a_y_fin_b_con_dos_clics(win):
+    """Elegir el tramo: «① clic donde EMPIEZA (A)» → «② clic donde TERMINA (B)»; el perfil va de A a B, con
+    banderas A/B en el plano; «⇄» lo invierte; Esc deja el de ahora (pedido del usuario 2026-11-06)."""
+    from PySide6 import QtWidgets
+    win.abrir_perfil()
+    assert win._perfil_paso == "a" and not win.lbl_perfil_guia.isHidden()
+    win._pick(2500, 682); win._redraw()                    # A: en la 2.ª utilidad de la principal (al este)
+    assert win._perfil_paso == "b" and win._perfil_rec is not None   # vista previa automática mientras tanto
+    win._pick(1200, 500); win._redraw()                    # B: al oeste
+    d = win._perfil_datos
+    assert win._perfil_paso is None and win.lbl_perfil_guia.isHidden()
+    assert d.pasos[0].pipe == 1 and d.pasos[-1].pipe == 0  # las estaciones empiezan en A
+    assert win.btn_perfil_ab["a"].text().startswith("A") and win.btn_perfil_ab["b"].text().startswith("B")
+    banderas = [it for it in win._perfil_resalte if isinstance(it, QtWidgets.QGraphicsItemGroup)]
+    assert len(banderas) == 2
+    assert banderas[0].pos().x() > banderas[1].pos().x()   # A al este, B al oeste
+    assert win.perfil_invertir() and win._perfil_datos.pasos[0].pipe == 0
+    win._perfil_refrescar()                                # rehacer desde las anclas respeta el sentido
+    assert win._perfil_datos.pasos[0].pipe == 0
+    win.perfil_elegir("mover_b")
+    win._on_escape()
+    assert win._perfil_paso is None and win._perfil_datos.pasos[0].pipe == 0
+
+
+def test_pista_con_iman_nuevo_y_limpiar(win):
+    """Eligiendo A o B, el ratón muestra dónde caerá el clic (imán a la tubería, verde; otra red, roja);
+    «Nuevo perfil» y «Limpiar» dejan el panel en blanco pidiendo A (pedido del usuario 2026-11-06)."""
+    win.abrir_perfil()
+    assert win.perfil_area.widget() is win.perfil_vista              # el perfil va en un área con barras
+    r = win._perfil_pista(1200, 503)                                  # 3 px al lado de la principal
+    assert r is not None and r[0] == 0 and r[1][1] == pytest.approx(500)
+    assert win._perfil_pista_items and win._perfil_pista_items[0].pos().y() == pytest.approx(500)
+    assert win._perfil_pista(1200, 900) is None and not win._perfil_pista_items   # lejos: nada
+    win._pick(1200, 500); win._redraw()                               # A
+    r = win._perfil_pista(2500, 300)                                  # la línea de GAS: otra red
+    assert r is not None and r[0] == 3
+    win.perfil_elegir(None)
+    assert win._perfil_pista(1200, 503) is None                       # sin elegir A/B no hay pista
+    win.perfil_limpiar()
+    assert win._perfil_rec is None and win._perfil_datos is None and win._perfil_paso == "a"
+    win._pick(1200, 500); win._redraw(); win._pick(2500, 682); win._redraw()
+    assert win._perfil_datos is not None
+    win.perfil_guardar("X")
+    win.perfil_nuevo()
+    assert win._perfil_rec is None and win._perfil_paso == "a" and win._perfil_nombre is None
+    assert [p["nombre"] for p in win.perfiles] == ["X"]                # los guardados no se tocan
+
+
+def test_perfil_guardado_abre_desde_su_inicio_a(win):
+    """Un perfil guardado vuelve a empezar en su A (`ini`), igual que en Civil 3D, aunque la regla automática
+    (oeste/sur) diga lo contrario (reporte 2026-11-07: «Agua-1-pp» salía al revés en Civil 3D)."""
+    win.abrir_perfil()
+    win._pick(2500, 682); win._redraw()                    # A al este
+    win._pick(1200, 500); win._redraw()                    # B al oeste
+    assert win._perfil_datos.pasos[0].pipe == 1
+    win.perfil_guardar("E-O")
+    win.perfil_nuevo()
+    assert win.perfil_abrir(0)
+    assert win._perfil_datos.pasos[0].pipe == 1 and win._perfil_datos.pasos[-1].pipe == 0
+
+
+def test_arrastrar_la_bandera_b_cambia_solo_el_fin(win):
+    """Las banderas A/B del plano se arrastran (pedido del usuario 2026-11-08): soltar B sobre otro tramo de la
+    red corta el perfil ahí; A no se mueve. Soltarla fuera de una tubería no cambia nada."""
+    win.abrir_perfil()
+    win._pick(2500, 682); win._redraw(); win._pick(1200, 500); win._redraw()
+    d = win._perfil_datos
+    n0, largo0, a0 = len(d.pasos), d.e_fin - d.e_ini, d.pasos[0].p0
+    b = d.pasos[-1].p1
+    assert not win._perfil_agarra_bandera(b[0] + 500, b[1])           # lejos de la bandera: no agarra
+    assert win._perfil_agarra_bandera(b[0] + 0.5, b[1]) and win._perfil_paso == "mover_b"
+    assert not win._perfil_soltar_bandera(1700, 900)                   # fuera de una tubería: nada cambia
+    assert win._perfil_paso is None and len(win._perfil_datos.pasos) == n0
+    assert win._perfil_agarra_bandera(b[0], b[1])
+    assert win._perfil_soltar_bandera(1700, 501)                       # sobre el tramo 1500–2000 de la principal
+    d = win._perfil_datos
+    assert len(d.pasos) == n0 - 1 and d.e_fin - d.e_ini < largo0
+    assert d.pasos[0].p0 == pytest.approx(a0)                           # A sigue donde estaba
+
+
+
+def test_iman_de_a_y_b_pega_a_vertices_y_el_perfil_empieza_en_el_nodo(win):
+    """Pedido 2026-11-08: el imán de A/B también pega a los vértices (y buzones, válvulas); A en un nodo = el perfil
+    empieza AHÍ (sin el tramo del otro lado)."""
+    win.abrir_perfil()
+    win._pick(1200, 500); win._redraw()
+    win.perfil_elegir("a")
+    j, q, que = win._perfil_snap(2003, 502)                 # junto al vértice (2000, 500)
+    assert que == "vertice" and q == pytest.approx((2000, 500))
+    j, q, que = win._perfil_snap(1800, 503)                 # en medio del tramo: sobre la tubería
+    assert que == "tuberia" and q[1] == pytest.approx(500)
+    win.perfil_elegir(None)
+    con_nodo = win._rec_de_anclas([0, 2000.0, 500.0], [1, 2500.0, 682.0])
+    en_medio = win._rec_de_anclas([0, 1800.0, 500.0], [1, 2500.0, 682.0])
+    assert len(con_nodo.pasos) == len(en_medio.pasos) - 1  # A en el vértice: sin el tramo 1500–2000
+
+
+def _alcantarillado():
+    # baja de oeste a este: -9 → -10 → -11 (el fluido va al ESTE), con buzones en los vértices
+    return [dict(layer="ALCANTARILLADO", pts=[(200, 500), (1200, 500)], diam=8.0, inv_start=-9.0, inv_end=-10.0),
+            dict(layer="ALCANTARILLADO", pts=[(1200, 500), (2200, 500)], diam=8.0, inv_start=-10.0, inv_end=-11.0)]
+
+
+def test_clic_de_a_sobre_un_buzon_se_aplica_al_instante(win):
+    """Reporte 2026-11-09: con el imán, A caía en un BUZÓN; el clic elegía el buzón y el nuevo A quedaba pendiente
+    hasta otro redibujo (p. ej. cambiar una cota). Ahora el clic va directo al perfil."""
+    from PySide6 import QtCore
+    win.pipes = _alcantarillado()
+    win._refresh_lists(); win._redraw()
+    assert any(abs(s["x"] - 1200) < 1e-6 for s in win.structures)
+    win.abrir_perfil()
+    win.on_click(1700, 500, QtCore.Qt.LeftButton)              # A en la 2.ª utilidad
+    win.on_click(2100, 500, QtCore.Qt.LeftButton)              # B
+    assert win._perfil_paso is None and len(win._perfil_datos.pasos) == 1
+    win.btn_perfil_ab["a"].click()                            # nuevo A…
+    win.on_click(1205, 503, QtCore.Qt.LeftButton)              # …sobre el buzón de (1200, 500)
+    d = win._perfil_datos
+    assert win._perfil_paso is None and d.pasos[0].p0 == pytest.approx((1200, 500))
+    win.btn_perfil_ab["a"].click()
+    win.on_click(205, 500, QtCore.Qt.LeftButton)               # y en la punta oeste: dos tramos, sin otro redibujo
+    assert len(win._perfil_datos.pasos) == 2 and win._perfil_datos.pasos[0].p0 == pytest.approx((200, 500))
+
+
+def test_flujo_contrapendiente_no_depende_de_donde_esta_a():
+    """Pedido 2026-11-09: con A en la punta ALTA cada tramo salía «contrapendiente». El sentido del fluido es el de
+    la utilidad (`pipe["flujo"]`) o, automático, hacia el extremo más bajo del recorrido."""
+    from nucleo import flujo as FL, perfil_validar as PV
+    pipes = _alcantarillado()
+    rec = PR.desde(pipes, 0, 700, 500, FT)
+    for r in (rec, PR.invertir(rec)):                          # A abajo (este) o arriba (oeste): igual
+        perfil = PD.armar(pipes, [], [], r, FT)
+        assert all(p.flujo and not p.flujo_fijo for p in perfil.pasos)
+        assert not [a for a in PV.validar(perfil, [], None, 3.0) if a.clase == "contrapendiente"]
+    # el usuario dice que la 2.ª utilidad va al revés (del fin al inicio): ese tramo sube hacia donde va el fluido
+    FL.poner(pipes[1], FL.ATRAS)
+    perfil = PD.armar(pipes, [], [], PR.invertir(rec), FT)
+    paso = next(p for p in perfil.pasos if p.pipe == 1)
+    assert paso.flujo_fijo
+    al = [a for a in PV.validar(perfil, [], None, 3.0) if a.clase == "contrapendiente"]
+    assert len(al) == 1 and perfil.pasos[al[0].paso].pipe == 1
+    assert FL.poner(pipes[1], FL.AUTO) and "flujo" not in pipes[1]
+
+
+def test_flujo_al_unir_utilidades_sigue_igual():
+    from nucleo import flujo as FL, unir_utilidades as UU
+    p = dict(layer="DRENAJE", pts=[(0, 0), (10, 0)], flujo=FL.ADELANTE)
+    q = UU.invertir(p)
+    assert q["pts"][0] == (10, 0) and q["flujo"] == FL.ATRAS
+    assert FL.flechas_plano(q["pts"], q["flujo"])[0][2] == pytest.approx(0.0)   # sigue apuntando al este
+
+
+def test_flujo_en_propiedades_plano_y_perfil(win):
+    """La fila «Flujo» (solo gravedad) cambia el sentido con un paso de deshacer y pone flechas en el plano; en el
+    perfil, clic en la flecha = invertir esa utilidad y el menú lo hace con todo el perfil."""
+    from PySide6 import QtCore, QtWidgets
+    from nucleo import flujo as FL
+    win.pipes = _alcantarillado() + [dict(layer="AGUA", pts=[(200, 900), (1200, 900)], diam=8.0),
+                                     dict(layer="ELECTRICO", pts=[(200, 1200), (1200, 1200)], diam=4.0)]
+    win._refresh_lists(); win._redraw()
+    form = win.gprop.layout()
+    win.pipe_list.setCurrentRow(3)
+    assert not form.isRowVisible(win.box_flujo)                # eléctrico (conductos): no
+    assert not win.poner_flujo([3], FL.ADELANTE) and "flujo" not in win.pipes[3]
+    win.pipe_list.setCurrentRow(2)
+    assert form.isRowVisible(win.box_flujo)                    # agua (presión): sí
+    assert "presión" in win.btn_flujo[FL.AUTO].toolTip()
+    win.pipe_list.setCurrentRow(0)
+    assert form.isRowVisible(win.box_flujo) and win.btn_flujo[FL.AUTO].isChecked()
+    win.btn_flujo[FL.ATRAS].click()
+    assert win.pipes[0]["flujo"] == FL.ATRAS and win.btn_flujo[FL.ATRAS].isChecked()
+    flechas = [it for it in win._overlay if isinstance(it, QtWidgets.QGraphicsPathItem)
+               and it.flags() & QtWidgets.QGraphicsItem.ItemIgnoresTransformations]
+    assert len(flechas) == 2 and all(f.rotation() == pytest.approx(180.0) for f in flechas)   # círculo + flecha,
+    #                                                                              hacia el oeste
+    win.undo()
+    assert "flujo" not in win.pipes[0]
+    # perfil: A al oeste (punta alta), B al este
+    win.abrir_perfil()
+    win.perfil_nuevo()
+    win.on_click(300, 500, QtCore.Qt.LeftButton)
+    win.on_click(2100, 500, QtCore.Qt.LeftButton)
+    d = win._perfil_datos
+    assert [p.flujo for p in d.pasos] == [1, 1] and not win.perfil_vista.alertas
+    v = win.perfil_vista
+    v.resize(1200, 500); v._calcular()
+    (i, c, _a), = [f for f in v._flechas_flujo() if f[0] == 0]
+    assert "hacia B" in v._texto_globo(c)
+    v._clic_flujo(c)                                           # invertir la 1.ª utilidad
+    assert win.pipes[0]["flujo"] == FL.ATRAS and win._perfil_datos.pasos[0].flujo == -1
+    assert any(a.clase == "contrapendiente" for a in win.perfil_vista.alertas)
+    v.flujoCambiado.emit(0, 0, True)                           # «Todo el perfil: automático»
+    assert all("flujo" not in p for p in win.pipes)
+    v.flujoCambiado.emit(0, 1, True)                           # «Todo el perfil: hacia B»
+    assert [win.pipes[j].get("flujo") for j in (0, 1)] == [FL.ADELANTE, FL.ADELANTE]
+
+
+def test_menu_del_perfil_sin_extender_ni_acortar(win):
+    win.abrir_perfil()
+    win._pick(1200, 500); win._redraw()
+    win._perfil_lista()
+    textos = [a.text() for a in win.menu_perfil.actions()]
+    assert not any("Extender" in s or "Acortar" in s for s in textos)
+
+
+def test_flujo_en_presion_sin_indicar_y_con_un_clic(win):
+    """Pedido 2026-11-09: el sentido del flujo también en presión (agua, gas). Sin pendiente que lo diga, el
+    automático es «sin indicar» (doble flecha) y no hay contrapendiente; un clic lo pone hacia B."""
+    from PySide6 import QtCore
+    from nucleo import flujo as FL
+    win.pipes = [dict(layer="AGUA", pts=[(200, 500), (1200, 500)], diam=8.0, inv_start=-4.0, inv_end=-3.0),
+                 dict(layer="AGUA", pts=[(1200, 500), (2200, 500)], diam=8.0, inv_start=-3.0, inv_end=-2.0)]
+    win._refresh_lists(); win._redraw()
+    win.abrir_perfil()
+    win.perfil_nuevo()
+    win.on_click(300, 500, QtCore.Qt.LeftButton)
+    win.on_click(2100, 500, QtCore.Qt.LeftButton)
+    d = win._perfil_datos
+    assert d.tipo == "pressure" and [p.flujo for p in d.pasos] == [0, 0]
+    assert not any(a.clase == "contrapendiente" for a in win.perfil_vista.alertas)
+    v = win.perfil_vista
+    v.resize(1200, 500); v._calcular()
+    (i, c, _a), = [f for f in v._flechas_flujo() if f[0] == 0]
+    assert "sin indicar" in v._texto_globo(c)
+    v._clic_flujo(c)                                           # sin indicar → hacia B
+    paso = win._perfil_datos.pasos[0]
+    assert paso.flujo == 1 and paso.flujo_fijo
+    assert win.pipes[0]["flujo"] == FL.de_paso(1, paso.invertida)
+    v.flujoCambiado.emit(0, 0, True)                           # «Todo el perfil: sin indicar»
+    assert all("flujo" not in p for p in win.pipes)
+
+
+def _con_curva(x0=0.0, y0=0.0):
+    """Eléctrico en «L» (1000 px al este y 1000 px al sur) con una curva de 30 ft (300 px a 0.1 ft/px) en la esquina."""
+    pipes = [dict(layer="ELECTRICO", pts=[(x0, y0), (x0 + 1000, y0), (x0 + 1000, y0 + 1000)], diam=4.0,
+                  inv_start=-4.0, inv_end=-5.0)]
+    cv = {"x": x0 + 1000, "y": y0, "curve": True, "radius_ft": 30.0, "net": "conduit", "cod": "CV-1"}
+    centro = (x0 + 700, y0 + 300)
+    medio = (centro[0] + 300 * math.cos(-math.pi / 4), centro[1] + 300 * math.sin(-math.pi / 4))
+    return pipes, cv, centro, medio
+
+
+def test_perfil_sigue_la_curva_de_la_utilidad():
+    """Reporte 2026-11-10: el recorrido A→B iba por la ESQUINA de una curva. Ahora la traza en planta es la que se
+    dibuja (recto + arco + recto) y las estaciones se miden por la curva, como el eje de Civil 3D."""
+    pipes, cv, centro, medio = _con_curva()
+    g = PR.marcar_soleras(PR.construir_grafo(pipes, 0, FT), pipes)
+    rec = PR.entre(g, PR.arista_cerca(g, 500, 0, 0), PR.arista_cerca(g, 1000, 500, 0))   # de A a B por la curva
+    assert rec.grafo.nodos[rec.nodos[0]] == pytest.approx((0, 0))
+    sin = PD.armar(pipes, [], [], rec, FT)                     # sin curva: por la esquina, como siempre
+    assert sin.e_fin - sin.e_ini == pytest.approx(200.0) and not sin.pasos[0].traza
+    perfil = PD.armar(pipes, [cv], [], rec, FT)
+    real = (700 + 700 + math.pi / 2 * 300) * FT
+    assert perfil.e_fin - perfil.e_ini == pytest.approx(real)
+    e_medio = (700 + math.pi / 4 * 300) * FT
+    assert perfil.nodos[1].e == pytest.approx(e_medio)          # el nodo de la curva = el punto medio del arco
+    a, b = perfil.pasos
+    assert a.puntos[0] == pytest.approx((0, 0)) and a.puntos[-1] == pytest.approx(medio)
+    assert b.puntos[0] == pytest.approx(medio) and b.puntos[-1] == pytest.approx((1000, 1000))
+    for q in a.puntos + b.puntos:                               # sobre las rectas o sobre el arco, nunca la esquina
+        sobre_recta = abs(q[1]) < 1e-6 and q[0] <= 700 + 1e-6 or abs(q[0] - 1000) < 1e-6 and q[1] >= 300 - 1e-6
+        assert sobre_recta or math.dist(q, centro) == pytest.approx(300)
+    # plano ↔ perfil por la curva
+    assert a.proyectar(*medio)[1] == pytest.approx(e_medio) and a.punto_en(e_medio) == pytest.approx(medio)
+    assert a.e_en(0.5) == pytest.approx(50.0)                  # el recto, como antes
+    assert b.e_en(1.0) == pytest.approx(perfil.e_fin)
+
+
+def test_resalte_del_perfil_en_el_plano_sigue_la_curva(win):
+    from PySide6 import QtWidgets
+    pipes, cv, _centro, medio = _con_curva(200, 300)
+    win.pipes = pipes
+    win._refresh_lists()
+    win.structures.append(cv)
+    win._redraw()
+    from PySide6 import QtCore
+    win.abrir_perfil()
+    win.on_click(600, 300, QtCore.Qt.LeftButton)               # A antes de la curva
+    win.on_click(1200, 1000, QtCore.Qt.LeftButton)             # B después
+    d = win._perfil_datos
+    assert d is not None and len(d.pasos) == 2
+    camino = next(it for it in win._perfil_resalte if isinstance(it, QtWidgets.QGraphicsPathItem)).path()
+    pts = [(camino.elementAt(i).x, camino.elementAt(i).y) for i in range(camino.elementCount())]
+    assert any(math.dist(q, medio) < 1e-6 for q in pts)
+    assert all(math.dist(q, (1200, 300)) > 50 for q in pts)    # no pasa por la esquina
+    assert win._perfil_punto_nodo(d, 1) == pytest.approx(medio)
+    win._perfil_marcar_estacion(d.nodos[1].e)
+    assert (win._perfil_marca.pos().x(), win._perfil_marca.pos().y()) == pytest.approx(medio)

@@ -184,6 +184,26 @@ internal static class Program
         Chequear(!a8[1].Valida, "R8 arista degenerada no válida");
         Igual(Ids(PerfilRecorrido.Recorrer(n8, a8, 0)), "0,2", "R8 recorrido salta la degenerada");
         Chequear(PerfilRecorrido.Recorrer(n8, a8, 1).Count == 0, "R9 vertical elegida → vacío");
+        // R15: inicio A y fin B (la app los une por el camino de la red aunque el automático se pare)
+        Igual(Ids(PerfilRecorridoEntre.Entre(n2, a2, 0, 1)), "0,1", "R15 entre A y B cruza el empate");
+        Igual(Ids(PerfilRecorridoEntre.Entre(n3, a3, 1, 0)), "1,0", "R15 entre B y A con giro de 50°");
+        var r15 = PerfilRecorridoEntre.Entre(n1, a1, 0, 3);
+        Igual(Ids(r15), "0,1,3", "R15 entre por el ramal");
+        Chequear(!r15[0].Invertida && !r15[2].Invertida, "R15 sentido de A a B");
+        var (n16, a16) = Grafo(new[] { (0.0, 0.0), (10.0, 0.0), (50.0, 0.0), (60.0, 0.0) }, new[] { (0, 1), (2, 3) });
+        Chequear(PerfilRecorridoEntre.Entre(n16, a16, 0, 1).Count == 0, "R16 sin camino → vacío");
+        // R17: despeje final de rótulos medidos (solapes y fuera del marco)
+        Caja K(string id, double x0, double y0, double x1, double y1) => new Caja { Id = id, X0 = x0, Y0 = y0, X1 = x1, Y1 = y1 };
+        var d1 = PerfilDisenoDespeje.Despejar(new List<Caja> { K("N3", 1, 1, 2, 1.5), K("N4", 1.5, 1, 2.5, 1.5) }, 10, 3);
+        Chequear(!d1.ContainsKey("N3") && d1.ContainsKey("N4") && Cerca(d1["N4"].dx, 0.54, 1e-9) && Cerca(d1["N4"].dy, 0), "R17 solape → a la derecha");
+        var d2 = PerfilDisenoDespeje.Despejar(new List<Caja> { K("T0", 2, 2.8, 3, 3.2) }, 10, 3);
+        Chequear(d2.ContainsKey("T0") && Cerca(d2["T0"].dy, -0.3, 1e-9), "R17 fuera del marco → adentro");
+        var d3 = PerfilDisenoDespeje.Despejar(new List<Caja> { K("A", 0.1, 0.5, 1.9, 1), K("B", 0.1, 0.5, 1.9, 1) }, 2, 3);
+        Chequear(d3.Count == 1 && d3.Values.First().dy > 0.5 - 1e-9, "R17 sin ancho → encima");
+        Chequear(PerfilDiseno.Solapes(new List<Caja> { K("A", 0.1, 0.5, 1.9, 1), K("B", 0.1, 1.54, 1.9, 2.04) }).Count == 0, "R17 ya no se pisan");
+        Chequear(PerfilDisenoDespeje.Despejar(new List<Caja> { K("A", 1, 1, 2, 2), K("B", 3, 1, 4, 2) }, 10, 3).Count == 0, "R17 sin problemas no mueve");
+        var tr16 = new List<(double, double, double, double, bool)> { (0, 0, 10, 0, true), (0, 1, 10, 1, true) };
+        Chequear(PerfilRecorridoEntre.MasCercana(tr16, 5, 0.9, 2) == 1 && PerfilRecorridoEntre.MasCercana(tr16, 5, 9, 2) == -1, "R16 tramo más cercano");
         var cA = new CandidatoAccesorio { Id = 1, X = 1.5, Y = 0, Z = 100, Red = "CROSS-CONNECTS", DiamPrincipalFt = double.NaN, LargoTotalFt = double.NaN };
         var cB = new CandidatoAccesorio { Id = 2, X = 1.5, Y = 0, Z = 106, Red = "RED-AGUA", DiamPrincipalFt = double.NaN, LargoTotalFt = double.NaN };
         Chequear(PerfilRecorrido.ElegirAccesorio(0, 0, 100, new V2(1, 0), 0.667, new[] { cA, cB }, "RED-AGUA") == 1, "R10 filtro dz");
@@ -449,9 +469,9 @@ internal static class Program
     static void Valvulas()
     {
         void V(double n, string union, string bloque, double largo, double od, int piezas, double suma, bool estimada)
+            => VR(ValvulaReceta.Receta(n, union), $"Válvula {n} {union}", bloque, largo, od, piezas, suma, estimada);
+        void VR(RecetaValvula r, string c, string bloque, double largo, double od, int piezas, double suma, bool estimada)
         {
-            var r = ValvulaReceta.Receta(n, union);
-            string c = $"Válvula {n} {union}";
             Igual(r.Bloque, bloque, c + " bloque");
             Num(r.Largo, largo, c + " largo", 1e-9);
             Num(r.OdExtremo, od, c + " OD extremo", 1e-9);

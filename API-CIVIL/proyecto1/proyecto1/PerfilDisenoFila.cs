@@ -210,14 +210,14 @@ namespace Civil3DBasico
             if (end - mAnt > 1e-9 && end - mAnt < Lim(end))
             {
                 double n = RedondearArriba(mAnt + 0.6 * s, REDONDEO_EST);
-                if (!double.IsInfinity(estMax) && n > estMax) n = RedondearAbajo(estMax, REDONDEO_EST);
+                if (!double.IsInfinity(estMax) && n > estMax) n = estMax;       // el límite del eje, exacto (2026-11-09)
                 if (n > end) end = n;
             }
             double mSig = Math.Ceiling(start / estMayor - 1e-9) * estMayor;
             if (mSig - start > 1e-9 && mSig - start < Lim(start))
             {
                 double n = RedondearAbajo(mSig - 0.6 * s, REDONDEO_EST);
-                if (!double.IsInfinity(estMin) && n < estMin) n = RedondearArriba(estMin, REDONDEO_EST);
+                if (!double.IsInfinity(estMin) && n < estMin) n = estMin;       // el límite del eje, exacto (2026-11-09)
                 if (n < start) start = n;
             }
         }

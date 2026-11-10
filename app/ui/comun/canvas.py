@@ -210,6 +210,9 @@ class Canvas(QtWidgets.QGraphicsView):
         sp = self.mapToScene(e.position().toPoint())
         if self.win.mode == "move" and e.button() == QtCore.Qt.LeftButton:
             self._moving = True; self.win.begin_move(sp.x(), sp.y()); return
+        agarra = getattr(self.win, "_perfil_agarra_bandera", None)      # bandera A/B del perfil: arrastrarla
+        if e.button() == QtCore.Qt.LeftButton and agarra is not None and agarra(sp.x(), sp.y()):
+            self._bandera = True; self.setCursor(QtCore.Qt.ClosedHandCursor); return
         if e.button() in (QtCore.Qt.LeftButton, QtCore.Qt.RightButton):
             self.clicked.emit(sp.x(), sp.y(), e.button()); return
         super().mousePressEvent(e)
@@ -223,6 +226,8 @@ class Canvas(QtWidgets.QGraphicsView):
             self.verticalScrollBar().setValue(int(self.verticalScrollBar().value() - d.y())); return
         if self._moving:
             sp = self.mapToScene(e.position().toPoint()); self.win.do_move(sp.x(), sp.y()); return
+        if getattr(self, "_bandera", False):
+            return                                    # la pista con imán la pone `moved` (_perfil_raton)
         super().mouseMoveEvent(e)
 
     def mouseReleaseEvent(self, e):
@@ -231,6 +236,9 @@ class Canvas(QtWidgets.QGraphicsView):
             self._pan = False; self.setCursor(QtCore.Qt.ArrowCursor); return
         if self._moving and e.button() == QtCore.Qt.LeftButton:
             self._moving = False; self.win.end_move(); return
+        if getattr(self, "_bandera", False) and e.button() == QtCore.Qt.LeftButton:
+            self._bandera = False; self.setCursor(QtCore.Qt.ArrowCursor)
+            sp = self.mapToScene(e.position().toPoint()); self.win._perfil_soltar_bandera(sp.x(), sp.y()); return
         super().mouseReleaseEvent(e)
 
     def mouseDoubleClickEvent(self, e):

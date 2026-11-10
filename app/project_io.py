@@ -80,6 +80,9 @@ def build_model_dict(win):
     if getattr(win, "anotaciones", None):
         model["anotaciones"] = list(win.anotaciones)
     canvas = getattr(win, "canvas", None)
+    if canvas is not None:   # opacidad del PDF y fondo detrás (blanco/negro): se reponen al abrir
+        model["pdf_opacidad"] = round(float(getattr(canvas, "pdf_opacity", 1.0)), 3)
+        model["pdf_fondo_negro"] = bool(canvas.pdf_bg_color.value() < 128)
     escala = float(getattr(canvas, "fondo_escala", 1.0) or 1.0)
     if escala < 1.0:
         model["fondo_escala"] = escala
@@ -162,6 +165,8 @@ def parse_model(model):
                      else None),
         fondo_apagado=bool(model.get("fondo_apagado", False)),
         capas_apagadas=[str(c) for c in model.get("capas_apagadas") or ()],
+        pdf_opacidad=model.get("pdf_opacidad"),          # None = proyecto viejo: no se toca
+        pdf_fondo_negro=model.get("pdf_fondo_negro"),
         anotaciones=_anotaciones(model.get("anotaciones")),   # retrocompat: sin rótulos reconocidos
     )
 
