@@ -410,7 +410,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             if tmp and tmp != self.__dict__.get("_tmp_pdf") and os.path.isfile(tmp):
                 try: os.remove(tmp)
                 except Exception: pass
-            self._ia_soltar()
+            self._ia_soltar(); self._cerrar_vista3d()
             return
         # cancelado antes de importar: el editor como estaba (sin la hoja del PDF nuevo)
         self._soltar_pasos()
@@ -465,7 +465,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             self.doc = None
             self.pdf_path = None
             self.project_path = None
-            self._ia_soltar()
+            self._ia_soltar(); self._cerrar_vista3d()
             self.work_pdf_path = None
             self.src_pdfs = []
             self.composite = None
@@ -1757,7 +1757,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
                 self.src_pdfs = []
             self.project_path = path
             self._anotar_reciente(path)              # 2.0.0: «Recientes» (no las copias de recuperación)
-            self._ia_soltar()
+            self._ia_soltar(); self._cerrar_vista3d()
             self.sheet_external_pdfs = external_pdfs
             self.sheet_sources = data.get("sheet_sources") or (
                 [{"name": model.get("pdf_name") or "PDF principal",
@@ -1952,7 +1952,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         self._cleanup_tmp_pdf()
         self.canvas.scene().clear(); self.canvas.pixmap_item = None; self.canvas.pdf_bg_item = None
         self.pdf_path = None; self.doc = None; self.project_path = None; self.gray = None; self._update_title()
-        self._ia_soltar()
+        self._ia_soltar(); self._cerrar_vista3d()
         self.blank_canvas = False; self.paper = None
         self.sheet_layout = None
         self.sheet_rotations = {}
