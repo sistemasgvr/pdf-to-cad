@@ -152,7 +152,7 @@ class ShellMixin:
         mb.setVisible(False)
         for k, fn in (("Ctrl+K", self.abrir_paleta), ("Ctrl+Shift+I", lambda: self.mostrar_asistente(True))):
             QtGui.QShortcut(QtGui.QKeySequence(k), self, activated=fn)
-        _theme.THEME_BUS.changed.connect(lambda _n: self._estilo_shell())
+        _theme.al_tema(self, lambda _n: self._estilo_shell())
         self._estilo_shell()
         self._ir_riel(0)
         self._actualizar_barra_superior()

@@ -12,6 +12,8 @@
     <AssemblyName>PdfCadMcp</AssemblyName>
     <RootNamespace>PdfCadMcp</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- En el instalador va junto a la app; corre con el .NET que traiga Civil 3D (8 en 2025/2026, 10 en 2027). -->
+    <RollForward>Major</RollForward>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\proyecto1\Mcp\Contratos\McpProtocolo.cs" Link="Contratos\McpProtocolo.cs" />

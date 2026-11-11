@@ -217,3 +217,28 @@ def test_preguntas_de_replica_sobre_la_regla(tmp_path):
         v.setCurrentCell(fila + 1, 0)                                         # otra regla: conversación nueva
         assert p._conv == [] and "Tú:" not in p.texto.toPlainText()
         w._dirty = False
+
+
+def test_panel_de_conflictos_se_pone_al_dia_si_se_armo_antes_del_calculo(tmp_path):
+    """Reporte 2026-11-11 (instalador): el panel «Conflictos» se armó antes del primer redibujo del proyecto y
+    mostraba «0 totales» con todo el registro como «resuelto». Ahora se rehace cuando cambian los conflictos."""
+    from PySide6 import QtWidgets
+    from ui.dialogos.ia_soluciones import SolucionesDialog
+    w = _ventana(tmp_path)
+    vigentes = [c.id for c in w._conflictos]
+    assert vigentes
+    guardados = w._conflictos
+    w._conflictos = []                                   # como si el panel naciera antes del cálculo
+    dlg = w._dlg_soluciones = SolucionesDialog(w)
+    dlg.show()
+    QtWidgets.QApplication.processEvents()
+    assert dlg.lbl_total.text().startswith("0")
+    w._conflictos = guardados
+    w._numerar_conflictos()                              # la ventana recalcula: el panel se entera
+    for _ in range(5):
+        QtWidgets.QApplication.processEvents()
+    filas = [dlg.lista.item(k).data(0x0100) for k in range(dlg.lista.count())]
+    assert dlg.lbl_total.text().startswith(str(len(vigentes)))
+    assert all(v in filas for v in vigentes)
+    dlg.close()
+    w._dirty = False

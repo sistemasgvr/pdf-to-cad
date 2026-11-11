@@ -816,8 +816,17 @@ class GripSplitter(QtWidgets.QSplitter):
         self.setHandleWidth(handle_width)
         self.setChildrenCollapsible(False)
         self.setStyleSheet("QSplitter::handle { background: transparent; border: none; }")
-        _theme.THEME_BUS.changed.connect(lambda *_: [self.handle(i).update()
-                                                     for i in range(self.count())])
+        # Método del propio splitter (no una lambda): Qt lo desconecta solo cuando el splitter se borra.
+        # Con la lambda, cambiar el tema después de cerrar «Capas de la hoja» o la vista previa daba
+        # «Internal C++ object (GripSplitter) already deleted» (reporte 2026-11-11).
+        _theme.THEME_BUS.changed.connect(self._repintar_tiradores)
+
+    def _repintar_tiradores(self, *_):
+        import shiboken6
+        if not shiboken6.isValid(self):
+            return
+        for i in range(self.count()):
+            self.handle(i).update()
 
     def createHandle(self):
         return _GripHandle(self.orientation(), self)

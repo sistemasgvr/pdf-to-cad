@@ -46,6 +46,10 @@ Name: "desktopicon"; Description: "Crear acceso directo en el Escritorio"; Group
 ; --- App Python (exe standalone) ---
 Source: "..\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 
+; --- Conexion de la IA con Civil 3D (la app lanza {app}\PdfCadMcp\PdfCadMcp.exe) ---
+; Lo publica build_plugin.bat en installer\PdfCadMcp.
+Source: "PdfCadMcp\*"; DestDir: "{app}\PdfCadMcp"; Flags: ignoreversion recursesubdirs
+
 ; --- Plugin Civil 3D (bundle completo) ---
 ; Se instala en Program Files\Autodesk\ApplicationPlugins â€” ruta confiable de
 ; AutoCAD, se carga automÃ¡ticamente sin necesidad de tocar TRUSTEDPATHS.

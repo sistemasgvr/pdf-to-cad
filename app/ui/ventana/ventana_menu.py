@@ -78,7 +78,7 @@ class MenuMixin:
         self._refresh_theme_action_label()
         # Recomputa el texto cuando otro trigger cambie el tema (por si alguna vez
         # se agrega un atajo o un toggle desde otra parte).
-        _theme.THEME_BUS.changed.connect(lambda _: self._refresh_theme_action_label())
+        _theme.al_tema(self, lambda _: self._refresh_theme_action_label())
         mview.addSeparator()
         # Toggle checkable: mostrar/ocultar las marcas de cruce y de conflicto
         # (círculos amarillos ⓘ = cruces sanos con distinta cota; círculos

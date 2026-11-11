@@ -649,7 +649,7 @@ class GeorefDialog(QtWidgets.QDialog):
                                      "más puntos bien repartidos mejoran el ajuste (RMSE)."))
         self.hint.setWordWrap(True)
         self._restyle_hint()   # color según tema (text_info, con contraste en claro y oscuro)
-        _theme.THEME_BUS.changed.connect(lambda *_: self._restyle_hint())
+        _theme.al_tema(self, lambda *_: self._restyle_hint())
 
         rmse_tip = _tr("RMSE (Root Mean Square Error / error cuadrático medio): el error PROMEDIO, en pies, "
                    "entre cada punto de control y donde el ajuste calculado lo ubica.\n\n"

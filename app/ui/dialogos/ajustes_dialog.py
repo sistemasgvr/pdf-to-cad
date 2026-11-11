@@ -65,7 +65,7 @@ class AjustesDialog(QtWidgets.QDialog):
         dl.addLayout(fila)
         lay.addWidget(der, 1)
         self.grupo.idClicked.connect(self.ir)
-        _theme.THEME_BUS.changed.connect(lambda _n: self._estilo())
+        _theme.al_tema(self, lambda _n: self._estilo())
         self._estilo()
         self.ir(seccion)
 

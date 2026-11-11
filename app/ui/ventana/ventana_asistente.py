@@ -56,7 +56,7 @@ class PanelAsistente(QtWidgets.QWidget):
             self.pila.addWidget(hueco)
         lay.addWidget(self.pila, 1)
         self.grupo.idClicked.connect(lambda i: self.preparar(PESTANAS[i]))
-        _theme.THEME_BUS.changed.connect(lambda _n: self._estilo())
+        _theme.al_tema(self, lambda _n: self._estilo())
         self._estilo()
 
     def _estilo(self):

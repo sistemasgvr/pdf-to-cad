@@ -91,7 +91,7 @@ def poner(win):
     win._colocador_flotantes = col
     win._flot_timer = QtCore.QTimer(win, interval=250, timeout=lambda: colocar(win))   # paneles, capas, vistas
     win._flot_timer.start()
-    _theme.THEME_BUS.changed.connect(lambda _n: estilo(win))
+    _theme.al_tema(win, lambda _n: estilo(win))
     estilo(win)
     refrescar(win)
 

@@ -206,7 +206,7 @@ class _FourSideEditor(QtWidgets.QFrame):
             s.valueChanged.connect(self._on_any_changed)
 
         # Retinta el icono del link al cambiar tema.
-        _theme.THEME_BUS.changed.connect(lambda *_: self._refresh_link_icon())
+        _theme.al_tema(self, lambda *_: self._refresh_link_icon())
 
     def _refresh_link_icon(self, *_):
         t = _theme.tokens()

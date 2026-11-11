@@ -82,7 +82,7 @@ class Tecla(QtWidgets.QLabel):
         super().__init__(txt)
         self.setObjectName("tecla")
         self._estilo()
-        _theme.THEME_BUS.changed.connect(lambda _n: self._estilo())
+        _theme.al_tema(self, lambda _n: self._estilo())
 
     def _estilo(self):
         t = _theme.tokens()
@@ -163,7 +163,7 @@ class FilaAccion(QtWidgets.QPushButton):
         elif fn is not None:
             self.clicked.connect(lambda: fn())
         self._estilo()
-        _theme.THEME_BUS.changed.connect(lambda _n: self._estilo())
+        _theme.al_tema(self, lambda _n: self._estilo())
 
     def _estilo(self):
         t = _theme.tokens()
@@ -263,7 +263,7 @@ def boton_icono(icono, tip_es, fn=None, checkable=False, px=18):
     b.setCheckable(checkable)
     b.setCursor(QtCore.Qt.PointingHandCursor)
     b._icono = icono
-    _theme.THEME_BUS.changed.connect(lambda _n: poner())
+    _theme.al_tema(b, lambda _n: poner())
     if fn is not None:
         b.clicked.connect(lambda: fn())
     return b

@@ -6,6 +6,12 @@ tests/test_i18n.py).
 """
 
 EN_CHANGELOG: dict[str, str] = {
+    'Asistente → Conflictos: si el panel se abría antes de que la app terminara de calcular los conflictos del proyecto, mostraba «0 totales» y todos como «resuelto». Ahora se pone al día solo cuando cambian los conflictos.':
+        'Assistant → Conflicts: if the panel opened before the app finished computing the project conflicts, it showed «0 total» and all of them as «resolved». Now it updates itself whenever the conflicts change.',
+    'Instalador: ahora incluye la conexión de la IA con Civil 3D (PdfCadMcp.exe); antes la pestaña «Civil 3D» del Asistente decía «No se encontró PdfCadMcp.exe» aunque PDFCAD_IA estuviera encendido en Civil 3D.':
+        'Installer: it now includes the AI connection with Civil 3D (PdfCadMcp.exe); before, the Assistant «Civil 3D» tab said «PdfCadMcp.exe was not found» even with PDFCAD_IA turned on in Civil 3D.',
+    'Cambiar entre modo claro y oscuro después de cerrar «Capas de la hoja», la vista previa del reconocimiento u otra ventana ya no muestra el error «Internal C++ object (GripSplitter) already deleted».':
+        'Switching between light and dark mode after closing «Sheet layers», the recognition preview or another window no longer shows the error «Internal C++ object (GripSplitter) already deleted».',
     'Chat de Civil 3D: responder a una propuesta con «sí, aplícalo» (u «ok», «dale», «confirmo») la aplica, igual que el botón; «no» la descarta; y una corrección («no, cámbialo a -10») descarta la anterior y la IA propone la nueva con su tarjeta. Antes la IA a veces solo escribía el cambio sin tarjeta y luego decía «Cambio aplicado» sin que nada cambiara en Civil 3D; ahora, si lo dice sin que se haya aplicado, la app lo aclara.':
         'Civil 3D chat: replying to a proposal with «yes, apply it» (or «ok», «go», «confirm») applies it, just like the button; «no» discards it; and a correction («no, change it to -10») discards the previous one and the AI proposes the new one with its card. Before, the AI sometimes only wrote the change without a card and then said «Change applied» while nothing changed in Civil 3D; now, if it says so without it being applied, the app clarifies it.',
     'Una tubería ABANDONADA y una activa que se tocan ya no se unen con un accesorio (Wye, Tee, codo) ni se parten para unirse, en Civil 3D y en la Vista 3D: cada una se dibuja entera. Antes, una activa que nacía en el mismo punto que una abandonada y corría encima de ella quedaba recortada.':

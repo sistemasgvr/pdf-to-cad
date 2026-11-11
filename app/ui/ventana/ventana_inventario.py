@@ -121,7 +121,7 @@ def panel_inventario(win):
         win._botones_varias.append((b, icono, minimo, clave == "Pegar propiedades en las seleccionadas"))
     lay.addLayout(barra)
     win.pipe_list.itemSelectionChanged.connect(lambda: sincronizar_varias(win))
-    _theme.THEME_BUS.changed.connect(lambda _n: sincronizar_varias(win, de_nuevo=True))   # tras el icono normal
+    _theme.al_tema(win, lambda _n: sincronizar_varias(win, de_nuevo=True))   # tras el icono normal
     sincronizar_varias(win)
     win.tabs.currentChanged.connect(lambda _i: win._filtrar_inventario())
     return cont

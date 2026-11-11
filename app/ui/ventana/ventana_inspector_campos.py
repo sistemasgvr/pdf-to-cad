@@ -137,7 +137,7 @@ def reorganizar(win):
         win.gprop_curve.setFlat(True)
         win.gprop_curve.setStyleSheet("QGroupBox { margin-top: 0; padding-top: 0; border: none; }")
         _poner(fc, ["Curva"] + filas)
-    _theme.THEME_BUS.changed.connect(lambda _n: refrescar(win))
+    _theme.al_tema(win, lambda _n: refrescar(win))
 
 
 def refrescar(win):

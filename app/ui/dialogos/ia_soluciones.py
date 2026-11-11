@@ -250,6 +250,7 @@ class SolucionesDialog(QtWidgets.QDialog):
             it.setData(_ROL + 2, True)
             it.setForeground(self.palette().brush(QtGui.QPalette.Disabled, QtGui.QPalette.Text))
         self.lista.blockSignals(False)
+        self._firma_vista = self.firma_lista()
         self.lbl_total.setText(_tr("{n} totales").format(n=len(vigentes)))
         self.lbl_pie.setText(_tr("{n} resueltos").format(n=len(resueltos)) if resueltos else "")
         n = self.lista.count()
@@ -262,6 +263,29 @@ class SolucionesDialog(QtWidgets.QDialog):
 
     def elegir(self, cid):
         self.refrescar(elegir=cid)
+
+    def showEvent(self, ev):                             # noqa: N802
+        super().showEvent(ev)
+        from PySide6 import QtCore
+        QtCore.QTimer.singleShot(0, self, self.al_cambiar_conflictos)
+
+    def firma_lista(self):
+        """Lo que muestra la lista: vigentes y resueltos (si cambia, hay que rehacerla)."""
+        vig = tuple(c.id for c in getattr(self.win, "_conflictos", None) or [])
+        res = tuple(cid for cid, _t in (self.win.conflictos_resueltos()
+                                        if hasattr(self.win, "conflictos_resueltos") else []))
+        return vig, res
+
+    def al_cambiar_conflictos(self):
+        """La ventana recalculó los conflictos: rehacer la lista si cambió, sin mover el lienzo ni perder el
+        elegido. Reporte 2026-11-11 (instalador): el panel se armaba ANTES del primer redibujo del proyecto
+        abierto y quedaba con 0 vigentes y todo el registro como «resuelto»."""
+        if not self.isVisible():                         # se rehace al mostrarse (sin propuestas ni IA ocultas)
+            return
+        if self.firma_lista() == getattr(self, "_firma_vista", None):
+            return
+        it = self.lista.currentItem()
+        self.refrescar(elegir=it.data(_ROL) if it is not None else None, mover=False)
 
     def _poner_sin_accesorio(self, c):
         """«No hay …» solo si el conflicto lo causa un accesorio."""

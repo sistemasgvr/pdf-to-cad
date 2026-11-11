@@ -21,7 +21,7 @@ from nucleo import edicion3d, perfil_datos as PD, perfil_recorrido as PR
 from traduccion.i18n import bind as _bind, t as _tr
 from ui.comun import rediseno as R
 from ui.comun.perfil_vista import AreaPerfil, VistaPerfil
-from ui.comun.theme import THEME_BUS
+from ui.comun.theme import al_tema as _theme_al_tema
 from ui.comun.icons import icon
 from ui.comun.ui_common import layer_qcolor
 from ui.ventana.ventana_perfil_ab import PerfilABMixin
@@ -122,7 +122,7 @@ class PerfilMixin(PerfilABMixin, RamalesPerfilMixin, GuardadosPerfilMixin, Plano
         dock.hide()
         self._perfil_dock = dock
         self.resizeDocks([dock], [max(300, int(self.height() * 0.4))], QtCore.Qt.Vertical)
-        THEME_BUS.changed.connect(lambda _n: self._perfil_resaltar())
+        _theme_al_tema(self, lambda _n: self._perfil_resaltar())
         return dock
 
     def _perfil_cabecera(self):

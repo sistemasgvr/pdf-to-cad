@@ -35,6 +35,7 @@ env/
 # ── Inno Setup ──
 installer/publish/
 installer/AsistenteC3D.bundle/
+installer/PdfCadMcp/
 
 # ── Archivos de respaldo ──
 *.bak

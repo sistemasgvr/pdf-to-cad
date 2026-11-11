@@ -46,7 +46,7 @@ class CabeceraInspector(QtWidgets.QFrame):
         self.insignias = QtWidgets.QHBoxLayout()
         self.insignias.setSpacing(6)
         lay.addLayout(self.insignias)
-        _theme.THEME_BUS.changed.connect(lambda _n: self.refrescar())
+        _theme.al_tema(self, lambda _n: self.refrescar())
 
     # ── qué hay elegido ──
     def _elegido(self):

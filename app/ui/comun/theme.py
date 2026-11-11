@@ -184,6 +184,24 @@ THEME_BUS = _ThemeBus()
 _current: Theme = DARK        # se sobreescribe al llamar apply_theme()
 
 
+def al_tema(obj, fn):
+    """Conecta `fn(nombre)` al cambio de tema MIENTRAS viva `obj` (un QObject). Una lambda conectada directo
+    a `THEME_BUS` se sigue llamando cuando el widget ya se borró (cerrar un diálogo y cambiar el tema daba
+    «Internal C++ object (…) already deleted», reporte 2026-11-11): aquí se desconecta sola."""
+    import shiboken6
+
+    def _llamar(*args):
+        if not shiboken6.isValid(obj):
+            try:
+                THEME_BUS.changed.disconnect(_llamar)
+            except (RuntimeError, TypeError):
+                pass
+            return
+        fn(*args)
+    THEME_BUS.changed.connect(_llamar)
+    return _llamar
+
+
 def tokens() -> Theme:
     """Devuelve el `Theme` activo. Preferido sobre importar DARK/LIGHT directo."""
     return _current

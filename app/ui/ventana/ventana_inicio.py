@@ -55,7 +55,7 @@ class _Tarjeta(QtWidgets.QPushButton):
         _bind(self, "setToolTip", detalle_es)
         self.clicked.connect(lambda: fn())
         self._estilo()
-        _theme.THEME_BUS.changed.connect(lambda _n: self._estilo())
+        _theme.al_tema(self, lambda _n: self._estilo())
 
     # QPushButton no pregunta a su layout por el tamaño: el del contenido manda
     def sizeHint(self):                                # noqa: N802
@@ -107,7 +107,7 @@ class _FilaReciente(QtWidgets.QPushButton):
         self.setAccessibleName(os.path.basename(ruta))
         self.clicked.connect(lambda: fn(ruta))
         self._estilo()
-        _theme.THEME_BUS.changed.connect(lambda _n: self._estilo())
+        _theme.al_tema(self, lambda _n: self._estilo())
 
     # QPushButton no pregunta a su layout por el tamaño: el del contenido manda
     def sizeHint(self):                                # noqa: N802
@@ -187,7 +187,7 @@ class PantallaInicio(QtWidgets.QFrame):
         lay.addStretch(2)
         self._firma = None
         self._estilo()
-        _theme.THEME_BUS.changed.connect(lambda _n: self._estilo())
+        _theme.al_tema(self, lambda _n: self._estilo())
         LANG_BUS.changed.connect(lambda *_a: self.refrescar(forzar=True))
 
     ANCHO_3_COLUMNAS = 3 * 160 + 2 * 12

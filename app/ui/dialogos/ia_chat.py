@@ -160,7 +160,7 @@ class PreguntaDialog(CopilotoChatMixin, OrdenesMixin, QtWidgets.QDialog):
         self._pintar()
         from ui.comun import theme
         E.al_cambiar_tema(self, self._estilo)
-        theme.THEME_BUS.changed.connect(lambda *_a: (self._ocupado(self._activo is not None),
+        theme.al_tema(self, lambda *_a: (self._ocupado(self._activo is not None),
                                                      self.actualizar_estado(), self._pintar()))
 
     def incrustado(self):

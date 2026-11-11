@@ -47,6 +47,10 @@ class ConflictosListaMixin:
         if getattr(self, "_conf_registro", None) is None:
             self._conf_registro = _conf.Registro()
         self._conflictos = _conf.numerar_fijo(items, self._conf_registro)
+        dlg = getattr(self, "_dlg_soluciones", None)          # el panel «Conflictos», si ya existe, al día
+        if dlg is not None:
+            from PySide6 import QtCore
+            QtCore.QTimer.singleShot(0, dlg, dlg.al_cambiar_conflictos)
         from ui.comun import conflictos_view
         if not getattr(self, "_marcas_vigentes", False):  # si no, las mismas de antes siguen en su capa
             self._poner_marcas(conflictos_view.dibujar_iter(self.canvas.scene(), self._conflictos, poner=self._marca,

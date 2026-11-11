@@ -109,7 +109,7 @@ class PanelHoja(QtWidgets.QWidget):
         cl.addLayout(botones)
         cl.addStretch(1)
         lay.addWidget(R.AreaVertical(cont))
-        _theme.THEME_BUS.changed.connect(lambda _n: self.refrescar())
+        _theme.al_tema(self, lambda _n: self.refrescar())
         self.refrescar()
 
     def _tarjeta(self):

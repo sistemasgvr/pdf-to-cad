@@ -45,6 +45,20 @@ for %%F in (
 
 echo === Bundle listo: %BUNDLE% ===
 
+REM Conexion de la IA con Civil 3D (pestana «Civil 3D» del Asistente): la app lanza PdfCadMcp.exe,
+REM que en el instalador va en {app}\PdfCadMcp (setup.iss). Sin esto: «No se encontro PdfCadMcp.exe».
+echo === Publicando PdfCadMcp (conexion IA - Civil 3D) ===
+if exist "installer\PdfCadMcp" rmdir /s /q "installer\PdfCadMcp"
+dotnet publish "API-CIVIL\proyecto1\PdfCadMcp\PdfCadMcp.csproj" -c Release -r win-x64 --self-contained false -o "installer\PdfCadMcp"
+if errorlevel 1 (
+    echo ERROR: no se pudo publicar PdfCadMcp.
+    exit /b 1
+)
+if not exist "installer\PdfCadMcp\PdfCadMcp.exe" (
+    echo ERROR: falta installer\PdfCadMcp\PdfCadMcp.exe tras publicar.
+    exit /b 1
+)
+
 REM Copia automática al autoload de Civil3D — Civil3D escanea esta carpeta al
 REM arrancar (LoadOnAutoCADStartup="True" en PackageContents.xml) y carga el
 REM plugin solo, sin NETLOAD manual. Si Civil3D está abierto con la versión

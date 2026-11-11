@@ -55,7 +55,7 @@ class Herramientas(QtWidgets.QWidget):
                 self.btn_accesorios = b
             self.botones.append(b)
             g.addWidget(b, i // 4, i % 4)
-        _theme.THEME_BUS.changed.connect(lambda _n: self.sincronizar())
+        _theme.al_tema(self, lambda _n: self.sincronizar())
 
     def _elegir(self, k):
         _ic, _txt, seccion, metodo, _ayuda = HERRAMIENTAS[k]

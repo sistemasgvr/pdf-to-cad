@@ -111,7 +111,7 @@ class ReplicaDiametroMixin:
         col.addLayout(fila)
         self._diam_ia_fila_resp.hide()
         lay.addWidget(self._diam_ia_fila_resp)
-        _theme.THEME_BUS.changed.connect(lambda _n: self._diam_ia_restilo())
+        _theme.al_tema(self, lambda _n: self._diam_ia_restilo())
 
     def _diam_ia_restilo(self):
         """Otro tema: las burbujas con los colores nuevos."""

@@ -191,7 +191,7 @@ class AutoHidePanel(QtCore.QObject):
         self.tab.clicked.connect(self._tab_clicked)
         self.tab.hovered.connect(self._tab_hover)
         win.installEventFilter(self)
-        _theme.THEME_BUS.changed.connect(lambda _n: self._retint())
+        _theme.al_tema(self, lambda _n: self._retint())
 
     # ── cabeceras ──
     def _header(self, fijado):
