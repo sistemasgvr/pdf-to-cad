@@ -295,6 +295,21 @@ def test_zoom_de_cerca_no_atraviesa_y_doble_clic_central_encuadra_todo(win):
     assert v.cam.objetivo == pytest.approx((np.asarray(lo) + np.asarray(hi)) / 2)
 
 
+def test_cerrar_el_proyecto_cierra_la_vista_3d(win, monkeypatch):
+    """Reporte 2026-11-10: con la vista 3D abierta, cerrar el proyecto la dejaba abierta (no
+    tiene padre Qt). Ahora se cierra con él, y al abrir otro proyecto también."""
+    dlg = win.abrir_vista3d(); _esperar(dlg)
+    assert dlg.isVisible()
+    monkeypatch.setattr(win, "_confirm_discard", lambda: True)
+    win.close_project()
+    assert not dlg.isVisible()
+    assert dlg._firma is None                    # la próxima vez arma la escena del proyecto nuevo
+    dlg = win.abrir_vista3d(); _esperar(dlg)
+    assert dlg.isVisible()
+    win._cerrar_vista3d()                        # lo mismo que hacen abrir proyecto / PDF nuevo
+    assert not dlg.isVisible()
+
+
 def test_al_reabrir_la_camara_arranca_de_cero(win):
     dlg = win.abrir_vista3d(); _esperar(dlg)
     inicial = (dlg.visor.cam.yaw, dlg.visor.cam.pitch, dlg.visor.cam.dist)

@@ -48,6 +48,17 @@ class Vista3DMixin:
             return "recuperacion"
         return ""
 
+    def _cerrar_vista3d(self):
+        """El proyecto se cierra o cambia: la vista 3D se cierra con él. No tiene padre Qt (ver
+        `vista3d_dialog._duenio`), así que nadie más la cierra: quedaba abierta mostrando el
+        proyecto anterior (reporte del usuario 2026-11-10). La próxima vez arma la escena de cero."""
+        dlg = self.__dict__.get("_vista3d_dlg")
+        if dlg is None:
+            return
+        if dlg.isVisible():
+            dlg.close()
+        dlg._firma = None
+
     def _vista3d_al_dia(self):
         """El plano cambió (o la selección): si la vista 3D está abierta, que lo siga."""
         dlg = getattr(self, "_vista3d_dlg", None)
