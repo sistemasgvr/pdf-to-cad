@@ -111,6 +111,23 @@ if not exist "dist\Asistente C3D.exe" (
 
 echo.
 echo ========================================
+echo  Verificando que el instalador lleve todo
+echo ========================================
+REM Autoprueba del .exe (modulos, datos, proceso hijo), DLL del plugin, PdfCadMcp, setup.iss y versiones.
+python scripts\verificar_instalador.py
+if errorlevel 1 (
+    echo.
+    echo [AVISO] La verificacion encontro problemas ^(arriba^). El instalador podria fallar en esos puntos.
+    set "SEGUIR=N"
+    set /p "SEGUIR=Generar el instalador de todos modos? (S/N, Enter = N): "
+    if /i not "!SEGUIR!"=="S" (
+        pause
+        exit /b 1
+    )
+)
+
+echo.
+echo ========================================
 echo  PASO 3/3: Generar instalador Inno Setup
 echo ========================================
 if "%ISCC%"=="" (

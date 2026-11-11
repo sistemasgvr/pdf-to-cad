@@ -22,26 +22,13 @@ copy /y "installer\PackageContents.xml" "%BUNDLE%\PackageContents.xml"
 REM Copiar el script de diagnóstico junto al plugin para que el usuario final pueda ejecutarlo
 if exist "installer\diagnostico.ps1" copy /y "installer\diagnostico.ps1" "%BUNDLE%\diagnostico.ps1" >nul
 
-REM Copiar solo las DLLs necesarias (no las de Autodesk, ya las tiene Civil 3D)
-for %%F in (
-    proyecto1.dll
-    proyecto1.deps.json
-    ClosedXML.dll
-    ClosedXML.Parser.dll
-    DocumentFormat.OpenXml.dll
-    DocumentFormat.OpenXml.Framework.dll
-    ExcelNumberFormat.dll
-    RBush.dll
-    Serilog.dll
-    Serilog.Sinks.File.dll
-) do (
-    if exist "%PUBDIR%\%%F" (
-        copy /y "%PUBDIR%\%%F" "%BUNDLE%\Contents\%%F" >nul
-        echo   + %%F
-    ) else (
-        echo   ? %%F no encontrado, omitido
-    )
-)
+REM Copiar TODAS las DLL que publica dotnet (las de Autodesk no se publican: Private=false). Antes iba una
+REM lista fija y faltaban Microsoft.Data.Sqlite + SQLitePCLRaw + e_sqlite3 (PREPARAR_FAMILIAS, Wyes de presion)
+REM y SixLabors.Fonts + System.IO.Packaging (ClosedXML: Excel de Property Sets): en el plugin INSTALADO esos
+REM comandos fallaban con FileNotFoundException (2026-11-11). scripts\verificar_instalador.py lo revisa.
+copy /y "%PUBDIR%\*.dll" "%BUNDLE%\Contents\" >nul
+copy /y "%PUBDIR%\proyecto1.deps.json" "%BUNDLE%\Contents\proyecto1.deps.json" >nul
+for %%F in ("%BUNDLE%\Contents\*.dll") do echo   + %%~nxF
 
 echo === Bundle listo: %BUNDLE% ===
 

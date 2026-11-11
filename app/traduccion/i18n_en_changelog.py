@@ -6,6 +6,8 @@ tests/test_i18n.py).
 """
 
 EN_CHANGELOG: dict[str, str] = {
+    'Instalador: el plugin de Civil 3D ahora lleva todas sus librerías (faltaban las de SQLite y dos de Excel): en el plugin instalado, cargar las Wyes de presión en PREPARAR_FAMILIAS y el Excel de Property Sets podían fallar. Además, el instalador se verifica solo antes de generarse (el programa se prueba por dentro, sin abrir la ventana).':
+        'Installer: the Civil 3D plugin now carries all its libraries (the SQLite ones and two for Excel were missing): in the installed plugin, loading the pressure Wyes in PREPARAR_FAMILIAS and the Property Sets Excel could fail. Also, the installer checks itself before being built (the program is tested inside, without opening the window).',
     'Asistente → Conflictos: si el panel se abría antes de que la app terminara de calcular los conflictos del proyecto, mostraba «0 totales» y todos como «resuelto». Ahora se pone al día solo cuando cambian los conflictos.':
         'Assistant → Conflicts: if the panel opened before the app finished computing the project conflicts, it showed «0 total» and all of them as «resolved». Now it updates itself whenever the conflicts change.',
     'Instalador: ahora incluye la conexión de la IA con Civil 3D (PdfCadMcp.exe); antes la pestaña «Civil 3D» del Asistente decía «No se encontró PdfCadMcp.exe» aunque PDFCAD_IA estuviera encendido en Civil 3D.':

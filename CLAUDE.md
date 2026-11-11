@@ -3225,6 +3225,14 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   `RedesTuberia.cs` con la elección de familias/tamaños de IMPORTAR_RED. No volver a crearlos sin que el
   usuario lo pida.
 - `installer/` — bundle del plugin + Inno Setup. `build_all.bat` (raíz) arma todo.
+  **Verificación del instalador** (2026-11-11): `build_plugin.bat` copia TODAS las DLL publicadas (la lista fija dejaba
+  fuera Sqlite/SixLabors.Fonts/System.IO.Packaging) y publica `PdfCadMcp` en `installer\PdfCadMcp` → setup.iss
+  `{app}\PdfCadMcp`. `app/autoprueba.py` = `Asistente C3D.exe --autoprueba salida.json` (sin ventana: módulos por nombre
+  y de la app, terceros, iconos/manual/entrenamiento, un proceso hijo spawn real, ruta del MCP). `scripts/
+  verificar_instalador.py` (lo llama `build_all.bat` antes de Inno Setup; `--estatico` sin compilar) = spec, setup.iss,
+  versiones, DLL del bundle, PdfCadMcp arranca, `--autoprueba` del .exe y «missing module» de la app. OJO: un trabajo
+  nuevo «mod:fn» va al spec Y a `autoprueba.MODULOS_POR_NOMBRE`; nunca `THEME_BUS.changed.connect(lambda…)`: usar
+  `theme.al_tema(obj, fn)`. Tests: `tests/test_instalador.py`.
 - `tests/` — pruebas de humo headless (pytest, 27): georref (`fit`), modelo Georef,
   catálogo (`family_guid`), serialización (`project_io`) y operaciones de modelo
   (`model_ops`: buzones, conteo, cotas por tramo). Corren sin abrir la UI.

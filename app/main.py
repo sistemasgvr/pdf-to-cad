@@ -39,6 +39,10 @@ if __name__ == "__main__":
     # importa solo aquí, así el hijo (que importa este módulo como `__mp_main__`) no la carga.
     import multiprocessing
     multiprocessing.freeze_support()
+    if "--autoprueba" in sys.argv:               # verificar el .exe sin abrir la ventana (scripts/verificar_instalador.py)
+        import autoprueba
+        i = sys.argv.index("--autoprueba")
+        sys.exit(autoprueba.main(sys.argv[i + 1] if len(sys.argv) > i + 1 else "autoprueba.json"))
     from nucleo import diagnostico
     diagnostico.activar()
     from ui.ventana.app_window import main
