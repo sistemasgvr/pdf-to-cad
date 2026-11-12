@@ -586,6 +586,14 @@ Para aplicar esta corrección a una hoja reconocida anteriormente, vuelve a reco
     postes y estructuras propuestas.</li>
 </ul>
 
+<h2>Reconocer más capas sin perder lo dibujado</h2>
+<p>Con las tuberías ya importadas y el lienzo avanzado, usa <b>Hoja y PDF → Reconocer más capas de esta
+hoja…</b> (o el menú Herramientas) para reconocer otras capas de la misma hoja. El asistente empieza en
+<b>Capas de la hoja</b>, con marcadas las utilidades que aún no están en el editor. Al importar, lo
+reconocido entra <b>encima</b> de lo que ya hay: lo dibujado o editado a mano no cambia y las líneas que ya
+están dibujadas no se repiten. Se deshace con Ctrl+Z, y Cancelar en cualquier paso deja el editor como
+estaba. Para otra hoja o composición usa <b>Componer hoja de trabajo…</b>.</p>
+
 <h2>Agregar otra utilidad desde su propio PDF</h2>
 <p>A veces cada utilidad llega en sus propios PDF (por ejemplo los mapas de Phoenix: dos PDF de
 agua, dos de alcantarillado y dos de drenaje). Con una utilidad ya importada, usa
@@ -1167,6 +1175,11 @@ números siempre los pone la app y, si la IA escribe una cifra que no está en l
 <h2>Configurar</h2>
 <p><b>Ajustes → Configurar IA…</b>: elige <b>Servidor propio (Ollama)</b>, escribe la dirección del servidor y pulsa
 <b>Buscar modelos</b> y <b>Probar</b>. Con <b>Sin IA (plantillas)</b> todo funciona como antes.</p>
+<p>También puedes usar <b>Gemini de Google (clave de API)</b>: crea una clave en Google AI Studio, pégala en
+<b>Clave de API</b>, pulsa <b>Buscar modelos</b> (salen los modelos de chat de tu cuenta, por ejemplo uno «Flash»,
+rápido, y uno «Pro», más capaz) y <b>Probar</b>. La clave se guarda solo en este equipo; no la compartas. Con Gemini,
+las preguntas, los datos del proyecto y los recortes del plano se envían a Google. Cada proveedor recuerda su modelo:
+puedes volver a Ollama cuando quieras.</p>
 <h2>¿Cómo hago…? (en este manual)</h2>
 <p>Arriba de este manual hay un campo <b>¿Cómo hago…?</b>: escribe qué quieres hacer (por ejemplo «¿cómo exporto a
 Civil 3D?») y pulsa <span class="key">&nbsp;Enter&nbsp;</span> o <b>Preguntar a la IA</b>. Al instante salen los
@@ -1176,8 +1189,8 @@ pregunta otra vez sale al momento, guardada. Sin IA configurada, los capítulos 
 <p>La pestaña <b>Civil 3D</b> del Asistente conversa con el DWG que tienes abierto en Civil 3D (no con el proyecto de
 la app). Antes, en Civil 3D: <b>PANEL_REDES → «Encender conexión de la IA»</b> (o el comando <b>PDFCAD_IA</b>). La
 línea de arriba dice si está conectado (punto verde, nombre del dibujo y número de redes) y qué IA responde; si falta
-algo, un aviso ámbar explica qué hacer y <b>Reintentar</b> vuelve a buscar Civil 3D. Necesita la IA propia (Ollama)
-con un modelo que use herramientas.</p>
+algo, un aviso ámbar explica qué hacer y <b>Reintentar</b> vuelve a buscar Civil 3D. Necesita una IA con un modelo
+que use herramientas: la propia (Ollama) o Gemini.</p>
 <ul>
 <li>Pregunta por redes, tuberías, diámetros, cotas, pendientes o buzones: la IA consulta el dibujo («Consultando
     Civil 3D: …») y responde con esos datos.</li>

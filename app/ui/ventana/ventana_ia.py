@@ -26,9 +26,11 @@ class IAMixin:
         from ia import proveedor as P
         entorno = s.value("ia/entorno", M.entorno_por_defecto())
         M.configurar(entorno)                            # dónde lee y escribe lo aprendido (ia.memoria.rutas)
-        return {"proveedor": s.value("ia/proveedor", P.PLANTILLA), "url": s.value("ia/url", P.URL_OLLAMA),
-                "modelo": s.value("ia/modelo", P.MODELO_OLLAMA), "paralelo": s.value("ia/paralelo", 2),
-                "entorno": entorno}
+        prov = s.value("ia/proveedor", P.PLANTILLA)
+        # cada proveedor recuerda su modelo: Ollama en «ia/modelo» (como siempre), Gemini en «ia/modelo_gemini»
+        modelo = (s.value("ia/modelo_gemini", "") if prov == P.GEMINI else s.value("ia/modelo", P.MODELO_OLLAMA))
+        return {"proveedor": prov, "url": s.value("ia/url", P.URL_OLLAMA), "modelo": modelo,
+                "paralelo": s.value("ia/paralelo", 2), "entorno": entorno, "clave": s.value("ia/clave_gemini", "")}
 
     def configurar_ia(self):
         from ui.dialogos import ia_config_dialog

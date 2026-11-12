@@ -278,6 +278,15 @@ def _recortar(s):
     return s if len(s) <= MAX_RESULTADO else s[:MAX_RESULTADO] + " …(recortado: usar filtros o 'limite')"
 
 
+def pedir_agente(config):
+    """`pedir_modelo` del proveedor configurado: Gemini con sus herramientas, si no Ollama."""
+    if getattr(config, "proveedor", "") == "gemini":
+        from ia.proveedor_gemini import Gemini
+        prov = Gemini(config)
+        return lambda mensajes, herramientas: prov.pedir_con_herramientas(mensajes, herramientas)
+    return pedir_ollama(config)
+
+
 def pedir_ollama(config):
     """`pedir_modelo` sobre /api/chat de Ollama con `tools` (sin streaming: hace falta el mensaje entero)."""
     prov = Ollama(config)

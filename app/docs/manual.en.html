@@ -589,6 +589,14 @@ Recognize a previously processed sheet again to apply this correction.</p>
     poles and proposed structures.</li>
 </ul>
 
+<h2>Recognize more layers without losing your drawing</h2>
+<p>With pipes already imported and the canvas advanced, use <b>Sheet and PDF → Recognize more layers on
+this sheet…</b> (or the Tools menu) to recognize other layers of the same sheet. The wizard starts at
+<b>Sheet layers</b>, with the utilities not yet in the editor checked. On import, what was recognized is
+added <b>on top</b> of what is there: what you drew or edited by hand does not change and lines already
+drawn are not repeated. Ctrl+Z undoes it, and Cancel at any step leaves the editor as it was. For another
+sheet or composition use <b>Compose working sheet…</b>.</p>
+
 <h2>Adding another utility from its own PDF</h2>
 <p>Sometimes each utility comes in its own PDFs (for example the Phoenix maps: two PDFs for water,
 two for sewer and two for storm drain). With one utility already imported, use
@@ -1171,6 +1179,10 @@ always come from the app and, if the AI writes a figure that is not in the data,
 <h2>Configure</h2>
 <p><b>Settings → Configure AI…</b>: choose <b>Own server (Ollama)</b>, type the server address and press <b>Find
 models</b> and <b>Test</b>. With <b>No AI (templates)</b> everything works as before.</p>
+<p>You can also use <b>Google Gemini (API key)</b>: create a key in Google AI Studio, paste it in <b>API key</b>,
+press <b>Find models</b> (your account's chat models appear, for example a fast «Flash» one and a more capable «Pro»
+one) and <b>Test</b>. The key is stored only on this computer; do not share it. With Gemini, questions, project data
+and plan snippets are sent to Google. Each provider remembers its model: you can go back to Ollama at any time.</p>
 <h2>How do I…? (in this manual)</h2>
 <p>At the top of this manual there is a <b>How do I…?</b> field: type what you want to do (for example «how do I
 export to Civil 3D?») and press <span class="key">&nbsp;Enter&nbsp;</span> or <b>Ask the AI</b>. The chapters that
@@ -1180,7 +1192,7 @@ same question again comes back instantly, saved. Without an AI configured, the c
 <p>The Assistant's <b>Civil 3D</b> tab talks to the DWG you have open in Civil 3D (not to the app project). First, in
 Civil 3D: <b>PANEL_REDES → «Turn on AI connection»</b> (or the <b>PDFCAD_IA</b> command). The top line says whether it
 is connected (green dot, drawing name and number of networks) and which AI answers; if something is missing, an amber
-notice explains what to do and <b>Retry</b> looks for Civil 3D again. It needs your own AI (Ollama) with a model that
+notice explains what to do and <b>Retry</b> looks for Civil 3D again. It needs an AI (your own Ollama or Gemini) with a model that
 uses tools.</p>
 <ul>
 <li>Ask about networks, pipes, diameters, elevations, slopes or manholes: the AI queries the drawing («Querying

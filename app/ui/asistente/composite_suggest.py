@@ -164,6 +164,11 @@ def _celdas_txt(celdas) -> str:
 
 
 # ─────────────────────────── tarjeta ───────────────────────────
+def _ruta(path) -> str:
+    """Una ruta comparable (mayúsculas y barras de Windows)."""
+    return os.path.normcase(os.path.abspath(path)) if path else ""
+
+
 class SuggestionMixin:
     def _sug_card(self) -> QtWidgets.QFrame:
         """Tarjeta «Composición sugerida» (oculta hasta que haya algo que decir)."""
@@ -173,8 +178,9 @@ class SuggestionMixin:
         self._sug_antes: Optional[dict] = None      # hoja compuesta antes de usar la sugerencia
         self._sug_usada: Optional[G.Grupo] = None
         self._sug_usada_huella = None               # sus hojas por contenido (sobrevive a quitar otro PDF)
+        self._sug_usada_firma = None                # la hoja compuesta al usarla (para ampliarla sola)
         self._sug_oculta = False
-        self._sug_no_hermano = False
+        self._sug_no_hermano: set = set()            # PDF hermanos que el usuario rechazó («No»)
         box = QtWidgets.QFrame()
         box.setObjectName("sugCard")
         box.setStyleSheet(
@@ -327,11 +333,71 @@ class SuggestionMixin:
         # la sugerencia que ya está en la hoja compuesta sigue «usada» si el juego no cambió
         # (p. ej. se quitó OTRO PDF): se reconoce por el contenido de sus hojas, no por su número
         huella = getattr(self, "_sug_usada_huella", None)
-        if self._sug_usada is None and huella and res is not None and res.analisis is not None:
+        if (self._sug_usada is None and huella and res is not None and res.analisis is not None
+                and self._sug_hojas_comp(clave) == huella):
             self._sug_usada = next((g for g in res.analisis.grupos
                                     if frozenset((clave[s], h) for s, h in g.nodos) == huella), None)
+            if self._sug_usada is None and self._sug_extender(clave, res, huella):
+                return
         self._sug_llenar_combo()
         self._sug_seguir_hoja()
+
+    def _sug_hojas_comp(self, clave) -> frozenset:
+        """Las hojas de la hoja compuesta de ahora, cada PDF por su huella."""
+        return frozenset((clave[p.source], p.page) for p in self.comp.pieces if 0 <= p.source < len(clave))
+
+    def _sug_piezas_cambiaron(self):
+        """Se tomaron o quitaron piezas (revisión 2026-11-12: al desmarcar a mano las hojas de la
+        sugerencia usada, la tarjeta seguía con «✔ en la hoja compuesta» y sin «Usar»). Si la hoja
+        compuesta ya no tiene las hojas de la sugerencia, se vuelve a ofrecer. Mover o recortar una
+        pieza no la cuenta como cambiada. Con un análisis pendiente (los PDF cambiaron) decide
+        `_sug_listo`, con los números nuevos."""
+        if getattr(self, "_sug_usada", None) is None or self._sug_res is None:
+            return
+        clave = self._sug_clave or ()
+        if self._sug_res.clave != clave or self._sug_hojas_comp(clave) == self._sug_usada_huella:
+            return
+        self._sug_usada = None
+        self._sug_usada_firma = None
+        self._sug_refrescar()
+
+    def _sug_firma(self, clave) -> Optional[str]:
+        """La hoja compuesta de ahora, con cada PDF por su huella (no por su número en la lista)."""
+        import json
+        try:
+            piezas = []
+            for p in self.comp.pieces:
+                d = p.to_dict()
+                d["source"] = clave[p.source]
+                piezas.append(d)
+            return json.dumps([piezas, self.comp.scale_ft_per_pt], sort_keys=True)
+        except Exception:
+            return None
+
+    def _sug_extender(self, clave, res, huella) -> bool:
+        """Reporte del usuario 2026-11-12: con la sugerencia ya usada, agregar otro PDF no actualizaba la
+        hoja compuesta. Si el juego usado ahora sigue en el PDF nuevo (un juego que lo CONTIENE entero) y
+        el usuario no tocó la hoja compuesta desde que la usó, se pone el juego ampliado solo;
+        «Deshacer» sigue volviendo a la hoja de antes de usar la sugerencia."""
+        firma = getattr(self, "_sug_usada_firma", None)
+        if firma is None or firma != self._sug_firma(clave):
+            return False                           # la cambió a mano: solo se ofrece («Usar»)
+        g = next((g for g in res.analisis.grupos if g.composite is not None
+                  and frozenset((clave[s], h) for s, h in g.nodos) > huella), None)
+        if g is None:
+            return False
+        antes, vista = self._sug_antes, getattr(self, "_sug_antes_vista", None)
+        self._sug_llenar_combo()
+        k = next(i for i, x in enumerate(res.analisis.grupos) if x is g)
+        i = self.cmb_sug.findData(k)
+        if i >= 0:
+            self.cmb_sug.blockSignals(True)
+            self.cmb_sug.setCurrentIndex(i)
+            self.cmb_sug.blockSignals(False)
+        self._sug_usar()
+        self._sug_antes, self._sug_antes_vista = antes, vista
+        self._sug_refrescar()
+        return True
 
     # ── qué sugerir ─────────────────────────────────────────────────────
     def _sug_llenar_combo(self):
@@ -424,7 +490,8 @@ class SuggestionMixin:
                 self.lbl_sug.setText("<b>" + _tr("Composición sugerida:") + "</b> " + describir(g, an))
                 self.btn_sug_usar.show(); self.btn_sug_usar.setEnabled(g.composite is not None)
         herm = res.hermano
-        if herm is not None and not self._sug_no_hermano and herm.ruta not in [s.get("path") for s in self.sources]:
+        if (herm is not None and _ruta(herm.ruta) not in self._sug_no_hermano
+                and _ruta(herm.ruta) not in {_ruta(s.get("path")) for s in self.sources if s.get("path")}):
             self.lbl_sug_hermano.setText(_tr("Las hojas vecinas {celdas} ({n}) están en «{pdf}». ¿Agregarlo a la composición?").format(
                 celdas=_celdas_txt(herm.celdas), n=len(herm.celdas), pdf=os.path.basename(herm.ruta)))
             self.sug_hermano.show()
@@ -451,6 +518,7 @@ class SuggestionMixin:
         self._sug_usada = g
         clave = self._sug_clave or ()
         self._sug_usada_huella = frozenset((clave[s], h) for s, h in g.nodos if s < len(clave))
+        self._sug_usada_firma = self._sug_firma(clave)
         self._sug_refrescar()
         self._fitted.discard(TAB_SHEET)
         self._go_tab(TAB_SHEET)
@@ -488,6 +556,7 @@ class SuggestionMixin:
         self._sug_antes = None
         self._sug_usada = None
         self._sug_usada_huella = None
+        self._sug_usada_firma = None
         self._sug_refrescar()
         self._fitted.discard(TAB_SHEET)
         self._go_tab(TAB_SHEET if len(self.comp.pieces) > 1 else 0)
@@ -497,7 +566,11 @@ class SuggestionMixin:
         self.sug_card.hide()
 
     def _sug_rechazar_hermano(self):
-        self._sug_no_hermano = True
+        """«No»: ESE PDF no se vuelve a proponer (otro PDF hermano sí; revisión 2026-11-12: antes un
+        «No» callaba la tarjeta para cualquier PDF y agregar uno la callaba para siempre, aunque se quitara)."""
+        herm = self._sug_res.hermano if self._sug_res else None
+        if herm is not None:
+            self._sug_no_hermano.add(_ruta(herm.ruta))
         self.sug_hermano.hide()
 
     def _sug_agregar_hermano(self):
@@ -515,9 +588,8 @@ class SuggestionMixin:
         self.sources.append({"name": os.path.basename(herm.ruta), "data": data, "path": herm.ruta})
         self.docs.append(doc)
         self._fill_sources()                      # se sigue viendo la misma hoja
-        self._sug_no_hermano = True
-        self.sug_hermano.hide()
-        self._sug_pedir(esperar_ms=400)            # de nuevo, ahora con los dos PDF
+        self.sug_hermano.hide()                    # ya está en la lista; si se quita, se vuelve a proponer
+        self._sug_pdfs_cambiaron()                 # de nuevo, ahora con los dos PDF (como «Agregar PDF…»)
 
     def _sug_pdfs_cambiaron(self):
         """«Agregar PDF…» o «Quitar PDF» de la lista de hojas (pedido del usuario 2026-10-28: una utilidad

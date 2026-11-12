@@ -172,7 +172,7 @@ class ChatCivil3D(QtWidgets.QWidget):
     # ── estado de la IA y de Civil 3D ──
     def _config(self):
         c = P.Config.de(self.win._config_ia())
-        return c if c.con_ia and c.proveedor == P.OLLAMA else None
+        return c if c.con_ia and c.proveedor in (P.OLLAMA, P.GEMINI) else None
 
     def actualizar_estado(self):
         from ui.comun import theme
@@ -290,7 +290,7 @@ class ChatCivil3D(QtWidgets.QWidget):
             try:
                 cli = self._cliente_vivo()
                 if self._agente is None:
-                    self._agente = A.Agente(cli, A.pedir_ollama(cfg), reglas=self._reglas, normas_cat=self._normas_cat,
+                    self._agente = A.Agente(cli, A.pedir_agente(cfg), reglas=self._reglas, normas_cat=self._normas_cat,
                                            proyecto=self._proyecto)
                 res = self._agente.preguntar(q, cancelado=lambda: estado["cancelado"],
                                              al_paso=lambda n: self._sen.paso.emit(turno, n))

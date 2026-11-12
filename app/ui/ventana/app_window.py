@@ -117,6 +117,7 @@ from ui.ventana.ventana_hojas import HojasEditorMixin
 from ui.ventana.ventana_vertices import VerticesMixin
 from ui.ventana.ventana_trazo import TrazoMixin
 from ui.ventana.ventana_agregar import AgregarUtilidadMixin
+from ui.ventana.ventana_reconocer_mas import ReconocerMasMixin
 from ui.ventana.ventana_calculo import CalculoPlanoMixin
 from ui.ventana.calculo_fondo import CalculoFondoMixin
 from ui.ventana.ventana_estados import EstadosPreviosMixin
@@ -136,7 +137,7 @@ from ui.ventana.ventana_pasos import PasosVivosMixin
 
 class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, SinAccesorioMixin, ListaAccesoriosMixin, DibujarAccesoriosMixin, SeleccionAccesorioMixin, PerfilMixin, AccionesIAMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
-           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, QtWidgets.QMainWindow):
+           AgregarUtilidadMixin, ReconocerMasMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"
@@ -181,6 +182,8 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         self._respaldo = None
         # «Agregar utilidad desde otro PDF…» en curso (ventana_agregar); None = asistente normal
         self._agregando = None
+        # «Reconocer más capas…» en curso (ventana_reconocer_mas); None = asistente normal
+        self._reconociendo_mas = None
         self._origen_desde_fuente = None   # al importar en ese modo: datos de origen solo de las piezas nuevas
         self.pdf_path = None; self.doc = None; self.project_path = None; self.leader_hpx = 40
         # Proyecto sobre hoja en blanco (sin PDF de fondo). `paper` guarda el
@@ -654,7 +657,9 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             chosen = layer_dialog.choose_sheet_layers(self, self.doc, page_idx,
                                                       layout=self._layout_minimapa(),
                                                       recognition_utilities=self._recognition_utilities,
-                                                      can_go_back=bool(self.src_pdfs),
+                                                      # «Reconocer más capas»: la hoja es la del editor
+                                                      can_go_back=bool(self.src_pdfs) and getattr(
+                                                          self, "_reconociendo_mas", None) is None,
                                                       letters_off=self._letters_off,
                                                       roles_by_utility=self._roles_de_la_hoja(page_idx),
                                                       include_roles=True,
@@ -873,12 +878,14 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
     def _soltar_respaldo(self):
         """Hoja nueva en el editor (importar): el respaldo ya no vuelve."""
         self._agregando = None
+        self._reconociendo_mas = None
         r, self._respaldo = self._respaldo, None
         respaldo_editor.soltar(self, r)
 
     def _reponer_respaldo(self, msg):
         """Editor a como estaba al abrir el asistente. False si no había respaldo."""
         self._agregando = None
+        self._reconociendo_mas = None
         r, self._respaldo = self._respaldo, None
         if r is None:
             return False
@@ -1310,6 +1317,8 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             self._soltar_pasos()                       # el asistente termina: nada que volver a mostrar
         if action == recognition_dialog.PREVIEW_IMPORT and getattr(self, "_agregando", None) is not None:
             self._importar_agregando(results)          # sobre la hoja del editor (ventana_agregar)
+        elif action == recognition_dialog.PREVIEW_IMPORT and getattr(self, "_reconociendo_mas", None) is not None:
+            self._importar_mas(results)                # encima de lo dibujado (ventana_reconocer_mas)
         elif action == recognition_dialog.PREVIEW_IMPORT:
             with _busy_mod.busy(self, _tr("Importando al editor…")):
                 imported = self._import_recognized_pipes(results)
@@ -1394,6 +1403,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             utility = getattr(result, "utility", None) or "ELECTRICO"
             pipes = rec.pipes_from_recognition(result, layer=utility, zoom=self.zoom,
                                                origin=self._xdata_origin(result.page_index))
+            pipes = self._sin_repetidas(pipes)        # «Reconocer más capas»: lo ya dibujado no se repite
             vaults = list(getattr(result, "vault_pts", None) or [])
             snapped, skipped = rec.inject_vault_vertices(pipes, vaults)
             result.vaults_snapped = snapped

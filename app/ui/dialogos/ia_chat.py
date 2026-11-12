@@ -411,7 +411,7 @@ class PreguntaDialog(CopilotoChatMixin, OrdenesMixin, QtWidgets.QDialog):
                 res = consulta.preguntar(prov, q, datos, mem, historial,
                                          al_texto=lambda s: self._senales.trozo.emit(turno, s),
                                          cancelado=cancelado, manual=manual,
-                                         agente=civil3d_agente.pedir_ollama(prov.config),
+                                         agente=civil3d_agente.pedir_agente(prov.config),
                                          cliente=cliente,
                                          al_paso=lambda s: self._senales.trozo.emit(turno, f"· {s}\n"))
                 self._senales.listo.emit(turno, res)
