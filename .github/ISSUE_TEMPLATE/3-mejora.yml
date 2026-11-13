@@ -1,0 +1,23 @@
+name: Mejora o función nueva
+description: Algo nuevo o una mejora de lo que ya existe
+labels: ["mejora"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Área
+      options: [App, Reconocimiento del PDF, Plugin Civil 3D, Piezas 3D, Laminado, IA / MCP, Instalador]
+    validations:
+      required: true
+  - type: textarea
+    id: que
+    attributes:
+      label: Qué se quiere
+      description: Para quién y para qué. Capturas o bocetos con Ctrl+V.
+    validations:
+      required: true
+  - type: input
+    id: funcion
+    attributes:
+      label: Función del diagrama (si aplica)
+      description: id en gestion/funciones.toml

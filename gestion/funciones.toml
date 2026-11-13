@@ -1,0 +1,1928 @@
+# Funciones del proyecto: fuente del diagrama (vista general y por versión) que ve el cliente.
+# Editar: una entrada [[funcion]] por función, con un nombre CORTO (como en el diagrama).
+# Cada persona (o su Claude) solo escribe `propuesto` (+ propuesto_por, propuesto_nota).
+# `estado` y `aprobado` los pone SOLO el administrador con:  python scripts/gestion admin
+# Estados: probado, falta_probar, optimizar, en_desarrollo, con_bug, planificado ("" = sin clasificar).
+
+
+[proyecto]
+nombre = "Asistente C3D"
+version_actual = "2.1.0"
+admin = "Deyvy"
+cloudflare = "pdfacad-funciones"
+
+[[grupo]]
+id = "app"
+nombre = "Aplicación PDF a CAD"
+detalle = "Programa de escritorio"
+
+[[grupo]]
+id = "app.dibujo-utilidades"
+nombre = "Dibujo Utilidades"
+padre = "app"
+detalle = "6 tipos de red"
+
+[[grupo]]
+id = "app.inicio-y-proyectos"
+nombre = "Inicio y proyectos"
+padre = "app"
+
+[[grupo]]
+id = "app.interfaz-y-navegacion"
+nombre = "Interfaz y navegación"
+padre = "app"
+
+[[grupo]]
+id = "app.digitalizacion-de-la-hoja"
+nombre = "Digitalización de la hoja"
+padre = "app"
+detalle = "Componer hoja"
+
+[[grupo]]
+id = "app.planos-escaneados"
+nombre = "Planos escaneados"
+padre = "app"
+
+[[grupo]]
+id = "app.capas-y-leyenda-del-plano"
+nombre = "Capas y leyenda del plano"
+padre = "app"
+
+[[grupo]]
+id = "app.reconocimiento-automatico"
+nombre = "Reconocimiento automático"
+padre = "app"
+
+[[grupo]]
+id = "app.agregar-utilidad-y-capas"
+nombre = "Agregar utilidad y capas"
+padre = "app"
+
+[[grupo]]
+id = "app.dibujo-de-utilidades"
+nombre = "Dibujo de utilidades"
+padre = "app"
+
+[[grupo]]
+id = "app.centerlines"
+nombre = "Centerlines"
+padre = "app"
+
+[[grupo]]
+id = "app.anotaciones"
+nombre = "Anotaciones"
+padre = "app"
+
+[[grupo]]
+id = "app.buzones-cajas-y-solidos"
+nombre = "Buzones, cajas y sólidos"
+padre = "app"
+
+[[grupo]]
+id = "app.curvas"
+nombre = "Curvas"
+padre = "app"
+
+[[grupo]]
+id = "app.accesorios"
+nombre = "Accesorios"
+padre = "app"
+detalle = "Redes a presión: agua y gas"
+
+[[grupo]]
+id = "app.datos-de-la-utilidad"
+nombre = "Datos de la utilidad"
+padre = "app"
+
+[[grupo]]
+id = "app.inventario-y-edicion-masiva"
+nombre = "Inventario y edición masiva"
+padre = "app"
+
+[[grupo]]
+id = "app.duct-bank"
+nombre = "Duct Bank"
+padre = "app"
+
+[[grupo]]
+id = "app.georreferenciacion"
+nombre = "Georreferenciación"
+padre = "app"
+
+[[grupo]]
+id = "app.normativas"
+nombre = "Normativas"
+padre = "app"
+
+[[grupo]]
+id = "app.conflictos"
+nombre = "Conflictos"
+padre = "app"
+
+[[grupo]]
+id = "app.revisar-y-limpiar"
+nombre = "Revisar y limpiar"
+padre = "app"
+
+[[grupo]]
+id = "app.vista-3d"
+nombre = "Vista 3D"
+padre = "app"
+
+[[grupo]]
+id = "app.perfil-longitudinal"
+nombre = "Perfil longitudinal"
+padre = "app"
+
+[[grupo]]
+id = "app.tabla-de-datos"
+nombre = "Tabla de datos"
+padre = "app"
+
+[[grupo]]
+id = "app.informe-automatico"
+nombre = "Informe automático"
+padre = "app"
+
+[[grupo]]
+id = "app.asistente-ia"
+nombre = "Asistente IA"
+padre = "app"
+
+[[grupo]]
+id = "app.exportacion-a-civil-3d"
+nombre = "Exportación a Civil 3D"
+padre = "app"
+
+[[grupo]]
+id = "app.ajustes-y-ayuda"
+nombre = "Ajustes y ayuda"
+padre = "app"
+
+[[grupo]]
+id = "app.postes"
+nombre = "Postes"
+padre = "app"
+
+[[grupo]]
+id = "app.cables-aereos"
+nombre = "Cables aéreos"
+padre = "app"
+
+[[grupo]]
+id = "app.reconocimiento-de-accesorios-auto"
+nombre = "Reconocimiento de accesorios (Auto)"
+padre = "app"
+
+[[grupo]]
+id = "app.superficies"
+nombre = "Superficies (terreno)"
+padre = "app"
+detalle = "LandXML y GeoTIFF"
+
+[[grupo]]
+id = "plugin"
+nombre = "Plugin Civil 3D"
+detalle = "Panel «Redes de Tuberías»"
+
+[[grupo]]
+id = "plugin.preparar-familias"
+nombre = "Preparar familias"
+padre = "plugin"
+detalle = "Familias personalizadas"
+
+[[grupo]]
+id = "plugin.importar-red-desde-dxf"
+nombre = "Importar red desde DXF"
+padre = "plugin"
+detalle = "Importar red"
+
+[[grupo]]
+id = "plugin.agregar-tuberia-curva"
+nombre = "Agregar tubería curva"
+padre = "plugin"
+detalle = "Elemento curvo"
+
+[[grupo]]
+id = "plugin.exportar-tuberias-a-excel"
+nombre = "Exportar tuberías a Excel"
+padre = "plugin"
+detalle = "Property Sets"
+
+[[grupo]]
+id = "plugin.importar-property-sets"
+nombre = "Importar Property Sets"
+padre = "plugin"
+detalle = "Property Sets"
+
+[[grupo]]
+id = "plugin.agregar-etiquetas"
+nombre = "Agregar etiquetas"
+padre = "plugin"
+detalle = "Anotaciones"
+
+[[grupo]]
+id = "plugin.generar-cuadros-resumen"
+nombre = "Generar cuadros resumen"
+padre = "plugin"
+detalle = "Anotaciones"
+
+[[grupo]]
+id = "plugin.generar-perfil-longitudinal"
+nombre = "Generar perfil longitudinal"
+padre = "plugin"
+detalle = "Perfil longitudinal"
+
+[[grupo]]
+id = "mcp"
+nombre = "Plugin Civil 3D - MCP"
+detalle = "Herramientas para la IA"
+
+[[grupo]]
+id = "mcp.encender-conexion-de-la-ia"
+nombre = "Encender conexión de la IA"
+padre = "mcp"
+detalle = "Asistente IA"
+
+[[grupo]]
+id = "mcp.herramientas"
+nombre = "Herramientas"
+padre = "mcp"
+detalle = "Asistente IA"
+
+[[grupo]]
+id = "plugin.piezas-3d"
+nombre = "Piezas 3D automáticas"
+padre = "plugin"
+detalle = "Válvulas, hidrantes y otras piezas"
+catalogo = "piezas-3d"
+
+[[grupo]]
+id = "plugin.laminado"
+nombre = "Laminado del modelo 3D"
+padre = "plugin"
+catalogo = "laminado"
+
+# ── app.dibujo-utilidades ──
+
+[[funcion]]
+id = "app.dibujo-utilidades.agua-a-presion"
+grupo = "app.dibujo-utilidades"
+nombre = "Agua (a presión)"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.dibujo-utilidades.gas-a-presion"
+grupo = "app.dibujo-utilidades"
+nombre = "Gas (a presión)"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.dibujo-utilidades.alcantarillado-por-gravedad"
+grupo = "app.dibujo-utilidades"
+nombre = "Alcantarillado (por gravedad)"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.dibujo-utilidades.drenaje-pluvial-por-gravedad"
+grupo = "app.dibujo-utilidades"
+nombre = "Drenaje pluvial (por gravedad)"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.dibujo-utilidades.electrico-conductos"
+grupo = "app.dibujo-utilidades"
+nombre = "Eléctrico (conductos)"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.dibujo-utilidades.telecomunicaciones-conductos"
+grupo = "app.dibujo-utilidades"
+nombre = "Telecomunicaciones (conductos)"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.inicio-y-proyectos ──
+
+[[funcion]]
+id = "app.inicio-y-proyectos.pantalla-de-inicio-con-accesos-rapidos"
+grupo = "app.inicio-y-proyectos"
+nombre = "Pantalla de inicio con accesos rápidos"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.inicio-y-proyectos.nuevo-lienzo-con-tamano-de-hoja-y-escala"
+grupo = "app.inicio-y-proyectos"
+nombre = "Nuevo lienzo con tamaño de hoja y escala"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.inicio-y-proyectos.abrir-pdf-o-proyecto-tambien-arrastrando"
+grupo = "app.inicio-y-proyectos"
+nombre = "Abrir PDF o proyecto (también arrastrando)"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.inicio-y-proyectos.proyectos-recientes"
+grupo = "app.inicio-y-proyectos"
+nombre = "Proyectos recientes"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.inicio-y-proyectos.proyecto-en-un-solo-archivo-con-el-pdf"
+grupo = "app.inicio-y-proyectos"
+nombre = "Proyecto en un solo archivo con el PDF"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.inicio-y-proyectos.copias-automaticas-y-recuperacion"
+grupo = "app.inicio-y-proyectos"
+nombre = "Copias automáticas y recuperación"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.interfaz-y-navegacion ──
+
+[[funcion]]
+id = "app.interfaz-y-navegacion.zoom-con-la-calidad-del-pdf"
+grupo = "app.interfaz-y-navegacion"
+nombre = "Zoom con la calidad del PDF"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.interfaz-y-navegacion.buscar-y-ejecutar-comandos-ctrl-k"
+grupo = "app.interfaz-y-navegacion"
+nombre = "Buscar y ejecutar comandos (Ctrl + K)"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.interfaz-y-navegacion.paneles-que-se-ocultan-solos"
+grupo = "app.interfaz-y-navegacion"
+nombre = "Paneles que se ocultan solos"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.interfaz-y-navegacion.tema-claro-oscuro"
+grupo = "app.interfaz-y-navegacion"
+nombre = "Tema claro / oscuro"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.interfaz-y-navegacion.espanol-e-ingles"
+grupo = "app.interfaz-y-navegacion"
+nombre = "Español e inglés"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.interfaz-y-navegacion.barras-de-avance-en-procesos-largos"
+grupo = "app.interfaz-y-navegacion"
+nombre = "Barras de avance en procesos largos"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.digitalizacion-de-la-hoja ──
+
+[[funcion]]
+id = "app.digitalizacion-de-la-hoja.elegir-hojas-del-pdf"
+grupo = "app.digitalizacion-de-la-hoja"
+nombre = "Elegir hojas del PDF"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.digitalizacion-de-la-hoja.area-sugerida-automaticamente"
+grupo = "app.digitalizacion-de-la-hoja"
+nombre = "Área sugerida automáticamente"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.digitalizacion-de-la-hoja.unir-hojas-con-costuras-exactas"
+grupo = "app.digitalizacion-de-la-hoja"
+nombre = "Unir hojas con costuras exactas"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.digitalizacion-de-la-hoja.composicion-sugerida-de-todo-el-juego"
+grupo = "app.digitalizacion-de-la-hoja"
+nombre = "Composición sugerida de todo el juego"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.digitalizacion-de-la-hoja.esquinas-libres-y-bordes-fundidos"
+grupo = "app.digitalizacion-de-la-hoja"
+nombre = "Esquinas libres y bordes fundidos"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.digitalizacion-de-la-hoja.hojas-giradas-y-escalas-distintas"
+grupo = "app.digitalizacion-de-la-hoja"
+nombre = "Hojas giradas y escalas distintas"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.digitalizacion-de-la-hoja.composicion-hibrida-pdf-vectorizado-y-es"
+grupo = "app.digitalizacion-de-la-hoja"
+nombre = "Composición Hibrida PDF (Vectorizado y Escaneado)"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.planos-escaneados ──
+
+[[funcion]]
+id = "app.planos-escaneados.recortar-con-cuatro-esquinas"
+grupo = "app.planos-escaneados"
+nombre = "Recortar con cuatro esquinas"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.planos-escaneados.regla-y-transportador-para-alinear"
+grupo = "app.planos-escaneados"
+nombre = "Regla y transportador para alinear"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.planos-escaneados.enderezar-y-medir"
+grupo = "app.planos-escaneados"
+nombre = "Enderezar y medir"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.planos-escaneados.calibrar-la-escala"
+grupo = "app.planos-escaneados"
+nombre = "Calibrar la escala"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.planos-escaneados.unir-hojas-escaneadas"
+grupo = "app.planos-escaneados"
+nombre = "Unir hojas escaneadas"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.capas-y-leyenda-del-plano ──
+
+[[funcion]]
+id = "app.capas-y-leyenda-del-plano.capas-del-pdf-agrupadas-por-utilidad"
+grupo = "app.capas-y-leyenda-del-plano"
+nombre = "Capas del PDF agrupadas por utilidad"
+estado = "optimizar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.capas-y-leyenda-del-plano.mostrar-u-ocultar-capas"
+grupo = "app.capas-y-leyenda-del-plano"
+nombre = "Mostrar u ocultar capas"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.capas-y-leyenda-del-plano.lectura-de-la-leyenda-del-plano"
+grupo = "app.capas-y-leyenda-del-plano"
+nombre = "Lectura de la leyenda del plano"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.capas-y-leyenda-del-plano.utilidad-por-las-letras-de-la-linea"
+grupo = "app.capas-y-leyenda-del-plano"
+nombre = "Utilidad por las letras de la línea"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.capas-y-leyenda-del-plano.mapas-sin-capas-estilos-por-utilidad"
+grupo = "app.capas-y-leyenda-del-plano"
+nombre = "Mapas sin capas: estilos por utilidad"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.reconocimiento-automatico ──
+
+[[funcion]]
+id = "app.reconocimiento-automatico.lineas-de-las-6-utilidades"
+grupo = "app.reconocimiento-automatico"
+nombre = "Líneas de las 6 utilidades"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.reconocimiento-automatico.buzones-cajas-y-bovedas-con-medidas"
+grupo = "app.reconocimiento-automatico"
+nombre = "Buzones, cajas y bóvedas con medidas"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.reconocimiento-automatico.curvas-quiebres-uniones-y-cortes"
+grupo = "app.reconocimiento-automatico"
+nombre = "Curvas, quiebres, uniones y cortes"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.reconocimiento-automatico.tuberias-abandonadas"
+grupo = "app.reconocimiento-automatico"
+nombre = "Tuberías abandonadas"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.reconocimiento-automatico.diametros-y-materiales-de-rotulos-y-perf"
+grupo = "app.reconocimiento-automatico"
+nombre = "Diámetros y materiales de rótulos y perfiles"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.reconocimiento-automatico.acometidas-servicios-domiciliarios"
+grupo = "app.reconocimiento-automatico"
+nombre = "Acometidas (servicios domiciliarios)"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.reconocimiento-automatico.diametro-dudoso-o-sin-dato-aviso-nunca-i"
+grupo = "app.reconocimiento-automatico"
+nombre = "Diámetro dudoso o sin dato: aviso, nunca inventado"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.reconocimiento-automatico.vista-previa-con-puntos-para-verificar"
+grupo = "app.reconocimiento-automatico"
+nombre = "Vista previa con puntos para verificar"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.agregar-utilidad-y-capas ──
+
+[[funcion]]
+id = "app.agregar-utilidad-y-capas.sumar-otra-utilidad-desde-otro-pdf"
+grupo = "app.agregar-utilidad-y-capas"
+nombre = "Sumar otra utilidad desde otro PDF"
+estado = "optimizar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.agregar-utilidad-y-capas.ubicacion-automatica-sobre-el-mismo-mapa"
+grupo = "app.agregar-utilidad-y-capas"
+nombre = "Ubicación automática sobre el mismo mapa"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.agregar-utilidad-y-capas.encender-apagar-cada-utilidad"
+grupo = "app.agregar-utilidad-y-capas"
+nombre = "Encender / apagar cada utilidad"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.agregar-utilidad-y-capas.encender-apagar-cada-plano-de-fondo"
+grupo = "app.agregar-utilidad-y-capas"
+nombre = "Encender / apagar cada plano de fondo"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.agregar-utilidad-y-capas.minimapa-y-marcas-de-las-hojas"
+grupo = "app.agregar-utilidad-y-capas"
+nombre = "Minimapa y marcas de las hojas"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.dibujo-de-utilidades ──
+
+[[funcion]]
+id = "app.dibujo-de-utilidades.trazar-utilidades-clic-a-clic"
+grupo = "app.dibujo-de-utilidades"
+nombre = "Trazar utilidades clic a clic"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.dibujo-de-utilidades.iman-a-la-tinta-del-plano"
+grupo = "app.dibujo-de-utilidades"
+nombre = "Imán a la tinta del plano"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.dibujo-de-utilidades.angulos-en-pasos-de-0-25"
+grupo = "app.dibujo-de-utilidades"
+nombre = "Ángulos en pasos de 0.25°"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.dibujo-de-utilidades.mover-y-editar-vertices"
+grupo = "app.dibujo-de-utilidades"
+nombre = "Mover y editar vértices"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.dibujo-de-utilidades.convertir-un-vertice-en-curva"
+grupo = "app.dibujo-de-utilidades"
+nombre = "Convertir un vértice en curva"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.dibujo-de-utilidades.opacidad-y-fondo-del-pdf"
+grupo = "app.dibujo-de-utilidades"
+nombre = "Opacidad y fondo del PDF"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.centerlines ──
+
+[[funcion]]
+id = "app.centerlines.trazar-el-eje-de-una-calle"
+grupo = "app.centerlines"
+nombre = "Trazar el eje de una calle"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.centerlines.codigos-cl-1-cl-2"
+grupo = "app.centerlines"
+nombre = "Códigos CL-1, CL-2…"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.centerlines.lista-propia-en-el-inventario"
+grupo = "app.centerlines"
+nombre = "Lista propia en el inventario"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.centerlines.apoyo-para-georreferenciar"
+grupo = "app.centerlines"
+nombre = "Apoyo para georreferenciar"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.centerlines.capa-ref-centerlines-en-el-dxf"
+grupo = "app.centerlines"
+nombre = "Capa REF_CENTERLINES en el DXF"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.anotaciones ──
+
+[[funcion]]
+id = "app.anotaciones.leader-flecha"
+grupo = "app.anotaciones"
+nombre = "Leader (flecha)"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.anotaciones.texto-libre"
+grupo = "app.anotaciones"
+nombre = "Texto libre"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.anotaciones.borrar-zona-del-plano-exportado"
+grupo = "app.anotaciones"
+nombre = "Borrar zona del plano exportado"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.anotaciones.editar-mover-y-eliminar"
+grupo = "app.anotaciones"
+nombre = "Editar, mover y eliminar"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.buzones-cajas-y-solidos ──
+
+[[funcion]]
+id = "app.buzones-cajas-y-solidos.buzones-automaticos-en-gravedad"
+grupo = "app.buzones-cajas-y-solidos"
+nombre = "Buzones automáticos en gravedad"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.buzones-cajas-y-solidos.cajas-donde-el-plano-tiene-boveda"
+grupo = "app.buzones-cajas-y-solidos"
+nombre = "Cajas donde el plano tiene bóveda"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.buzones-cajas-y-solidos.insertar-buzon-en-una-linea"
+grupo = "app.buzones-cajas-y-solidos"
+nombre = "Insertar buzón en una línea"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.buzones-cajas-y-solidos.ocultar-buzon-inexistente"
+grupo = "app.buzones-cajas-y-solidos"
+nombre = "Ocultar buzón inexistente"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.buzones-cajas-y-solidos.solidos-con-largo-ancho-y-altura"
+grupo = "app.buzones-cajas-y-solidos"
+nombre = "Sólidos con largo, ancho y altura"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.curvas ──
+
+[[funcion]]
+id = "app.curvas.codos-leidos-del-plano"
+grupo = "app.curvas"
+nombre = "Codos leídos del plano"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.curvas.quiebres-convertidos-en-curva"
+grupo = "app.curvas"
+nombre = "Quiebres convertidos en curva"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.curvas.radio-automatico-o-manual"
+grupo = "app.curvas"
+nombre = "Radio automático o manual"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.curvas.una-curva-en-chaflanes"
+grupo = "app.curvas"
+nombre = "Una curva en chaflanes"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.accesorios ──
+
+[[funcion]]
+id = "app.accesorios.codo-angulo-en-pasos-estandar"
+grupo = "app.accesorios"
+nombre = "Codo (ángulo en pasos estándar)"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.accesorios.codo-por-cambio-de-pendiente"
+grupo = "app.accesorios"
+nombre = "Codo por cambio de pendiente"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.accesorios.tee-ramal-a-90"
+grupo = "app.accesorios"
+nombre = "Tee (ramal a 90°)"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.accesorios.wye-ramal-en-angulo"
+grupo = "app.accesorios"
+nombre = "Wye (ramal en ángulo)"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.accesorios.cruz-4-tuberias-tambien-en-x"
+grupo = "app.accesorios"
+nombre = "Cruz (4 tuberías, también en X)"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.accesorios.t-domiciliaria"
+grupo = "app.accesorios"
+nombre = "T domiciliaria"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.accesorios.reduccion-cambio-de-diametro"
+grupo = "app.accesorios"
+nombre = "Reducción (cambio de diámetro)"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.accesorios.codo-reductor"
+grupo = "app.accesorios"
+nombre = "Codo reductor"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.accesorios.conexion-vertical-codos-90-tee-o-wye"
+grupo = "app.accesorios"
+nombre = "Conexión vertical: codos 90°, Tee o Wye"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.accesorios.marcar-aqui-no-va-accesorio"
+grupo = "app.accesorios"
+nombre = "Marcar «aquí no va accesorio»"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.accesorios.valvulas"
+grupo = "app.accesorios"
+nombre = "Válvulas"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.accesorios.listado-en-el-inventario"
+grupo = "app.accesorios"
+nombre = "Listado en el inventario"
+desde = "2.0.0"
+
+# ── app.datos-de-la-utilidad ──
+
+[[funcion]]
+id = "app.datos-de-la-utilidad.tipo-familia-y-tamano-de-civil-3d"
+grupo = "app.datos-de-la-utilidad"
+nombre = "Tipo, familia y tamaño de Civil 3D"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.datos-de-la-utilidad.diametro-y-material"
+grupo = "app.datos-de-la-utilidad"
+nombre = "Diámetro y material"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.datos-de-la-utilidad.cotas-por-tramo-y-pendiente"
+grupo = "app.datos-de-la-utilidad"
+nombre = "Cotas por tramo y pendiente"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.datos-de-la-utilidad.tipo-y-amperaje-electrico"
+grupo = "app.datos-de-la-utilidad"
+nombre = "Tipo y amperaje (eléctrico)"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.datos-de-la-utilidad.nombre-de-red-por-defecto-o-propio"
+grupo = "app.datos-de-la-utilidad"
+nombre = "Nombre de red (por defecto o propio)"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.datos-de-la-utilidad.diametros-sin-familia-y-personalizados"
+grupo = "app.datos-de-la-utilidad"
+nombre = "Diámetros sin familia y personalizados"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.datos-de-la-utilidad.abandonada"
+grupo = "app.datos-de-la-utilidad"
+nombre = "Abandonada"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.datos-de-la-utilidad.datos-extendidos-y-campos-propios"
+grupo = "app.datos-de-la-utilidad"
+nombre = "Datos extendidos y campos propios"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.datos-de-la-utilidad.agregar-tamanos-al-catalogo"
+grupo = "app.datos-de-la-utilidad"
+nombre = "Agregar tamaños al catálogo (+)"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.datos-de-la-utilidad.sentido-del-flujo"
+grupo = "app.datos-de-la-utilidad"
+nombre = "Sentido del flujo (por utilidad o por tramo)"
+propuesto = "falta_probar"
+propuesto_por = "Claude"
+propuesto_nota = "Novedad de la 2.0.0 que no estaba en el diagrama"
+desde = "2.0.0"
+
+# ── app.inventario-y-edicion-masiva ──
+
+[[funcion]]
+id = "app.inventario-y-edicion-masiva.listas-de-utilidades-buzones-curvas"
+grupo = "app.inventario-y-edicion-masiva"
+nombre = "Listas de utilidades, buzones, curvas…"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.inventario-y-edicion-masiva.unir-utilidades-seleccionadas"
+grupo = "app.inventario-y-edicion-masiva"
+nombre = "Unir utilidades seleccionadas"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.inventario-y-edicion-masiva.editar-varias-a-la-vez"
+grupo = "app.inventario-y-edicion-masiva"
+nombre = "Editar varias a la vez"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.inventario-y-edicion-masiva.copiar-y-pegar-propiedades"
+grupo = "app.inventario-y-edicion-masiva"
+nombre = "Copiar y pegar propiedades"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.inventario-y-edicion-masiva.ir-al-elemento-en-el-plano"
+grupo = "app.inventario-y-edicion-masiva"
+nombre = "Ir al elemento en el plano"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.duct-bank ──
+
+[[funcion]]
+id = "app.duct-bank.disenador-visual-de-la-seccion"
+grupo = "app.duct-bank"
+nombre = "Diseñador visual de la sección"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.duct-bank.conductos-con-validacion-de-reglas"
+grupo = "app.duct-bank"
+nombre = "Conductos con validación de reglas"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.duct-bank.un-diseno-para-varias-tuberias"
+grupo = "app.duct-bank"
+nombre = "Un diseño para varias tuberías"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.duct-bank.solido-3d-en-civil-3d"
+grupo = "app.duct-bank"
+nombre = "Sólido 3D en Civil 3D"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.georreferenciacion ──
+
+[[funcion]]
+id = "app.georreferenciacion.buscar-direccion-y-descargar-mapa"
+grupo = "app.georreferenciacion"
+nombre = "Buscar dirección y descargar mapa"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.georreferenciacion.puntos-de-control-plano-mapa"
+grupo = "app.georreferenciacion"
+nombre = "Puntos de control plano ↔ mapa"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.georreferenciacion.ajuste-sin-deformar-y-error-rmse"
+grupo = "app.georreferenciacion"
+nombre = "Ajuste sin deformar y error (RMSE)"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.georreferenciacion.sistema-de-coordenadas-huso"
+grupo = "app.georreferenciacion"
+nombre = "Sistema de coordenadas (Huso)"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.normativas ──
+
+[[funcion]]
+id = "app.normativas.reglas-por-utilidad-y-tipo"
+grupo = "app.normativas"
+nombre = "Reglas por utilidad y tipo"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.normativas.diametros-materiales-y-accesorios"
+grupo = "app.normativas"
+nombre = "Diámetros, materiales y accesorios"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.normativas.separaciones-pendientes-y-radios"
+grupo = "app.normativas"
+nombre = "Separaciones, pendientes y radios"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.normativas.editables-en-la-app-o-en-excel"
+grupo = "app.normativas"
+nombre = "Editables en la app o en Excel"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.normativas.avisos-sobre-el-plano-y-aprobacion"
+grupo = "app.normativas"
+nombre = "Avisos sobre el plano y aprobación"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.conflictos ──
+
+[[funcion]]
+id = "app.conflictos.cruces-choques-y-escalones"
+grupo = "app.conflictos"
+nombre = "Cruces, choques y escalones"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.conflictos.senales-de-colores-en-uniones"
+grupo = "app.conflictos"
+nombre = "Señales de colores en uniones"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.conflictos.numerados-c-1-c-2-fijos"
+grupo = "app.conflictos"
+nombre = "Numerados C-1, C-2… fijos"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.conflictos.conexiones-verticales"
+grupo = "app.conflictos"
+nombre = "Conexiones verticales"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.conflictos.marcar-aqui-no-va-accesorio"
+grupo = "app.conflictos"
+nombre = "Marcar «aquí no va accesorio»"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.conflictos.soluciones-probadas-antes-de-aplicar"
+grupo = "app.conflictos"
+nombre = "Soluciones probadas antes de aplicar"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.revisar-y-limpiar ──
+
+[[funcion]]
+id = "app.revisar-y-limpiar.tramos-diminutos"
+grupo = "app.revisar-y-limpiar"
+nombre = "Tramos diminutos"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.revisar-y-limpiar.puntas-casi-unidas"
+grupo = "app.revisar-y-limpiar"
+nombre = "Puntas casi unidas"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.revisar-y-limpiar.utilidades-repetidas-o-muy-cortas"
+grupo = "app.revisar-y-limpiar"
+nombre = "Utilidades repetidas o muy cortas"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.revisar-y-limpiar.revision-automatica-al-exportar"
+grupo = "app.revisar-y-limpiar"
+nombre = "Revisión automática al exportar"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.vista-3d ──
+
+[[funcion]]
+id = "app.vista-3d.red-3d-sin-exportar"
+grupo = "app.vista-3d"
+nombre = "Red 3D sin exportar"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.vista-3d.accesorios-buzones-y-bancoductos"
+grupo = "app.vista-3d"
+nombre = "Accesorios, buzones y bancoductos"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.vista-3d.ficha-y-edicion-de-cotas-y-diametros"
+grupo = "app.vista-3d"
+nombre = "Ficha y edición de cotas y diámetros"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.vista-3d.resolver-conflictos-en-3d"
+grupo = "app.vista-3d"
+nombre = "Resolver conflictos en 3D"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.vista-3d.angulos-y-pendientes-por-tramo"
+grupo = "app.vista-3d"
+nombre = "Ángulos y pendientes por tramo"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.vista-3d.abandonadas-a-trazos"
+grupo = "app.vista-3d"
+nombre = "Abandonadas a trazos"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.vista-3d.cubo-de-vistas-y-navegacion-tipo-civil-3"
+grupo = "app.vista-3d"
+nombre = "Cubo de vistas y navegación tipo Civil 3D"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.perfil-longitudinal ──
+
+[[funcion]]
+id = "app.perfil-longitudinal.recorrido-de-un-tramo-con-un-clic"
+grupo = "app.perfil-longitudinal"
+nombre = "Recorrido de un tramo con un clic"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.perfil-longitudinal.rotulos-cruces-y-recubrimiento"
+grupo = "app.perfil-longitudinal"
+nombre = "Rótulos, cruces y recubrimiento"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.perfil-longitudinal.alertas-en-el-perfil"
+grupo = "app.perfil-longitudinal"
+nombre = "Alertas en el perfil"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.perfil-longitudinal.editar-cotas-arrastrando"
+grupo = "app.perfil-longitudinal"
+nombre = "Editar cotas arrastrando"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.perfil-longitudinal.ramales-y-perfiles-guardados"
+grupo = "app.perfil-longitudinal"
+nombre = "Ramales y perfiles guardados"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.tabla-de-datos ──
+
+[[funcion]]
+id = "app.tabla-de-datos.todo-el-proyecto-en-tablas"
+grupo = "app.tabla-de-datos"
+nombre = "Todo el proyecto en tablas"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.tabla-de-datos.buscar-filtrar-y-ordenar"
+grupo = "app.tabla-de-datos"
+nombre = "Buscar, filtrar y ordenar"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.tabla-de-datos.exportar-a-excel"
+grupo = "app.tabla-de-datos"
+nombre = "Exportar a Excel"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.tabla-de-datos.editar-en-excel-y-reimportar"
+grupo = "app.tabla-de-datos"
+nombre = "Editar en Excel y reimportar"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.informe-automatico ──
+
+[[funcion]]
+id = "app.informe-automatico.word-con-conflictos-y-avisos-por-zona"
+grupo = "app.informe-automatico"
+nombre = "Word con conflictos y avisos por zona"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.informe-automatico.capturas-2d-y-3d"
+grupo = "app.informe-automatico"
+nombre = "Capturas 2D y 3D"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.informe-automatico.redaccion-asistida-por-ia"
+grupo = "app.informe-automatico"
+nombre = "Redacción asistida por IA"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.informe-automatico.en-segundo-plano-sin-detener-el-trabajo"
+grupo = "app.informe-automatico"
+nombre = "En segundo plano sin detener el trabajo"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.asistente-ia ──
+
+[[funcion]]
+id = "app.asistente-ia.preguntas-sobre-el-proyecto"
+grupo = "app.asistente-ia"
+nombre = "Preguntas sobre el proyecto"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.asistente-ia.ayuda-con-el-manual-de-usuario"
+grupo = "app.asistente-ia"
+nombre = "Ayuda con el manual de usuario"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.asistente-ia.ordenes-con-confirmacion"
+grupo = "app.asistente-ia"
+nombre = "Órdenes con confirmación"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.asistente-ia.explicacion-de-normativas"
+grupo = "app.asistente-ia"
+nombre = "Explicación de normativas"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.asistente-ia.sugerencias-de-diametro"
+grupo = "app.asistente-ia"
+nombre = "Sugerencias de diámetro"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.asistente-ia.chat-con-el-dibujo-de-civil-3d-mcp"
+grupo = "app.asistente-ia"
+nombre = "Chat con el dibujo de Civil 3D (MCP)"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.asistente-ia.responde-solo-sobre-el-proyecto"
+grupo = "app.asistente-ia"
+nombre = "Responde solo sobre el proyecto"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.asistente-ia.aprende-de-las-correcciones-del-equipo"
+grupo = "app.asistente-ia"
+nombre = "Aprende de las correcciones del equipo"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.asistente-ia.pasar-a-produccion-lo-aprendido"
+grupo = "app.asistente-ia"
+nombre = "Pasar a producción lo aprendido"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.exportacion-a-civil-3d ──
+
+[[funcion]]
+id = "app.exportacion-a-civil-3d.dxf-con-toda-la-red-y-sus-datos"
+grupo = "app.exportacion-a-civil-3d"
+nombre = "DXF con toda la red y sus datos"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.exportacion-a-civil-3d.que-incluir-todo-anotaciones-o-pdf"
+grupo = "app.exportacion-a-civil-3d"
+nombre = "Qué incluir: todo, anotaciones o PDF"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.exportacion-a-civil-3d.version-20252027-e-idioma"
+grupo = "app.exportacion-a-civil-3d"
+nombre = "Versión 2025–2027 e idioma"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.exportacion-a-civil-3d.reusa-el-plano-ya-digitalizado"
+grupo = "app.exportacion-a-civil-3d"
+nombre = "Reusa el plano ya digitalizado"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.exportacion-a-civil-3d.familias-personalizadas"
+grupo = "app.exportacion-a-civil-3d"
+nombre = "Familias personalizadas"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.ajustes-y-ayuda ──
+
+[[funcion]]
+id = "app.ajustes-y-ayuda.instalar-desinstalar-familias-personaliz"
+grupo = "app.ajustes-y-ayuda"
+nombre = "Instalar / desinstalar familias personalizadas"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.ajustes-y-ayuda.configurar-la-ia"
+grupo = "app.ajustes-y-ayuda"
+nombre = "Configurar la IA"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.ajustes-y-ayuda.atajos-de-teclado"
+grupo = "app.ajustes-y-ayuda"
+nombre = "Atajos de teclado"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.ajustes-y-ayuda.manual-de-usuario"
+grupo = "app.ajustes-y-ayuda"
+nombre = "Manual de usuario"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "app.ajustes-y-ayuda.instalador"
+grupo = "app.ajustes-y-ayuda"
+nombre = "Instalador con plugin y conexión de la IA"
+propuesto = "falta_probar"
+propuesto_por = "Claude"
+propuesto_nota = "Novedad de la 2.0.0 que no estaba en el diagrama"
+desde = "2.0.0"
+
+# ── app.reconocimiento-de-accesorios-auto ──
+
+[[funcion]]
+id = "app.reconocimiento-de-accesorios-auto.valvulas"
+grupo = "app.reconocimiento-de-accesorios-auto"
+nombre = "Válvulas"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── plugin.preparar-familias ──
+
+[[funcion]]
+id = "plugin.preparar-familias.regenera-el-catalogo"
+grupo = "plugin.preparar-familias"
+nombre = "Regenera el catálogo"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "plugin.preparar-familias.anade-familias-a-la-lista-de-piezas"
+grupo = "plugin.preparar-familias"
+nombre = "Añade familias a la lista de piezas"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── plugin.importar-red-desde-dxf ──
+
+[[funcion]]
+id = "plugin.importar-red-desde-dxf.redes-de-gravedad-y-presion"
+grupo = "plugin.importar-red-desde-dxf"
+nombre = "Redes de gravedad y presión"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "plugin.importar-red-desde-dxf.buzones-cajas-y-solidos"
+grupo = "plugin.importar-red-desde-dxf"
+nombre = "Buzones, cajas y sólidos"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "plugin.importar-red-desde-dxf.codos-tee-wye-y-cruces"
+grupo = "plugin.importar-red-desde-dxf"
+nombre = "Codos, Tee, Wye y cruces"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "plugin.importar-red-desde-dxf.curvas-y-bancoductos"
+grupo = "plugin.importar-red-desde-dxf"
+nombre = "Curvas y bancoductos"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "plugin.importar-red-desde-dxf.capa-por-utilidad"
+grupo = "plugin.importar-red-desde-dxf"
+nombre = "Capa por utilidad"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "plugin.importar-red-desde-dxf.tuberias-nombradas-por-red"
+grupo = "plugin.importar-red-desde-dxf"
+nombre = "Tuberías nombradas por red"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "plugin.importar-red-desde-dxf.property-sets-en-tuberias-estructuras-so"
+grupo = "plugin.importar-red-desde-dxf"
+nombre = "Property Sets en tuberías, estructuras, sólidos y accesorios"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "plugin.importar-red-desde-dxf.abandonadas-a-trazos-en-3d"
+grupo = "plugin.importar-red-desde-dxf"
+nombre = "Abandonadas a trazos en 3D"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "plugin.importar-red-desde-dxf.coordenadas-y-perfiles-guardados"
+grupo = "plugin.importar-red-desde-dxf"
+nombre = "Coordenadas y perfiles guardados"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "plugin.importar-red-desde-dxf.superficies"
+grupo = "plugin.importar-red-desde-dxf"
+nombre = "Superficies idénticas a las de la app (verificadas)"
+propuesto = "falta_probar"
+propuesto_por = "Claude"
+propuesto_nota = "Nuevo en 2.1.0; falta probar en Civil 3D"
+desde = "2.1.0"
+
+# ── plugin.agregar-tuberia-curva ──
+
+[[funcion]]
+id = "plugin.agregar-tuberia-curva.curva-tangente-en-la-esquina"
+grupo = "plugin.agregar-tuberia-curva"
+nombre = "Curva tangente en la esquina"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "plugin.agregar-tuberia-curva.bancos-de-ductos"
+grupo = "plugin.agregar-tuberia-curva"
+nombre = "Bancos de ductos"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── plugin.exportar-tuberias-a-excel ──
+
+[[funcion]]
+id = "plugin.exportar-tuberias-a-excel.excel-intermedio-por-tuberia"
+grupo = "plugin.exportar-tuberias-a-excel"
+nombre = "Excel intermedio por tubería"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "plugin.exportar-tuberias-a-excel.datos-a-completar"
+grupo = "plugin.exportar-tuberias-a-excel"
+nombre = "Datos a completar"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── plugin.importar-property-sets ──
+
+[[funcion]]
+id = "plugin.importar-property-sets.asigna-los-datos-del-excel"
+grupo = "plugin.importar-property-sets"
+nombre = "Asigna los datos del Excel"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "plugin.importar-property-sets.sin-duplicar-al-repetir"
+grupo = "plugin.importar-property-sets"
+nombre = "Sin duplicar al repetir"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── plugin.agregar-etiquetas ──
+
+[[funcion]]
+id = "plugin.agregar-etiquetas.etiquetas-de-tuberia-y-buzon"
+grupo = "plugin.agregar-etiquetas"
+nombre = "Etiquetas de tubería y buzón"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "plugin.agregar-etiquetas.sentido-de-flujo"
+grupo = "plugin.agregar-etiquetas"
+nombre = "Sentido de flujo"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── plugin.generar-cuadros-resumen ──
+
+[[funcion]]
+id = "plugin.generar-cuadros-resumen.cuadros-resumen-de-la-red"
+grupo = "plugin.generar-cuadros-resumen"
+nombre = "Cuadros resumen de la red"
+estado = "probado"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── plugin.generar-perfil-longitudinal ──
+
+[[funcion]]
+id = "plugin.generar-perfil-longitudinal.eje-y-terreno"
+grupo = "plugin.generar-perfil-longitudinal"
+nombre = "Eje y terreno"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "plugin.generar-perfil-longitudinal.tuberias-y-cruces"
+grupo = "plugin.generar-perfil-longitudinal"
+nombre = "Tuberías y cruces"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "plugin.generar-perfil-longitudinal.rotulos-nativos"
+grupo = "plugin.generar-perfil-longitudinal"
+nombre = "Rótulos nativos"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── mcp.encender-conexion-de-la-ia ──
+
+[[funcion]]
+id = "mcp.encender-conexion-de-la-ia.consultas-desde-la-app-o-claude"
+grupo = "mcp.encender-conexion-de-la-ia"
+nombre = "Consultas desde la app o Claude"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "mcp.encender-conexion-de-la-ia.cambios-con-confirmacion"
+grupo = "mcp.encender-conexion-de-la-ia"
+nombre = "Cambios con confirmación"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "mcp.encender-conexion-de-la-ia.registro-de-cada-cambio"
+grupo = "mcp.encender-conexion-de-la-ia"
+nombre = "Registro de cada cambio"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── mcp.herramientas ──
+
+[[funcion]]
+id = "mcp.herramientas.consultar-el-dibujo-estado-buscar-detall"
+grupo = "mcp.herramientas"
+nombre = "Consultar el dibujo (estado, buscar, detalle, encuadrar, metrados)"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "mcp.herramientas.cambiar-el-dibujo-rasantes-capa"
+grupo = "mcp.herramientas"
+nombre = "Cambiar el dibujo (rasantes, capa, )"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "mcp.herramientas.conflictos-con-propuesta-de-solucion"
+grupo = "mcp.herramientas"
+nombre = "Conflictos (Con propuesta de solucion)"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "mcp.herramientas.normativas-sincronizado-con-la-app"
+grupo = "mcp.herramientas"
+nombre = "Normativas (sincronizado con la app)"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "mcp.herramientas.revision-del-plano-y-arreglar-textos-cot"
+grupo = "mcp.herramientas"
+nombre = "Revisión del plano (y arreglar, textos, cotas, comparar contra el PDF)"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+[[funcion]]
+id = "mcp.herramientas.entrega-y-proyecto-datos-en-excel-o-word"
+grupo = "mcp.herramientas"
+nombre = "Entrega y proyecto (Datos en excel o word tuberias, estruct, accesorios, metrados, conflictos, normativas)"
+estado = "falta_probar"
+aprobado = "Deyvy (draw.io)"
+desde = "2.0.0"
+
+# ── app.superficies ──
+
+[[funcion]]
+id = "app.superficies.importar"
+grupo = "app.superficies"
+nombre = "Importar una o varias superficies (LandXML, GeoTIFF)"
+propuesto = "falta_probar"
+propuesto_por = "Claude"
+propuesto_nota = "Nuevo en 2.1.0; falta probar en Civil 3D"
+desde = "2.1.0"
+
+[[funcion]]
+id = "app.superficies.sistema"
+grupo = "app.superficies"
+nombre = "Mismo sistema de coordenadas que las redes"
+propuesto = "falta_probar"
+propuesto_por = "Claude"
+propuesto_nota = "Nuevo en 2.1.0; falta probar en Civil 3D"
+desde = "2.1.0"
+
+[[funcion]]
+id = "app.superficies.plano-y-capas"
+grupo = "app.superficies"
+nombre = "Contorno en el plano y en «Capas»"
+propuesto = "falta_probar"
+propuesto_por = "Claude"
+propuesto_nota = "Nuevo en 2.1.0; falta probar en Civil 3D"
+desde = "2.1.0"

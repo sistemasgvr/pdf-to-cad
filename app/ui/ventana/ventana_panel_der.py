@@ -63,6 +63,7 @@ class PanelDerechoMixin:
         _bind(self.tabs, "setTabText", "Accesorios", self.tabs.addTab(self._build_lista_accesorios(), ""))
         _bind(self.tabs, "setTabText", "Centerlines", self.tabs.addTab(self.cl_list, ""))
         _bind(self.tabs, "setTabText", "Bancoductos", self.tabs.addTab(self._db_tab_widget, ""))
+        _bind(self.tabs, "setTabText", "Superficies", self.tabs.addTab(self._build_lista_superficies(), ""))
         # RESPONSIVO: los textos de los items son largos ("AGUA · 12" · 4
         # vértices · <nombre>"), así que por defecto QListWidget saca una barra
         # de desplazamiento HORIZONTAL y el usuario tiene que arrastrarla para
@@ -71,7 +72,7 @@ class PanelDerechoMixin:
         # _refresh_lists). No afecta la selección ni los índices de fila.
         for _lw in (self.pipe_list, self.sleader_list,
                     self.txt_marks_list, self.region_list, self.bz_list,
-                    self.curve_list, self.cl_list, self.db_list, self.acc_list):
+                    self.curve_list, self.cl_list, self.db_list, self.acc_list, self.sup_list):
             _lw.setTextElideMode(QtCore.Qt.ElideRight)
             _lw.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
             _lw.setWordWrap(False)
@@ -91,7 +92,7 @@ class PanelDerechoMixin:
         self.tab_combo.setMaxVisibleItems(self.tabs.count() + 2)
         self.tab_combo.setStyleSheet("QComboBox { combobox-popup: 0; }")
         for key in (N_("Utilidades"), N_("Leaders"), N_("Textos"), N_("Zonas"), N_("Buzones"), N_("Curvas"),
-                    N_("Accesorios"), N_("Centerlines"), N_("Bancoductos")):
+                    N_("Accesorios"), N_("Centerlines"), N_("Bancoductos"), N_("Superficies")):
             _bind_item(self.tab_combo, key)
         self.tab_combo.currentIndexChanged.connect(self.tabs.setCurrentIndex)
         self.tabs.currentChanged.connect(self.tab_combo.setCurrentIndex)

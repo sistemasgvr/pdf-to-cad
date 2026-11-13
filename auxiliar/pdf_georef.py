@@ -89,9 +89,12 @@ def clear_contextily_cache():
 # ---------------------------------------------------------------------------
 # Constantes
 # ---------------------------------------------------------------------------
-TARGET_EPSG = 2229          # State Plane California V, ftUS (nativo NavigateLA)
-WGS84_EPSG = 4326
+# CRS destino para LA: State Plane California V, US Survey Feet (Civil 3D-friendly)
+TARGET_EPSG = 2229                     # NAD83 / California zone 5 (ftUS)
+WEB_MERC_EPSG = 3857                   # NavigateLA sirve en Web Mercator
+WGS84_EPSG = 4326                      # lat/lon del geocoder
 
+# LA City street centerlines (layer 36 del Street_Information MapServer)
 LA_CENTERLINE_URL = (
     "https://maps.lacity.org/lahub/rest/services/"
     "Street_Information/MapServer/36/query"
@@ -109,7 +112,9 @@ ESRI_WORLD_GEOCODER_URL = (
 
 DEFAULT_BUFFER_M = 400
 
-_to_target_from_wgs = Transformer.from_crs(WGS84_EPSG, TARGET_EPSG, always_xy=True)
+# Transformadores pyproj
+_to_target = Transformer.from_crs(WEB_MERC_EPSG, TARGET_EPSG, always_xy=True)
+_to_webmerc = Transformer.from_crs(WGS84_EPSG, WEB_MERC_EPSG, always_xy=True)
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +123,7 @@ _to_target_from_wgs = Transformer.from_crs(WGS84_EPSG, TARGET_EPSG, always_xy=Tr
 @dataclass
 class ControlPoint:
     pdf_uv: Tuple[float, float]
-    world_xy: Tuple[float, float]  # EPSG:2229 (ftUS), nativo NavigateLA
+    world_xy: Tuple[float, float]  # en Web Mercator (EPSG:3857)
     label: str = ""
 
 
@@ -135,156 +140,18 @@ class GeorefState:
 
 
 # ---------------------------------------------------------------------------
-# Geocoding: LA ArcGIS -> Nominatim
-# ---------------------------------------------------------------------------
-def _ensure_la_context(q: str) -> str:
-    """Si el query no menciona LA/California, se lo añade para desambiguar."""
-    ql = q.lower()
-    if "los angeles" in ql or " ca" in ql or "california" in ql or ", la" in ql:
-        return q
-    return f"{q}, Los Angeles, CA"
-
-
-def _variants(query: str) -> List[str]:
-    """Genera variantes del query normalizando conectores de intersección."""
-    base = [
-        query,
-        query.replace(" at ", " & ").replace(" AT ", " & "),
-        query.replace(" and ", " & ").replace(" AND ", " & "),
-        query.replace(" & ", " and ").replace(" and ", " and "),
-    ]
-    out = []
-    for q in base:
-        q1 = q.strip()
-        for v in (q1, _ensure_la_context(q1)):
-            if v not in out:
-                out.append(v)
-    return out
-
-
-def geocode_esri_world(query: str) -> Optional[Tuple[float, float, str, int]]:
-    """
-    Geocoder mundial de ArcGIS. Público, sin API key.
-    Muy bueno con intersecciones tipo 'Colfax & Chandler, Los Angeles'.
-    Devuelve (lat, lon, address, score) o None.
-    """
-    params = {
-        "singleLine": query,
-        "outFields": "Match_addr,Addr_type,Type,Score",
-        "maxLocations": 3,
-        "f": "json",
-        # Bias a Los Angeles: bbox aprox LA county (WGS84)
-        "searchExtent": "-118.95,33.65,-117.55,34.85",
-    }
-    try:
-        r = requests.get(ESRI_WORLD_GEOCODER_URL, params=params, timeout=20)
-        r.raise_for_status()
-        data = r.json()
-    except Exception:
-        return None
-    cands = data.get("candidates", [])
-    if not cands:
-        return None
-    top = cands[0]
-    score = int(top.get("score", 0))
-    if score < 70:
-        return None
-    loc = top["location"]
-    # Esri World devuelve lon/lat en WGS84 por defecto
-    return loc["y"], loc["x"], top.get("address", query), score
-
-
-def geocode_la_arcgis(query: str) -> Optional[Tuple[float, float, str, int]]:
-    params = {
-        "SingleLine": query,
-        "outFields": "*",
-        "outSR": WGS84_EPSG,
-        "maxLocations": 3,
-        "f": "json",
-    }
-    try:
-        r = requests.get(LA_GEOCODER_URL, params=params, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-    except Exception:
-        return None
-    cands = data.get("candidates", [])
-    if not cands:
-        return None
-    top = cands[0]
-    score = int(top.get("score", 0))
-    if score < 60:
-        return None
-    loc = top["location"]
-    return loc["y"], loc["x"], top.get("address", query), score
-
-
-def geocode_nominatim(query: str) -> Optional[Tuple[float, float, str, int]]:
-    try:
-        geoc = Nominatim(user_agent="pdf_georef_la_v2")
-        loc = geoc.geocode(query, timeout=20)
-        if loc:
-            return loc.latitude, loc.longitude, loc.address, 100
-    except Exception:
-        pass
-    return None
-
-
-def geocode(query: str) -> Tuple[float, float, str]:
-    """
-    Cascada de geocoders. Devuelve (lat, lon, address).
-    Prueba en orden: Esri World → LA Locator → Nominatim.
-    """
-    attempts = []  # para debug si todo falla
-
-    for q in _variants(query):
-        r = geocode_esri_world(q)
-        attempts.append(("Esri World", q, r))
-        if r:
-            lat, lon, addr, score = r
-            return lat, lon, f"{addr} [Esri, score {score}]"
-
-    for q in _variants(query):
-        r = geocode_la_arcgis(q)
-        attempts.append(("LA City", q, r))
-        if r:
-            lat, lon, addr, score = r
-            return lat, lon, f"{addr} [LA, score {score}]"
-
-    for q in _variants(query):
-        r = geocode_nominatim(q)
-        attempts.append(("Nominatim", q, r))
-        if r:
-            lat, lon, addr, _ = r
-            return lat, lon, f"{addr} [OSM]"
-
-    tried = "\n".join(f"  • {name}: '{q}' → {'sin resultado' if r is None else 'OK'}"
-                      for name, q, r in attempts[:6])
-    raise RuntimeError(
-        f"No se encontró '{query}'.\n\n"
-        f"Se probó (primeros intentos):\n{tried}\n\n"
-        f"Formatos que suelen funcionar:\n"
-        f"  • Colfax Ave & Chandler Blvd, Los Angeles, CA\n"
-        f"  • 5th St & Spring St, Los Angeles\n"
-        f"  • 200 N Spring St, Los Angeles, CA 90012"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Centerlines
+# Utilidades: descargar centerlines de LA
 # ---------------------------------------------------------------------------
 def fetch_la_centerlines(lat: float, lon: float,
                          buffer_m: float = DEFAULT_BUFFER_M) -> List[LineString]:
     """
-    Descarga centerlines en EPSG:2229 NATIVO (State Plane CA V, ftUS).
-    Sin reproyecciones intermedias — máxima precisión.
+    Descarga centerlines de calles de LA en un radio 'buffer_m' alrededor de
+    (lat, lon). Devuelve lista de LineStrings en Web Mercator (metros).
     """
-    # Punto central en 2229 (ft)
-    x, y = _to_target_from_wgs.transform(lon, lat)
-    # buffer_m viene en metros; convertir a pies
-    buffer_ft = buffer_m * 3.28084
-    xmin, ymin = x - buffer_ft, y - buffer_ft
-    xmax, ymax = x + buffer_ft, y + buffer_ft
+    x, y = _to_webmerc.transform(lon, lat)
+    xmin, ymin = x - buffer_m, y - buffer_m
+    xmax, ymax = x + buffer_m, y + buffer_m
+
     params = {
         "where": "1=1",
         "geometry": f"{xmin},{ymin},{xmax},{ymax}",
@@ -311,9 +178,12 @@ def fetch_la_centerlines(lat: float, lon: float,
 
 def snap_to_centerline_vertex(xy: Tuple[float, float],
                               centerlines: List[LineString],
-                              max_dist_ft: float = 80.0) -> Tuple[float, float]:
+                              max_dist_m: float = 25.0
+                              ) -> Tuple[float, float]:
     """
-    Snap en unidades de EPSG:2229 (feet). 80 ft ≈ 25 m.
+    Snap un punto (Web Mercator m) al vértice de centerline más cercano.
+    Si no hay vértice dentro de max_dist_m, snap al punto más cercano SOBRE la
+    línea. Si tampoco, devuelve el punto original.
     """
     p = Point(xy)
     best_pt, best_d = None, float("inf")
@@ -321,16 +191,18 @@ def snap_to_centerline_vertex(xy: Tuple[float, float],
         for vx, vy in ln.coords:
             d = ((vx - xy[0]) ** 2 + (vy - xy[1]) ** 2) ** 0.5
             if d < best_d:
-                best_d, best_pt = d, (vx, vy)
-    if best_pt is not None and best_d <= max_dist_ft:
+                best_d = d
+                best_pt = (vx, vy)
+    if best_pt is not None and best_d <= max_dist_m:
         return best_pt
     best_pt, best_d = None, float("inf")
     for ln in centerlines:
         proj = ln.interpolate(ln.project(p))
         d = p.distance(proj)
         if d < best_d:
-            best_d, best_pt = d, (proj.x, proj.y)
-    if best_pt is not None and best_d <= max_dist_ft:
+            best_d = d
+            best_pt = (proj.x, proj.y)
+    if best_pt is not None and best_d <= max_dist_m:
         return best_pt
     return xy
 
@@ -567,14 +439,18 @@ class MainWindow(QMainWindow):
         try:
             M, rmse = compute_affine(self.state.control_points)
         except Exception as e:
-            QMessageBox.warning(self, "No se puede ajustar", str(e)); return
-        self.state.affine = M; self.state.rmse_m = rmse  # (nombre legado; ahora está en ft)
-        rmse_ft = rmse  # ya está en ft (EPSG:2229 nativo)
-        self.lbl_rmse.setText(f"RMSE: {rmse_ft:.3f} ft")
-        color = "green" if rmse_ft < 1 else ("orange" if rmse_ft < 3 else "red")
+            QMessageBox.warning(self, "No se puede ajustar", str(e))
+            return
+        self.state.affine = M
+        self.state.rmse_m = rmse
+        # RMSE está en metros (Web Mercator). Convertir a pies para el usuario.
+        rmse_ft = rmse * 3.28084
+        self.lbl_rmse.setText(f"RMSE: {rmse:.2f} m  ({rmse_ft:.2f} ft)")
+        color = "green" if rmse_ft < 3 else ("orange" if rmse_ft < 8 else "red")
         self.lbl_rmse.setStyleSheet(f"color: {color}; font-weight: bold;")
         self.status.showMessage(
-            f"Ajuste OK con {len(self.state.control_points)} puntos. RMSE {rmse_ft:.3f} ft."
+            f"Ajuste OK con {len(self.state.control_points)} puntos. "
+            f"RMSE {rmse_ft:.2f} ft."
         )
 
     def on_export_dxf(self):
@@ -654,12 +530,15 @@ class MainWindow(QMainWindow):
 
         # --- 4) Puntos de control ---
         for i, cp in enumerate(self.state.control_points, 1):
-            X_ft, Y_ft = cp.world_xy  # YA en EPSG:2229 nativo
-            msp.add_circle((X_ft, Y_ft), radius=3, dxfattribs={"layer": "CONTROL_POINTS"})
-            msp.add_text(f"CP{i}", dxfattribs={"layer": "CONTROL_POINTS", "height": 4}
-                         ).set_placement((X_ft + 4, Y_ft + 4))
+            X_ft, Y_ft = self._world_m_to_target_ft(*cp.world_xy)
+            msp.add_circle((X_ft, Y_ft), radius=2,
+                           dxfattribs={"layer": "CONTROL_POINTS"})
+            msp.add_text(
+                f"CP{i}",
+                dxfattribs={"layer": "CONTROL_POINTS", "height": 3},
+            ).set_placement((X_ft + 3, Y_ft + 3))
 
-        # --- 5) Centerlines de referencia (nativos NavigateLA, sin reproyección) ---
+        # Centerlines como referencia
         for ln in self.state.centerlines:
             pts_ft = list(ln.coords)
             if len(pts_ft) >= 2:
@@ -681,19 +560,22 @@ class MainWindow(QMainWindow):
         extra = f"\nImagen del PDF: {png_name}" if png_path else ""
         QMessageBox.information(
             self, "Listo",
-            f"DXF exportado:\n{path}{extra}\n\n"
-            f"CRS: EPSG:{TARGET_EPSG} (State Plane CA V, ftUS) — nativo NavigateLA\n"
-            f"RMSE: {self.state.rmse_m:.3f} ft\n\n"
-            f"En Civil 3D: si no ves la imagen, usa el comando IMAGEFRAME=2\n"
-            f"o verifica que el PNG esté en la misma carpeta que el DXF."
+            f"DXF exportado:\n{path}\n\n"
+            f"CRS: EPSG:{TARGET_EPSG} (State Plane CA V, ftUS)\n"
+            f"RMSE: {self.state.rmse_m * 3.28084:.2f} ft"
         )
 
-    def _uv_to_target_ft(self, u, v):
-        # La afín ya mapea PDF -> EPSG:2229 (ft) directamente
-        return apply_affine(self.state.affine, u, v)
+    # ---------- Conversores auxiliares ----------
+    def _uv_to_target_ft(self, u: float, v: float) -> Tuple[float, float]:
+        M = self.state.affine
+        Xm, Ym = apply_affine(M, u, v)
+        return _to_target.transform(Xm, Ym)
 
-    # ---- Clics ----
-    def _on_pdf_click(self, x, y):
+    def _world_m_to_target_ft(self, X: float, Y: float) -> Tuple[float, float]:
+        return _to_target.transform(X, Y)
+
+    # ---------- Clics ----------
+    def _on_pdf_click(self, x_data, y_data):
         if self.state.pdf_page_image is None:
             return
         self._pending_pdf_uv = (float(x), float(y))
@@ -708,7 +590,9 @@ class MainWindow(QMainWindow):
         if not self.state.centerlines:
             self.status.showMessage("Primero descarga centerlines."); return
         snapped = snap_to_centerline_vertex(
-            (float(x), float(y)), self.state.centerlines, max_dist_ft=80.0
+            (float(x_data), float(y_data)),
+            self.state.centerlines,
+            max_dist_m=25.0,
         )
         cp = ControlPoint(pdf_uv=self._pending_pdf_uv, world_xy=snapped,
                           label=f"CP{len(self.state.control_points) + 1}")
@@ -749,22 +633,18 @@ class MainWindow(QMainWindow):
                 xs.append(x); ys.append(y)
             xx, yy = zip(*ln.coords)
             c.ax.plot(xx, yy, "-", color="#2a5", linewidth=1.2)
-        pad = 100  # ft (era 30 m)
+        # Basemap OSM (contextily), en Web Mercator
+        pad = 30
         c.ax.set_xlim(min(xs) - pad, max(xs) + pad)
         c.ax.set_ylim(min(ys) - pad, max(ys) + pad)
         if HAS_CTX:
-            for name, url in TILE_PROVIDERS:
-                try:
-                    cx.add_basemap(
-                        c.ax,
-                        crs=f"EPSG:{TARGET_EPSG}",  # axis en 2229; ctx reproyecta tiles
-                        source=url,
-                        attribution=f"© {name}",
-                        attribution_size=6,
-                    )
-                    break
-                except Exception:
-                    continue
+            try:
+                cx.add_basemap(c.ax, crs=f"EPSG:{WEB_MERC_EPSG}",
+                               source=cx.providers.OpenStreetMap.Mapnik,
+                               attribution_size=6)
+            except Exception:
+                pass
+        # Puntos de control
         for i, cp in enumerate(self.state.control_points, 1):
             X, Y = cp.world_xy
             c.ax.plot(X, Y, "o", color="red", markersize=8, markeredgecolor="white")
@@ -779,10 +659,12 @@ class MainWindow(QMainWindow):
     def _refresh_lists(self):
         self.lst_cp.clear()
         for i, cp in enumerate(self.state.control_points, 1):
-            u, v = cp.pdf_uv; X, Y = cp.world_xy
-            self.lst_cp.addItem(QListWidgetItem(
-                f"CP{i}   PDF({u:.0f},{v:.0f})  →  SP({X:.2f},{Y:.2f}) ft"
-            ))
+            u, v = cp.pdf_uv
+            X, Y = cp.world_xy
+            item = QListWidgetItem(
+                f"CP{i}   PDF({u:.0f},{v:.0f})  →  WM({X:.1f},{Y:.1f})"
+            )
+            self.lst_cp.addItem(item)
 
 
 def main():

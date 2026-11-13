@@ -1,0 +1,37 @@
+name: Bug
+description: Algo que falla o dejó de funcionar
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Área
+      options: [App, Reconocimiento del PDF, Plugin Civil 3D, Piezas 3D, Laminado, IA / MCP, Instalador, No sé]
+    validations:
+      required: true
+  - type: textarea
+    id: pasos
+    attributes:
+      label: Qué hiciste
+      description: Pasos para repetirlo (archivo, hoja, botón…).
+      placeholder: "1. Abrí DU06 hoja 4\n2. Reconocer drenaje\n3. …"
+    validations:
+      required: true
+  - type: textarea
+    id: resultado
+    attributes:
+      label: Qué pasó y qué esperabas
+    validations:
+      required: true
+  - type: textarea
+    id: capturas
+    attributes:
+      label: Capturas
+      description: Pegar con Ctrl+V. Si hubo error, también el texto del error o el código E-…
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Versión
+      placeholder: "2.0.0 instalada / rama dev_…"

@@ -1,0 +1,148 @@
+{
+ "archivo": "03-DU08_09_10-APDU-SEG-B-SEWER-PLAN_100P.pdf",
+ "hojas": {
+  "35": {
+   "anotaciones": 95,
+   "utilidades": {
+    "ALCANTARILLADO": {
+     "abandonadas": 3,
+     "avisos": [
+      "N anillos de buzón en la capa de la línea",
+      "N letras/barras omitidas",
+      "N quiebres con ángulo a pasos de N°",
+      "abandoned",
+      "double_active",
+      "fillets",
+      "grosor",
+      "grosor_partida",
+      "grosor_sin",
+      "uncovered",
+      "vault_snaps",
+      "vaults"
+     ],
+     "avisos_texto": [
+      "Anillos de buzón dibujados en la capa de la línea: 4 — se toman como contorno de la estructura, no como tubería.",
+      "Bóvedas detectadas: 2 (ya son vértices de las líneas).",
+      "Cobertura de guiones: 100.0%.",
+      "Codos como esquina + radio: 2.",
+      "Diámetros del plano (rótulos con flecha y paredes dibujadas): 5 tubería(s) los toman; 0 dudosa(s) quedan con el diámetro por defecto y un aviso en el editor.",
+      "Patrón «//» en una capa que no es «-A»: 3 línea(s) — se importan ABANDONADAS (el «//» manda).",
+      "Puntas unidas a su bóveda (imán): 5 — quedaban a menos de 3 pt de su contorno y se llevaron hasta él por su propia recta.",
+      "Se omitieron 48 trazos de marcador/linetype (letras, barras); solo se dibuja la centerline.",
+      "Tuberías partidas donde el plano cambia de diámetro: 1 — sus rótulos dicen un diámetro hasta un nodo (pozo, unión o esquina) y otro después.",
+      "Tuberías sin diámetro en el plano: 4 — ningún rótulo con flecha llega a ellas ni tienen paredes dibujadas; quedan con el diámetro por defecto y un aviso en el editor.",
+      "Utilidades abandonadas (capa «-A» + patrón «/», o patrón «//»): 3 — se importan marcadas (AB).",
+      "Ángulos de los quiebres a pasos de 0.25°: 8 — cada vértice se movió lo mínimo (máx. 0.10 pt); los codos conservan su radio."
+     ],
+     "bovedas": 4,
+     "bovedas_importables": 4,
+     "cobertura": 1.0,
+     "codos": 2,
+     "codos_aproximados": 0,
+     "diametros": {
+      "18\"": 3,
+      "6\"": 2,
+      "sin dato": 4
+     },
+     "grosor_estados": {
+      "leido": 5,
+      "sin_dato": 4
+     },
+     "huellas": [
+      "1316bac29f",
+      "131e6b8f49",
+      "2414e50816",
+      "29656416d9",
+      "43d4e4d687",
+      "6f74e9c071",
+      "7699195559",
+      "8c2743196c",
+      "ffc1d1ce55"
+     ],
+     "kinds": {
+      "corner": 1,
+      "cut": 3,
+      "edge": 4,
+      "end": 5,
+      "fillet": 2,
+      "stop": 7,
+      "tee": 2,
+      "vault": 3
+     },
+     "largo_pt": 2079.2,
+     "polilineas": 9,
+     "radios_pt": [
+      429.0,
+      677.9
+     ],
+     "vertices": 27
+    },
+    "GAS": {
+     "abandonadas": 3,
+     "avisos": [
+      "N letras/barras omitidas",
+      "N quiebres con ángulo a pasos de N°",
+      "abandoned",
+      "double_active",
+      "grosor",
+      "grosor_sin",
+      "uncovered"
+     ],
+     "avisos_texto": [
+      "Cobertura de guiones: 100.0%.",
+      "Diámetros del plano (rótulos con flecha y paredes dibujadas): 2 tubería(s) los toman; 1 dudosa(s) quedan con el diámetro por defecto y un aviso en el editor.",
+      "Patrón «//» en una capa que no es «-A»: 2 línea(s) — se importan ABANDONADAS (el «//» manda).",
+      "Se omitieron 79 trazos de marcador/linetype (letras, barras); solo se dibuja la centerline.",
+      "Tuberías sin diámetro en el plano: 5 — ningún rótulo con flecha llega a ellas ni tienen paredes dibujadas; quedan con el diámetro por defecto y un aviso en el editor.",
+      "Utilidades abandonadas (capa «-A» + patrón «/», o patrón «//»): 3 — se importan marcadas (AB).",
+      "Ángulos de los quiebres a pasos de 0.25°: 6 — cada vértice se movió lo mínimo (máx. 0.02 pt); los codos conservan su radio."
+     ],
+     "bovedas": 0,
+     "bovedas_importables": 0,
+     "cobertura": 1.0,
+     "codos": 0,
+     "codos_aproximados": 0,
+     "diametros": {
+      "3\"": 1,
+      "4\"": 1,
+      "sin dato": 6
+     },
+     "grosor_estados": {
+      "dudoso": 1,
+      "leido": 2,
+      "sin_dato": 5
+     },
+     "huellas": [
+      "155e053689",
+      "330824eaef",
+      "4e7f4e70ed",
+      "54347a1eed",
+      "7e34b631ea",
+      "8f05d157c1",
+      "daf5f7687f",
+      "e409e2053d"
+     ],
+     "kinds": {
+      "corner": 5,
+      "cut": 6,
+      "end": 9,
+      "tee": 2
+     },
+     "largo_pt": 2419.0,
+     "polilineas": 8,
+     "radios_pt": [],
+     "vertices": 22
+    }
+   },
+   "valvulas": 0
+  }
+ },
+ "id": "du08_h36_alcantarillado",
+ "sha1": "eb5ec8bd94dde0067e707461260ea22661ec02cc",
+ "utilidades": [
+  "ALCANTARILLADO",
+  "GAS"
+ ],
+ "version": 1,
+ "zoom": 3.5
+}

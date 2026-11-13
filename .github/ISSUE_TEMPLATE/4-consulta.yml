@@ -1,0 +1,15 @@
+name: Consulta
+description: Pregunta que hay que responder (del cliente o del equipo)
+labels: ["consulta", "falta responder"]
+body:
+  - type: textarea
+    id: pregunta
+    attributes:
+      label: Pregunta
+      description: Con capturas si ayudan (Ctrl+V).
+    validations:
+      required: true
+  - type: input
+    id: quien
+    attributes:
+      label: Quién pregunta

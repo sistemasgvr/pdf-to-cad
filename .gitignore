@@ -56,3 +56,6 @@ Desktop.ini
 
 # ── Logs de debug del plugin ──
 *_DEBUG_*.txt
+
+# ── Gestión: sitio y reportes generados ──
+gestion/_salida/

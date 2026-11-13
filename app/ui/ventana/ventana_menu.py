@@ -111,6 +111,7 @@ class MenuMixin:
         _act(mtools, "Componer hoja de trabajo…", self.compose_sheet)
         _act(mtools, "Componer PDF imagen/escaneo…", self.compose_scan_sheet)
         _act(mtools, "Agregar utilidad desde otro PDF…", self.agregar_utilidad)
+        _act(mtools, "Importar superficies…", self.importar_superficies)   # terreno (2.1.0)
         mtools.addSeparator()
         _act(mtools, "Tabla de datos…", self.abrir_tabla_datos, "Ctrl+Shift+T")
         _act(mtools, "Informe automático…", lambda: self.generar_informe())   # Word de conflictos/normativas

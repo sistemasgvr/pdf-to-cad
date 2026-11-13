@@ -1,0 +1,130 @@
+# Casos dorados de la regresión automática (`python scripts/regresion.py`).
+#
+# Cada caso reconoce unas hojas conocidas y se compara con su foto en gestion/regresion/fotos/<id>.json.
+# Campos: id, archivo (RELATIVO a la carpeta dorada; «@repo/…» = dentro del repositorio), hojas
+# (índices 0-based), utilidades (ELECTRICO, DRENAJE, AGUA, ALCANTARILLADO, GAS, TELECOM), zoom (3.5 = el
+# del editor) y descripcion (qué cubre).
+#
+# CARPETA DORADA: la variable de entorno PDFCAD_DORADOS manda; si no está, `carpeta` de abajo.
+# El equipo debe COMPARTIR esa carpeta (Drive/OneDrive) con los MISMOS archivos y nombres en todas las
+# máquinas: la foto guarda el sha1 de cada PDF y avisa si el archivo no es el mismo.
+# Hoy (2026-11-11) la carpeta de esta máquina con más PDFs de prueba es Descargas (DU06 + DU08).
+
+[config]
+carpeta = 'C:\Users\User\Downloads'
+
+# ── DU06 (drenaje, CAD con capas) ─────────────────────────────────────────────
+
+[[caso]]
+id = "du06_h4_todas"
+archivo = "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
+hojas = [3]
+utilidades = ["ELECTRICO", "DRENAJE", "AGUA", "ALCANTARILLADO", "GAS", "TELECOM"]
+zoom = 3.5
+descripcion = "UD-202 (h.4): las 6 utilidades, codos de la tinta, línea doble, contorno de alcantarillado, grosor por rótulos"
+
+[[caso]]
+id = "du06_h5_telecom"
+archivo = "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
+hojas = [4]
+utilidades = ["ELECTRICO", "AGUA", "TELECOM"]
+zoom = 3.5
+descripcion = "h.5: «U» de telecom con letras TE, codo casi en U, G-XREF con agua y telecom, imán a bóvedas"
+
+[[caso]]
+id = "du06_h9_abandonadas"
+archivo = "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
+hojas = [8]
+utilidades = ["ELECTRICO", "DRENAJE"]
+zoom = 3.5
+descripcion = "h.9: eléctrica abandonada «-A» con patrón «/», letra en el hueco"
+
+[[caso]]
+id = "du06_h14_grosor"
+archivo = "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
+hojas = [13]
+utilidades = ["DRENAJE", "AGUA"]
+zoom = 3.5
+descripcion = "h.14: principal de drenaje de gran diámetro, rótulos «JOIN TO EX.», laterales y paredes"
+
+[[caso]]
+id = "du06_ud213_agua"
+archivo = "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf"
+hojas = [14]
+utilidades = ["AGUA"]
+zoom = 3.5
+descripcion = "UD-213 (h.15): principal de agua continua con tomas de medidores en T (perpendicular_gap_taps)"
+
+# ── DU08 (alcantarillado, CAD con capas; varias hojas aplanadas) ──────────────
+
+[[caso]]
+id = "du08_h26_letras"
+archivo = "03-DU08_09_10-APDU-SEG-B-SEWER-PLAN_100P.pdf"
+hojas = [25]
+utilidades = ["ELECTRICO", "DRENAJE", "AGUA", "ALCANTARILLADO", "GAS", "TELECOM"]
+zoom = 3.5
+descripcion = "h.26: utilidad por las letras del linetype (TE/SE/SC), Y de curvas, dónde termina cada línea"
+
+[[caso]]
+id = "du08_h21_agua_d"
+archivo = "03-DU08_09_10-APDU-SEG-B-SEWER-PLAN_100P.pdf"
+hojas = [20]
+utilidades = ["AGUA", "TELECOM"]
+zoom = 3.5
+descripcion = "h.21: agua «-D» con «//» = abandonada en cualquier utilidad; capas duplicadas por xref"
+
+[[caso]]
+id = "du08_h36_alcantarillado"
+archivo = "03-DU08_09_10-APDU-SEG-B-SEWER-PLAN_100P.pdf"
+hojas = [35]
+utilidades = ["ALCANTARILLADO", "GAS"]
+zoom = 3.5
+descripcion = "h.36: alcantarillado con anillo del buzón, buzón en un quiebre, curva a guiones"
+
+# ── escaneo (en el repositorio) ───────────────────────────────────────────────
+
+[[caso]]
+id = "escaneo_vectorizado"
+archivo = "@repo/tests/fixtures/escaneado_vectorizado.pdf"
+hojas = [0]
+utilidades = ["ELECTRICO", "DRENAJE", "AGUA", "ALCANTARILLADO", "GAS", "TELECOM"]
+zoom = 3.5
+descripcion = "escaneo calcado sin capas ni texto: no debe inventar ninguna línea"
+
+# ── faltan en esta máquina (descomentar cuando estén en la carpeta dorada) ────
+
+# falta en esta máquina
+# [[caso]]
+# id = "du10_h5_telecom"
+# archivo = "DU10 - APDU Seg B3 100_ Sewer DR_Verification.pdf"
+# hojas = [4]
+# utilidades = ["TELECOM", "ALCANTARILLADO"]
+# zoom = 3.5
+# descripcion = "DU10 h.5: CAJA de telecom con medidas, alcantarillado con buzón redondo"
+
+# falta en esta máquina
+# [[caso]]
+# id = "laboe_h26_drenaje"
+# archivo = "Prev. LABOE E2020 Submittal No. 12324 - 85_ Sewer BOE Comments.pdf"
+# hojas = [25]
+# utilidades = ["DRENAJE", "ALCANTARILLADO", "GAS"]
+# zoom = 3.5
+# descripcion = "LABOE h.26: recta dentro de la bóveda absorbida, T en drenaje, gas que rodea un símbolo"
+
+# falta en esta máquina
+# [[caso]]
+# id = "phoenix_agua_sur_h4"
+# archivo = "QS Water_Indian School_South.pdf"
+# hojas = [3]
+# utilidades = ["AGUA"]
+# zoom = 3.5
+# descripcion = "mapa SIG sin capas con leyenda Type3: tuberías, acometidas y diámetros por rótulo"
+
+# falta en esta máquina
+# [[caso]]
+# id = "southwest_gas_37"
+# archivo = "Southwest Gas Combined 811 Records (1) 37.pdf"
+# hojas = [0]
+# utilidades = ["GAS"]
+# zoom = 3.5
+# descripcion = "registros 811 sin capas ni leyenda: marco inclinado, válvulas de leyenda en imagen"

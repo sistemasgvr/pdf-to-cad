@@ -1794,6 +1794,32 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     sirve aquí (577 «multileaders» falsos: toda raya cerca de un texto). Los mapas con leyenda no cambian. Southwest 37
     (red `#008585` + servicios `#FF6921`): 487 de 545 leídas, 636 rótulos. Tests: `tests/test_grosor_registros.py`.
   - **Válvulas** (pedido 2026-11-05, spec `docs/superpowers/specs/2026-11-05-valvulas-design.md`): `reconocimiento/recognition_valvulas.py` (PURO) lee al final de `reconocer_hoja`, sin tocar las líneas: capas `V-*-VALV`/`-GV-`, símbolos de la leyenda (`_FILA`; tipo y estado por el texto), moño sobre una línea en hojas sin capas ni leyenda (`es_mono`, «por confirmar») y rol `ROLE_VALVULAS`. El tipo sale solo de un texto del plano, nunca de la forma (DU06 usa un moño, LADWP un punto). `hoja/simbolos_fuente.py`: glifos ESRI como capas virtuales asignables (sin leyenda). `Main.valvulas` (`nucleo/valvulas`, `ventana_valvulas`, `ui/comun/capa_valvulas`): aparte de las estructuras; .digproj, deshacer, `respaldo_editor.CLAVES`; capa `valvulas.CAPA` en `capas_apagadas`. Tubería, rumbo y diámetro se calculan al pedirlos (`relacion`), no se guardan: su utilidad a ≤`UNIR_PT`=5 pt; sin utilidad, y para aceptar un moño, ≤`EN_LINEA_PT`=1.5 pt. DXF: `exportar/dxf_valvulas`. Tests: `tests/test_valvulas.py`.
+  - **Superficies (terreno)** (pedido 2026-11-11, versión 2.1.0; ejemplos del cliente en `tests/fixtures/superficies/`: Civil 3D,
+    UTM en metros, SIN EPSG). PUROS: `nucleo/superficies_leer.py` (`leer(nombre, bytes)` → `[Superficie]`: LandXML = TIN tal cual,
+    P = «Norte Este Cota», caras `i="1"` conservadas; GeoTIFF = grilla → un punto por píxel con dato —centro si PixelIsArea— y 2
+    triángulos por celda, 1 con 3 esquinas; unidades y EPSG de <Units>/<CoordinateSystem> o de las GeoKeys; sin unidad vertical =
+    la de X/Y) y `nucleo/superficies.py` (`destino(epsg)` = el sistema de la GEORREFERENCIA —el mismo de las redes en el DXF—,
+    `normalizar` = reproyecta con pyproj si el archivo trae otro EPSG, si no X/Y tal cual (o solo cambio de unidad) y Z SIEMPRE a
+    pies (US si el CRS lo es); `contorno`, `muestras`, `cota_en`, `escribir_landxml` = números con repr completo, sin
+    <CoordinateSystem>, vuelve bit a bit; `xdata` ≤255 car. por item). Ventana `ui/ventana/ventana_superficies.SuperficiesMixin`:
+    `importar_superficies(rutas=, elegir=)` (Herramientas y «Hoja y PDF»; diálogo `ui/dialogos/superficies_dialog` = una tarjeta por
+    superficie con estado Lista/Aviso/Error, EPSG editable —vacío = el del proyecto—, botón «Importar N superficies»), `Main.superficies`
+    (registros sin geometría: .digproj, deshacer, `respaldo_editor.CLAVES`) + `_superficies_datos` {sha1: bytes del archivo del cliente,
+    en el zip `superficies/<sha1>.<ext>`}; la geometría se relee y se cachea por sistema. En el plano: contorno + pastilla con el nombre
+    (`_superficies_al_dia`, al final de `_draw_accesorios`; sin georreferencia no se dibuja pero sí viaja). Inventario → «Superficies» (`ventana_lista_superficies`, `TAB_SUP`=10): `_sup_revisar` = ok/aviso/error
+    (archivo y sha1, se relee con las mismas cifras, sistema, fuera de la hoja) + aviso breve al importar (`_sup_avisar_importacion`).
+    Plano sin georreferencia: el diálogo ofrece «Ubicar el plano en el sistema de la superficie»
+    (`_sup_ubicar_plano` + `superficies.matriz_sobre_superficie`: escala del cajetín, sin giro, centro de la hoja = centro de
+    la superficie; `Georef.cs_code` = `sistemas_cs.codigo_civil3d`; desde 2026-11-12 la georreferencia SÍ va en el deshacer: `_snap_state` guarda `georef` y Georreferenciar/quitar hacen
+    `_push`) o importar así. Vista 3D: `_superficies_3d` → `construir(superficies=)` → `Escena.suelo` = el TIN
+    (`mallas3d.tin`, `con_superficie`) en lugar del plano genérico; en la UI «suelo» se llama «superficie».
+    Sistema del archivo: `nucleo/sistemas_cs.resolver` (EPSG, código CS-MAP de Civil 3D por el `NameMapper.csv` de Autodesk, pyproj).
+    «Capas ▾» sección
+    SUPERFICIES (`capas_popup.SUPERFICIE`, `Fila.quitable` → botón quitar + menú; `al_quitar`). DXF: `dxf_export._export_superficies`
+    escribe junto al DXF `<dxf>_superficies/<nombre>.xml` (el MISMO TIN de la app; unidad = la de las cotas) y un punto
+    `PDFCAD_SUPERFICIE` (NAME, ARCHIVO, ARCHIVO_ABS si ≤240, SHA1, N_PUNTOS, N_TRIANGULOS, ZMIN/ZMAX, XMIN…YMAX, UNIDAD,
+    MUESTRA_1…10, FUENTE, CRS) en la capa `PDFCAD_SUPERFICIES` → plugin `ImportarRedSuperficies.cs` (ver la sección del plugin). La
+    autoprueba del .exe prueba un GeoTIFF → LandXML de punta a punta (Pillow TIFF en `hiddenimports`). Tests: `tests/test_superficies.py`.
   - **Rótulos del plano / multileaders** (pedido 2026-11-03): `reconocimiento/recognition_anotaciones.py` (PURO) lee TODO
     bloque MText del que sale una guía (mismas `Guias`, bloques y marcos girados del grosor; no solo los de diámetro) →
     dicts {tipo multileader|mtext, texto, caja, tam, angulo, guias, puntas, estado leido|ilegible, utilidad, diam_in,
@@ -3224,6 +3250,16 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   `RedesPresion.cs` quedó solo con `CorregirFittingsDeRed` (lo usa IMPORTAR_RED, sin preguntar) y
   `RedesTuberia.cs` con la elección de familias/tamaños de IMPORTAR_RED. No volver a crearlos sin que el
   usuario lo pida.
+  **Superficies (2026-11-11, 2.1.0)**: paso 6b de IMPORTAR_RED (`ImportarRedSuperficies.cs`, antes de los perfiles: el
+  perfil toma la primera TIN como terreno). Contrato: POINT en capa `PDFCAD_SUPERFICIES` con XDATA `PDFCAD_SUPERFICIE` (NAME,
+  ARCHIVO relativo a la carpeta del DXF, ARCHIVO_ABS (falta si pasa de 240 car.), SHA1, N_PUNTOS, N_TRIANGULOS, ZMIN/ZMAX, XMIN…YMAX, UNIDAD,
+  MUESTRA_1…MUESTRA_10 «x,y,z» (un item 1000 ≤255 car.), FUENTE, CRS) + LandXML 1.2 TIN SIN `<CoordinateSystem>` (P = «N E Z»), números ya en el sistema del dibujo.
+  Archivo no encontrado o SHA1 distinto → aviso y no se crea (las redes siguen). Exactitud: se importa una COPIA con el
+  `<Units>` igual al del dibujo (`UnitZoneSettings.DrawingUnits` + `ImperialToMetricConversion`) y con `LandXMLSettings.Import`
+  Translation/Rotation/`ConvertSurveyFootToInternationalFoot` apagados mientras dura (se reponen); `TinSurface.CreateFromLandXML(db,
+  nombre, ruta)`. Mismo nombre con las mismas estadísticas = «ya estaba»; si no «NAME (2)». Capa la de Civil 3D o
+  `C-TOPO-SUPERFICIE` si quedó en «0». Verifica ✔/⚠ puntos, triángulos, ZMIN/ZMAX y recuadro ±1e-6, MUESTRAS con
+  `FindElevationAtXY` ±1e-4. Núcleo PURO `SuperficiesNucleo.cs` (casos en `PerfilPruebas/PruebasSuperficies.cs`). Sin probar en Civil 3D.
 - `installer/` — bundle del plugin + Inno Setup. `build_all.bat` (raíz) arma todo.
   **Verificación del instalador** (2026-11-11): `build_plugin.bat` copia TODAS las DLL publicadas (la lista fija dejaba
   fuera Sqlite/SixLabors.Fonts/System.IO.Packaging) y publica `PdfCadMcp` en `installer\PdfCadMcp` → setup.iss
@@ -3535,6 +3571,21 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
   versión en `app/model.py` (y el manual: `app/docs/manual.es.html` + `manual.en.html`, un
   `<section data-title>` por capítulo, colores `{{token}}` del tema; lo muestra `manual_dialog.py`).
 - Español en comentarios y textos de UI (el usuario y su equipo trabajan en español).
+- **Toda corrección de un bug lleva una prueba que fallaba antes** (pytest, o el arnés C# del plugin).
+
+## Gestión del proyecto (2026-11-11, `gestion/README.md`)
+
+- Funciones del diagrama: `gestion/funciones.toml`; entregas: `gestion/versiones/<v>.toml`; piezas de Jean/Elvis:
+  `gestion/catalogo/<área>/<tipo>/<id>/ficha.toml` + capturas. Código: `scripts/gestion/` (`python scripts/gestion …`).
+- Al terminar una función o pieza, PROPONER su estado (`python scripts/gestion proponer <id> <estado> --por <nombre>`);
+  NUNCA escribir `estado` ni `aprobado` (solo el administrador, con `python scripts/gestion admin`, local).
+- El sitio del cliente (Cloudflare Pages, público con el link) sale de `sitio.py` y solo lleva lo aprobado; nada
+  interno (propuesto, notas, responsables, issues). `tests/test_gestion.py` lo comprueba: un campo interno nuevo se
+  suma a esa prueba.
+- Una función nueva visible para el cliente → una línea `[[funcion]]` con nombre CORTO y `propuesto`.
+- Cada `[[novedad]]` de una versión lleva `funciones = [ids]` del diagrama, todas con estado aprobado
+  (`datos.pendientes_version`): sin eso la versión no se publica.
+- Antes de entregar: `python scripts/regresion.py` (casos dorados, 0 diferencias) y la lista de humo.
 
 ## Roadmap de arquitectura (incremental)
 

@@ -289,6 +289,21 @@ def cilindro_vertical(c, r, z0, z1, color, ident, lados=20):
     return barrido((c[0], c[1], z0), (c[0], c[1], z1), pts, color, ident)
 
 
+def tin(pos, triangulos, color, ident=0):
+    """Superficie de terreno (TIN, 2026-11-12): triángulos planos con su normal hacia arriba (la Y del plano va
+    invertida en 3D, así que el sentido de los vértices no se usa). `pos` (n, 3) en pies del dibujo."""
+    pos = np.asarray(pos, np.float64)
+    tri = np.asarray(triangulos, np.int64).reshape(-1, 3)
+    if not len(tri):
+        return VACIA.copy()
+    p = pos[tri]                                                      # (m, 3, 3)
+    n = np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0])
+    n[n[:, 2] < 0] *= -1.0
+    largo = np.linalg.norm(n, axis=1, keepdims=True)
+    n = np.divide(n, largo, out=np.tile([0.0, 0.0, 1.0], (len(n), 1)), where=largo > 0)
+    return _vertices(p.reshape(-1, 3), np.repeat(n, 3, axis=0), color, ident)
+
+
 def plano(xmin, ymin, xmax, ymax, z, color):
     pos = np.array([[xmin, ymin, z], [xmax, ymin, z], [xmax, ymax, z],
                     [xmin, ymin, z], [xmax, ymax, z], [xmin, ymax, z]])

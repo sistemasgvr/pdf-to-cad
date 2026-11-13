@@ -39,7 +39,7 @@ Coordenadas DIBUJADAS en PÍXELES (se convierten con geometry.to_cad al exportar
 coordenadas IMPORTADAS de Excel ya son reales de mundo (world=True → se usan tal cual).
 """
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 # Capas de red por GRAVEDAD (tramos entre buzones, con invert inicio/fin).
 GRAVITY_LAYERS = {"ALCANTARILLADO", "DRENAJE"}
@@ -87,6 +87,7 @@ Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE = 0, 1, 5, 8
 # Índices de las pestañas del inventario (derecha)
 TAB_PIPE, TAB_ML, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ, TAB_CURVE, TAB_CL, TAB_DB = 0, 1, 2, 3, 4, 5, 6, 7, 8
 TAB_ACC = 9            # Inventario → «Accesorios» (codos, Tees, Wyes, cruces, válvulas; 2026-11-05)
+TAB_SUP = 10           # Inventario → «Superficies» (terreno importado y si llegó bien; 2026-11-12)
 
 # Tipo de red derivado de la CAPA (agrupa las utilidades a nivel de red completa).
 #   gravity  → red por gravedad con buzones (alcantarillado, drenaje)
@@ -159,6 +160,9 @@ def default_network_type(layer):
 
 
 CHANGELOG = [
+    ("2.1.0", [
+        ('new', 'Superficies (terreno), nuevo en 2.1.0: «Importar superficies…» (Hoja y PDF, o Herramientas) carga una o varias superficies en LandXML (.xml) o GeoTIFF (.tif). Cada una se revisa antes de importar (puntos, triángulos, unidades, sistema de coordenadas) y se ve en el plano como un contorno con su nombre; en «Capas ▾» se enciende, se apaga o se quita (Ctrl+Z la devuelve). Va al proyecto y, al exportar, viaja a Civil 3D junto a las redes en su mismo sistema de coordenadas: IMPORTAR_RED crea la superficie con los mismos puntos y triángulos y lo comprueba (cantidades, cotas y puntos de control). Para verla sobre el plano, el plano debe estar georreferenciado.'),
+    ]),
     ("2.0.0", [
         ('new', 'Sentido del flujo PERSONALIZADO POR TRAMOS: cada tramo de una utilidad puede ir en su propio sentido. En las propiedades de la utilidad, botón «Por tramos»: aparece una ficha por tramo (T1, T2…, con una flecha que apunta como va ese tramo en el plano; gris = automático) y en el lienzo cada tramo lleva su flecha y se resalta bajo el ratón. Clic en la ficha o en el tramo: si es automático queda fijo tal como se ve, si ya está indicado se invierte. En el perfil, botón «Por tramos»: clic en la flecha o en la tubería de cada tramo, igual. Cada clic se deshace con Ctrl+Z; Esc, Enter o clic derecho terminan. La contrapendiente, la caída en el buzón y las alertas del perfil usan el sentido de cada tramo.'),
         ('fixed', 'Instalador: el plugin de Civil 3D ahora lleva todas sus librerías (faltaban las de SQLite y dos de Excel): en el plugin instalado, cargar las Wyes de presión en PREPARAR_FAMILIAS y el Excel de Property Sets podían fallar. Además, el instalador se verifica solo antes de generarse (el programa se prueba por dentro, sin abrir la ventana).'),

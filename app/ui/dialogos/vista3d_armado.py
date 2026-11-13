@@ -62,7 +62,8 @@ class ArmadoMixin:
                     ocultas=[c for c, chk in self._capas.items() if not chk.isChecked()],
                     ver=dict({k: c.isChecked() for k, c in self.chk.items()}, rotulos=True), suelo_z=suelo,
                     sin_accesorio=list(getattr(w, "sin_accesorio", None) or []),
-                    valvulas=self._valvulas3d(pipes))
+                    valvulas=self._valvulas3d(pipes),
+                    superficies=w._superficies_3d() if hasattr(w, "_superficies_3d") else [])
 
     def _valvulas3d(self, pipes):
         """Las válvulas que van a Civil 3D (`valvulas.exportable`: caben en su tramo recto y no están «por
@@ -154,6 +155,11 @@ class ArmadoMixin:
         self.escena = escena
         self._cajas_parche = None
         self.spn_suelo.auto = float(escena.suelo_z or 0.0)
+        con_sup = bool(getattr(escena, "con_superficie", False))      # el terreno real: su cota no se elige
+        self.spn_suelo.setEnabled(not con_sup)
+        self.spn_suelo.setToolTip(_tr("Se usa el terreno de la superficie importada.") if con_sup else
+                                  _tr("Automática: la tapa más alta de los buzones o, sin buzones, 3 ft sobre la "
+                                      "tubería más alta"))
         if self._cargando:                                    # la tarjeta de video recibe la escena
             ov = busy.overlay_for(self.pila)
             ov.step(detail=_tr("Mostrando la escena…"), done=1000, total=1000, pump=False)

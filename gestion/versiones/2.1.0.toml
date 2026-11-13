@@ -1,0 +1,27 @@
+# Entrega al cliente: lo que se escribe aquí sale tal cual en el sitio y en el reporte.
+# Títulos cortos y simples (no técnicos). `publicada = true` solo lo pone el administrador.
+
+[version]
+numero = "2.1.0"
+fecha = ""
+titulo = "Superficies (terreno)"
+resumen = "El terreno del cliente se importa en la app y llega a Civil 3D junto a las redes, idéntico."
+publicada = false
+
+[[novedad]]
+tipo = "nuevo"
+titulo = "Importar superficies"
+detalle = "Una o varias, en LandXML (.xml) o GeoTIFF (.tif), revisadas antes de importar."
+funciones = ["app.superficies.importar"]
+
+[[novedad]]
+tipo = "nuevo"
+titulo = "Superficie junto a las redes"
+detalle = "Se lleva al mismo sistema de coordenadas de las redes y se ve en el plano; se enciende o se quita en «Capas»."
+funciones = ["app.superficies.sistema", "app.superficies.plano-y-capas"]
+
+[[novedad]]
+tipo = "nuevo"
+titulo = "La misma superficie en Civil 3D"
+detalle = "IMPORTAR_RED la crea con los mismos puntos y triángulos y lo comprueba."
+funciones = ["plugin.importar-red-desde-dxf.superficies"]

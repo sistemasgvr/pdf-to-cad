@@ -1,0 +1,18 @@
+# Plantilla de ficha de una pieza del catálogo. Crear una nueva con:
+#   python scripts/gestion ficha <area>/<tipo>/<id> --nombre "Nombre" --por Jean
+# Áreas: piezas-3d (Jean), laminado (Elvis). Ejemplo: piezas-3d/valvulas/compuerta-bridada
+# Poner 1 a 3 capturas .png en la misma carpeta (la primera es la portada).
+# Solo llenar `propuesto` (planificado, en_desarrollo, falta_probar, optimizar, probado);
+# `estado` y `aprobado` los pone el administrador.
+nombre = "Válvula de compuerta bridada"
+tipo = "valvulas"
+area = "piezas-3d"
+responsable = "Jean"
+descripcion = "Cuerpo AWWA con volante; se crea desde la ventana de válvulas con el diámetro y el tipo de unión."
+entradas = ["Diámetro", "Tipo de unión", "Material"]
+tamanos = "3\" – 54\""
+version = "2.1.0"
+propuesto = "falta_probar"
+propuesto_por = "Jean"
+propuesto_nota = "Probada en 4\", 8\" y 12\"."
+issues = ["#45"]

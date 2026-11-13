@@ -3298,10 +3298,10 @@ EN: dict[str, str] = {
         'Manholes, boxes and solids',
     'Accesorios (codos, Tee, Wye…)':
         'Fittings (bends, tees, wyes…)',
-    'Suelo':
-        'Ground',
-    'Mostrar el suelo':
-        'Show the ground',
+    'Superficie':
+        'Surface',
+    'Mostrar la superficie':
+        'Show the surface',
     'Cota':
         'Elevation',
     'Automática':
@@ -3372,8 +3372,11 @@ EN: dict[str, str] = {
         '{cod} · sump {a} ft · rim {b} ft',
     'Restablecer':
         'Reset',
-    'Volver a los valores por defecto del suelo: visible, opacidad 18 % y cota automática':
-        'Back to the default ground values: visible, 18 % opacity and automatic elevation',
+    'Volver a los valores por defecto de la superficie: visible, opacidad 18 % y cota automática':
+        'Back to the default surface values: visible, 18 % opacity and automatic elevation',
+
+    'Se usa el terreno de la superficie importada.':
+        'The imported surface terrain is used.',
     # ── Cubo de vistas (Vista 3D) ──
     'SUPERIOR':
         'TOP',
@@ -3491,8 +3494,12 @@ EN: dict[str, str] = {
         'Utility No.',
     '{donde}: «{v}» no es un número.':
         '{donde}: «{v}» is not a number.',
-    '{u} utilidades · {e} buzones/cajas · {a} accesorios · {k} conflictos · suelo a {z} ft':
-        '{u} utilities · {e} manholes/boxes · {a} fittings · {k} conflicts · ground at {z} ft',
+    '{u} utilidades · {e} buzones/cajas · {a} accesorios · {k} conflictos · {s}':
+        '{u} utilities · {e} manholes/boxes · {a} fittings · {k} conflicts · {s}',
+    'superficie importada':
+        'imported surface',
+    'superficie a {z} ft':
+        'surface at {z} ft',
     '«{a}» y «{b}» se cruzan a la misma cota ({za:.2f} / {zb:.2f} ft) y no se unen: las tuberías chocan. Cambia la cota de una de las dos o corrige el dibujo.':
         '«{a}» and «{b}» cross at the same elevation ({za:.2f} / {zb:.2f} ft) and are not joined: the pipes clash. Change the elevation of one of them or fix the drawing.',
     '«{a}» y «{b}» se cruzan y a una de las dos le falta la cota: no se puede confirmar que pasen a distinta altura.':
@@ -5547,4 +5554,191 @@ EN: dict[str, str] = {
         'valve with no line nearby',
     'válvulas sin línea cerca':
         'valves with no line nearby',
+    # Superficies (2.1.0)
+    'Para reproyectar hace falta pyproj (no está instalado).':
+        'Reprojecting needs pyproj (it is not installed).',
+    'No se puede pasar de {v0} a {v1} ({v2}).':
+        'Cannot convert from {v0} to {v1} ({v2}).',
+    'La reproyección dio puntos inválidos (¿el sistema elegido es el del archivo?).':
+        "The reprojection gave invalid points (is the chosen system the file's?).",
+    'Formato no admitido: «{v0}». Usa LandXML (.xml) o GeoTIFF (.tif).':
+        'Unsupported format: «{v0}». Use LandXML (.xml) or GeoTIFF (.tif).',
+    'El XML no se puede leer ({v0}).':
+        'The XML cannot be read ({v0}).',
+    'El archivo no es un LandXML.':
+        'The file is not a LandXML.',
+    'Unidad lineal no admitida: «{v0}».':
+        'Unsupported linear unit: «{v0}».',
+    'Superficie «{v0}»: tipo «{v1}» no admitido (solo TIN).':
+        'Surface «{v0}»: type «{v1}» not supported (TIN only).',
+    'Punto {v0} sin tres coordenadas.':
+        'Point {v0} without three coordinates.',
+    'Triángulo con un punto que no existe: «{v0}».':
+        'Triangle with a point that does not exist: «{v0}».',
+    'Superficie «{v0}» sin puntos o sin triángulos.':
+        'Surface «{v0}» without points or triangles.',
+    'El LandXML no trae ninguna superficie TIN.':
+        'The LandXML has no TIN surface.',
+    'El TIFF no se puede leer ({v0}).':
+        'The TIFF cannot be read ({v0}).',
+    'El TIFF no está georreferenciado (le faltan ModelPixelScale / ModelTiepoint).':
+        'The TIFF is not georeferenced (ModelPixelScale / ModelTiepoint are missing).',
+    'TIFF con ModelTransformation (girado) no admitido.':
+        'TIFF with ModelTransformation (rotated) is not supported.',
+    'El TIFF debe tener una sola banda de elevación.':
+        'The TIFF must have a single elevation band.',
+    'Grilla demasiado grande ({v0} × {v1}); el máximo es {v2} celdas.':
+        'Grid too large ({v0} × {v1}); the maximum is {v2} cells.',
+    'Unidad lineal del TIFF no admitida.':
+        'TIFF linear unit not supported.',
+    'Cotas convertidas de {v0} a {v1}.':
+        'Elevations converted from {v0} to {v1}.',
+    'El TIFF no tiene datos de elevación.':
+        'The TIFF has no elevation data.',
+    'El TIFF no tiene celdas completas para formar triángulos.':
+        'The TIFF has no complete cells to form triangles.',
+    'Quitar {n}':
+        'Remove {n}',
+    'SUPERFICIES (terreno)':
+        'SURFACES (terrain)',
+    'metros':
+        'meters',
+    'pies':
+        'feet',
+    'pies US':
+        'US feet',
+    'No reconozco «{c}»: escribe el número EPSG (p. ej. 32717) o el código de Civil 3D (p. ej. UTM84-17S).':
+        "I don't recognize «{c}»: type the EPSG number (e.g. 32717) or the Civil 3D code (e.g. UTM84-17S).",
+    'Número EPSG (32717) o código de Civil 3D (UTM84-17S, CA83-VF…). Vacío = el del proyecto.':
+        "EPSG number (32717) or Civil 3D code (UTM84-17S, CA83-VF…). Empty = the project's.",
+    'EPSG {n} no existe.':
+        'EPSG {n} does not exist.',
+    'Importar esta superficie':
+        'Import this surface',
+    'Nombre de la superficie':
+        'Surface name',
+    'Sistema del archivo:':
+        'File coordinate system:',
+    'EPSG o código de Civil 3D':
+        'EPSG or Civil 3D code',
+    'Sistema de coordenadas del archivo: EPSG o código de Civil 3D':
+        'File coordinate system: EPSG or Civil 3D code',
+    'Escribe un nombre.':
+        'Type a name.',
+    'El plano no está georreferenciado: no se verá sobre él, pero viaja a Civil 3D con sus coordenadas.':
+        'The sheet is not georeferenced: it will not be shown on it, but it goes to Civil 3D with its coordinates.',
+    'Sin sistema de coordenadas: se toma como el del proyecto.':
+        "No coordinate system: the project's is used.",
+    '{fmt} · {p} puntos · {t} triángulos · {u} · {arch}':
+        '{fmt} · {p} points · {t} triangles · {u} · {arch}',
+    'Lista':
+        'Ready',
+    'Importar superficies':
+        'Import surfaces',
+    'Terreno en LandXML (.xml) o GeoTIFF (.tif). Viaja a Civil 3D junto a las redes, con los mismos puntos y triángulos.':
+        'Terrain in LandXML (.xml) or GeoTIFF (.tif). It goes to Civil 3D with the networks, with the same points and triangles.',
+    'Sistema del proyecto: {crs}':
+        'Project coordinate system: {crs}',
+    'El plano no está georreferenciado (Hoja y PDF → Georreferenciar…).':
+        'The sheet is not georeferenced (Sheet and PDF → Georeference…).',
+    'Importar 1 superficie':
+        'Import 1 surface',
+    'Importar {n} superficies':
+        'Import {n} surfaces',
+    'Importar superficies…':
+        'Import surfaces…',
+    'Superficies (*.xml *.tif *.tiff)':
+        'Surfaces (*.xml *.tif *.tiff)',
+    'Falta el archivo':
+        'File missing',
+    'El archivo «{a}» no está en el proyecto.':
+        'The file «{a}» is not in the project.',
+    'Archivo distinto':
+        'Different file',
+    'El archivo guardado no es el que se importó.':
+        'The saved file is not the one that was imported.',
+    '✔ Archivo guardado en el proyecto: {a}':
+        '✔ File saved in the project: {a}',
+    'No se puede leer':
+        'Cannot be read',
+    'Cifras distintas':
+        'Different counts',
+    'Ahora da {p} puntos y {t} triángulos; al importar eran {p0} y {t0}.':
+        'It now gives {p} points and {t} triangles; on import it was {p0} and {t0}.',
+    'Puntos inválidos':
+        'Invalid points',
+    'Hay puntos sin coordenadas válidas.':
+        'Some points have no valid coordinates.',
+    '✔ {p} puntos y {t} triángulos, los mismos del archivo':
+        '✔ {p} points and {t} triangles, the same as the file',
+    '✔ Cotas de {a:.2f} a {b:.2f} {u}':
+        '✔ Elevations from {a:.2f} to {b:.2f} {u}',
+    '✔ Sistema: {o} → {d}':
+        '✔ System: {o} → {d}',
+    '✔ Sistema: {d}':
+        '✔ System: {d}',
+    'Importada bien':
+        'Imported correctly',
+    'No se ve en el plano':
+        'Not shown on the sheet',
+    '⚠ El plano no está georreferenciado: no se dibuja, pero viaja a Civil 3D con sus coordenadas.':
+        '⚠ The sheet is not georeferenced: it is not drawn, but it goes to Civil 3D with its coordinates.',
+    'Fuera de la hoja':
+        'Outside the sheet',
+    '⚠ Queda fuera de la hoja. ¿El sistema de coordenadas del archivo es el correcto?':
+        "⚠ It falls outside the sheet. Is the file's coordinate system the right one?",
+    'Apagada en «Capas ▾».':
+        'Turned off in «Layers ▾».',
+    'Superficies importadas':
+        'Imported surfaces',
+    '{p} puntos':
+        '{p} points',
+    'Sin superficies. Hoja y PDF → Importar superficies…':
+        'No surfaces. Sheet and PDF → Import surfaces…',
+    'No se pudo leer {a}: {m}':
+        'Could not read {a}: {m}',
+    'No se importó':
+        'Nothing was imported',
+    'Importadas {n} de {t}':
+        'Imported {n} of {t}',
+    'Importada, con un aviso':
+        'Imported, with a warning',
+    '{n} importadas, con avisos':
+        '{n} imported, with warnings',
+    'Ubicar el plano en el sistema de la superficie':
+        'Place the sheet in the surface coordinate system',
+    'Importar sin georreferenciar':
+        'Import without georeferencing',
+    'La superficie viaja a Civil 3D con sus coordenadas, pero no se ve sobre el plano.':
+        'The surface goes to Civil 3D with its coordinates, but it is not shown on the sheet.',
+    'El plano toma {crs} y queda centrado sobre «{n}», sin giro, a la escala de la hoja{e}. Después puedes afinarlo con Georreferenciar.':
+        'The sheet takes {crs} and is centered on «{n}», without rotation, at the sheet scale{e}. You can refine it later with Georeference.',
+    'Escribe el sistema del archivo en la tarjeta (p. ej. UTM84-17S) para usar esta opción.':
+        "Type the file's coordinate system on the card (e.g. UTM84-17S) to use this option.",
+    'No se pudo ubicar el plano: {m}':
+        'Could not place the sheet: {m}',
+    'El plano quedó en {crs}{cs}, centrado sobre «{n}». Afínalo con Georreferenciar si hace falta.':
+        'The sheet is now in {crs}{cs}, centered on «{n}». Refine it with Georeference if needed.',
+    'Sin sistema de coordenadas para ubicar el plano.':
+        'No coordinate system to place the sheet.',
+    'Llegaron bien: {n}':
+        'Arrived correctly: {n}',
+    'Superficie importada':
+        'Surface imported',
+    '{n} superficies importadas':
+        '{n} surfaces imported',
+    'Ver':
+        'View',
+    'Superficies':
+        'Surfaces',
+    'Falta el archivo de la superficie «{n}».':
+        'The file of surface «{n}» is missing.',
+    'Superficie {n} · {p} puntos · {t} triángulos':
+        'Surface {n} · {p} points · {t} triangles',
+    '{f} · {a} · clic derecho: quitar':
+        '{f} · {a} · right-click: remove',
+    'Superficie quitada: {n} (Ctrl+Z la devuelve).':
+        'Surface removed: {n} (Ctrl+Z brings it back).',
+    'LandXML o GeoTIFF · viajan a Civil 3D':
+        'LandXML or GeoTIFF · they go to Civil 3D',
 }

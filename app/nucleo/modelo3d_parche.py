@@ -197,6 +197,7 @@ def parche(escena, pipes, structures, ft, cambiadas, colores=None, duct_banks=()
     dejar = (tubos | est1 | set(nuevos_acc)) & (set(sub.objetos) | tubos)
 
     out = modelo3d.Escena(origen=escena.origen, suelo_z=escena.suelo_z, suelo=escena.suelo,
+                          con_superficie=escena.con_superficie,
                           etiquetas=list(escena.etiquetas))
     out.base = np.concatenate([_sin_ids(escena.base, quitar, ID_COL), _con_ids(sub.base, dejar, ID_COL, mapa)])
     out.transparentes = np.concatenate([_sin_ids(escena.transparentes, quitar, ID_COL),

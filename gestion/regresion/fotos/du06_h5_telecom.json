@@ -1,0 +1,246 @@
+{
+ "archivo": "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf",
+ "hojas": {
+  "4": {
+   "anotaciones": 56,
+   "utilidades": {
+    "AGUA": {
+     "abandonadas": 6,
+     "avisos": [
+      "N letras/barras omitidas",
+      "N quiebres con ángulo a pasos de N°",
+      "abandoned",
+      "double_active",
+      "grosor",
+      "grosor_sin",
+      "letters",
+      "uncovered"
+     ],
+     "avisos_texto": [
+      "Cobertura de guiones: 100.0%.",
+      "Diámetros del plano (rótulos con flecha y paredes dibujadas): 1 tubería(s) los toman; 0 dudosa(s) quedan con el diámetro por defecto y un aviso en el editor.",
+      "Patrón «//» en una capa que no es «-A»: 6 línea(s) — se importan ABANDONADAS (el «//» manda).",
+      "Reconocidas por las letras de su línea (no por el nombre de la capa): 1 — «W» G-XREF.",
+      "Se omitieron 82 trazos de marcador/linetype (letras, barras); solo se dibuja la centerline.",
+      "Tuberías sin diámetro en el plano: 15 — ningún rótulo con flecha llega a ellas ni tienen paredes dibujadas; quedan con el diámetro por defecto y un aviso en el editor.",
+      "Utilidades abandonadas (capa «-A» + patrón «/», o patrón «//»): 6 — se importan marcadas (AB).",
+      "Ángulos de los quiebres a pasos de 0.25°: 22 — cada vértice se movió lo mínimo (máx. 0.23 pt); los codos conservan su radio."
+     ],
+     "bovedas": 0,
+     "bovedas_importables": 0,
+     "cobertura": 1.0,
+     "codos": 0,
+     "codos_aproximados": 0,
+     "diametros": {
+      "8\"": 1,
+      "sin dato": 15
+     },
+     "grosor_estados": {
+      "leido": 1,
+      "sin_dato": 15
+     },
+     "huellas": [
+      "049664e012",
+      "09a0ba55d2",
+      "0bca6a1a9d",
+      "1810396644",
+      "263eaacd13",
+      "2ddf480afc",
+      "386979fe07",
+      "56054e2724",
+      "6f7b1949b4",
+      "7e25af2b87",
+      "81ac563f89",
+      "9a04ba54a8",
+      "ae6ecc119a",
+      "c8db5965de",
+      "c8f206807e",
+      "fd390cf324"
+     ],
+     "kinds": {
+      "corner": 15,
+      "cut": 5,
+      "end": 20,
+      "tee": 14
+     },
+     "largo_pt": 4109.2,
+     "polilineas": 16,
+     "radios_pt": [],
+     "vertices": 54
+    },
+    "ELECTRICO": {
+     "abandonadas": 0,
+     "avisos": [
+      "N letras/barras omitidas",
+      "N quiebres con ángulo a pasos de N°",
+      "curvy",
+      "fillets",
+      "grosor_sin",
+      "uncovered",
+      "valvulas_sueltas",
+      "vault_snaps"
+     ],
+     "avisos_texto": [
+      "Cobertura de guiones: 100.0%.",
+      "Codos como esquina + radio: 4.",
+      "Curvas que quedan como polilínea: 1 tramo(s) — curva compuesta (radio variable) o sin recta tangente a un lado; no se inventa un arco que no está en el plano.",
+      "Puntas unidas a su bóveda (imán): 3 — quedaban a menos de 3 pt de su contorno y se llevaron hasta él por su propia recta.",
+      "Se omitieron 43 trazos de marcador/linetype (letras, barras); solo se dibuja la centerline.",
+      "Tuberías sin diámetro en el plano: 6 — ningún rótulo con flecha llega a ellas ni tienen paredes dibujadas; quedan con el diámetro por defecto y un aviso en el editor.",
+      "Válvulas sin línea cerca: 2",
+      "Ángulos de los quiebres a pasos de 0.25°: 17 — cada vértice se movió lo mínimo (máx. 0.09 pt); los codos conservan su radio."
+     ],
+     "bovedas": 2,
+     "bovedas_importables": 2,
+     "cobertura": 1.0,
+     "codos": 4,
+     "codos_aproximados": 0,
+     "diametros": {
+      "sin dato": 6
+     },
+     "grosor_estados": {
+      "sin_dato": 6
+     },
+     "huellas": [
+      "4e09f15b95",
+      "5d8eaafd9c",
+      "962edda19a",
+      "bb58ec66e3",
+      "c0a65f7014",
+      "f71197a63b"
+     ],
+     "kinds": {
+      "bend": 9,
+      "curve": 3,
+      "cut": 6,
+      "fillet": 4,
+      "junction": 2,
+      "stop": 5
+     },
+     "largo_pt": 3123.1,
+     "polilineas": 6,
+     "radios_pt": [
+      79.3,
+      156.6,
+      242.5,
+      429.9
+     ],
+     "vertices": 29
+    },
+    "TELECOM": {
+     "abandonadas": 2,
+     "avisos": [
+      "N letras/barras omitidas",
+      "N quiebres con ángulo a pasos de N°",
+      "N rutas unen N tramos",
+      "N trazos repetidos (usados una vez)",
+      "abandoned",
+      "curvy",
+      "double_active",
+      "fillets",
+      "grosor_sin",
+      "letters",
+      "uncovered",
+      "vault_snaps",
+      "vaults"
+     ],
+     "avisos_texto": [
+      "Bóvedas detectadas: 2 (ya son vértices de las líneas).",
+      "Cobertura de guiones: 100.0%.",
+      "Codos como esquina + radio: 28 (1 aproximado(s), a trazos: la curva del plano no es un arco tangente exacto; desvío máx. 1.0 pt).",
+      "Curvas que quedan como polilínea: 1 tramo(s) — curva compuesta (radio variable) o sin recta tangente a un lado; no se inventa un arco que no está en el plano.",
+      "Patrón «//» en una capa que no es «-A»: 2 línea(s) — se importan ABANDONADAS (el «//» manda).",
+      "Puntas unidas a su bóveda (imán): 1 — quedaban a menos de 3 pt de su contorno y se llevaron hasta él por su propia recta.",
+      "Reconocidas por las letras de su línea (no por el nombre de la capa): 2 — «T» G-XREF.",
+      "Rutas: 11 (unen 12 tramos de la misma capa).",
+      "Se omitieron 142 trazos de marcador/linetype (letras, barras); solo se dibuja la centerline.",
+      "Trazos repetidos (idénticos o superpuestos, en la misma capa): 1 — se usan una sola vez.",
+      "Tuberías sin diámetro en el plano: 11 — ningún rótulo con flecha llega a ellas ni tienen paredes dibujadas; quedan con el diámetro por defecto y un aviso en el editor.",
+      "Utilidades abandonadas (capa «-A» + patrón «/», o patrón «//»): 2 — se importan marcadas (AB).",
+      "Ángulos de los quiebres a pasos de 0.25°: 50 — cada vértice se movió lo mínimo (máx. 0.33 pt); los codos conservan su radio."
+     ],
+     "bovedas": 3,
+     "bovedas_importables": 3,
+     "cobertura": 1.0,
+     "codos": 28,
+     "codos_aproximados": 1,
+     "diametros": {
+      "sin dato": 11
+     },
+     "grosor_estados": {
+      "sin_dato": 11
+     },
+     "huellas": [
+      "07a61b9126",
+      "2272942a6b",
+      "4c7cbf3595",
+      "57ac97aab5",
+      "594308405e",
+      "630af0f9d9",
+      "6da11fb343",
+      "d589c92adb",
+      "e1e214c995",
+      "ecb3e410bb",
+      "f6113e9482"
+     ],
+     "kinds": {
+      "bend": 22,
+      "corner": 1,
+      "curve": 2,
+      "cut": 9,
+      "edge": 5,
+      "end": 9,
+      "fillet": 28,
+      "junction": 2,
+      "stop": 1,
+      "tee": 4,
+      "vault": 3
+     },
+     "largo_pt": 5758.4,
+     "polilineas": 11,
+     "radios_pt": [
+      13.0,
+      13.4,
+      13.9,
+      14.0,
+      14.1,
+      14.4,
+      14.4,
+      14.9,
+      15.6,
+      18.1,
+      25.2,
+      25.6,
+      26.8,
+      27.5,
+      27.8,
+      28.3,
+      28.3,
+      29.1,
+      46.4,
+      96.0,
+      108.3,
+      154.1,
+      168.8,
+      179.5,
+      267.8,
+      321.5,
+      347.3,
+      448.1
+     ],
+     "vertices": 86
+    }
+   },
+   "valvulas": 4
+  }
+ },
+ "id": "du06_h5_telecom",
+ "sha1": "bc36ce4f0b105caa045bab09a417c48dea0ae6dd",
+ "utilidades": [
+  "ELECTRICO",
+  "AGUA",
+  "TELECOM"
+ ],
+ "version": 1,
+ "zoom": 3.5
+}

@@ -1,0 +1,79 @@
+{
+ "archivo": "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf",
+ "hojas": {
+  "14": {
+   "anotaciones": 28,
+   "utilidades": {
+    "AGUA": {
+     "abandonadas": 1,
+     "avisos": [
+      "N letras/barras omitidas",
+      "N quiebres con ángulo a pasos de N°",
+      "abandoned",
+      "grosor_sin",
+      "uncovered",
+      "valvulas_sueltas"
+     ],
+     "avisos_texto": [
+      "Cobertura de guiones: 100.0%.",
+      "Se omitieron 92 trazos de marcador/linetype (letras, barras); solo se dibuja la centerline.",
+      "Tuberías sin diámetro en el plano: 19 — ningún rótulo con flecha llega a ellas ni tienen paredes dibujadas; quedan con el diámetro por defecto y un aviso en el editor.",
+      "Utilidades abandonadas (capa «-A» + patrón «/», o patrón «//»): 1 — se importan marcadas (AB).",
+      "Válvulas sin línea cerca: 1",
+      "Ángulos de los quiebres a pasos de 0.25°: 17 — cada vértice se movió lo mínimo (máx. 0.06 pt); los codos conservan su radio."
+     ],
+     "bovedas": 0,
+     "bovedas_importables": 0,
+     "cobertura": 1.0,
+     "codos": 0,
+     "codos_aproximados": 0,
+     "diametros": {
+      "sin dato": 19
+     },
+     "grosor_estados": {
+      "sin_dato": 19
+     },
+     "huellas": [
+      "123792dd67",
+      "298ec860e1",
+      "2b68678292",
+      "3752ca8a88",
+      "3bc5081ee4",
+      "3e5077a0b0",
+      "4eb9037aac",
+      "6a93532449",
+      "a4670b76c0",
+      "a7d4e0ddf3",
+      "aa9081bd54",
+      "b4240f6495",
+      "b57d7240c3",
+      "bc412ffb57",
+      "c135817d04",
+      "ca7e6b3537",
+      "cceb6a7e0a",
+      "cfa0feb059",
+      "dc1e08e27c"
+     ],
+     "kinds": {
+      "corner": 1,
+      "cut": 5,
+      "end": 17,
+      "tee": 32
+     },
+     "largo_pt": 4876.2,
+     "polilineas": 19,
+     "radios_pt": [],
+     "vertices": 55
+    }
+   },
+   "valvulas": 7
+  }
+ },
+ "id": "du06_ud213_agua",
+ "sha1": "bc36ce4f0b105caa045bab09a417c48dea0ae6dd",
+ "utilidades": [
+  "AGUA"
+ ],
+ "version": 1,
+ "zoom": 3.5
+}

@@ -1,0 +1,41 @@
+name: Observación del cliente
+description: Un punto del PDF de observaciones, de la reunión o de WhatsApp (una observación = un issue)
+labels: ["observación-cliente", "falta responder"]
+body:
+  - type: input
+    id: origen
+    attributes:
+      label: Origen
+      description: De dónde viene, para poder citarla en el reporte.
+      placeholder: "Obs. reunión 12-nov, punto 2"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Área
+      options: [App, Reconocimiento del PDF, Plugin Civil 3D, Piezas 3D, Laminado, IA / MCP, Instalador, No sé]
+    validations:
+      required: true
+  - type: textarea
+    id: que
+    attributes:
+      label: Qué dice el cliente
+      description: Copiar su texto tal cual.
+    validations:
+      required: true
+  - type: textarea
+    id: capturas
+    attributes:
+      label: Capturas
+      description: Pegar con Ctrl+V (o arrastrar) las imágenes del PDF o de la pantalla.
+  - type: input
+    id: version
+    attributes:
+      label: Versión en que lo vio
+      placeholder: "2.0.0"
+  - type: textarea
+    id: respuesta
+    attributes:
+      label: Respuesta al cliente
+      description: Se completa al responder (y se quita la etiqueta «falta responder»).

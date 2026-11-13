@@ -1,0 +1,82 @@
+<Project>
+  <!--
+    VERSIONES FIJADAS — NO CAMBIAR.
+    Copia de la configuración del plugin principal (API-CIVIL/proyecto1/proyecto1/proyecto1.csproj
+    del repo pdf-to-cad). Lo que compila aquí compila al integrarse allá.
+    Si algo no compila con esto, se consulta a Deyvy; no se cambia este archivo.
+  -->
+
+  <!-- Carpeta de AutoCAD/Civil 3D con las DLL de referencia: la PRIMERA instalada
+       (2025, 2026, 2027). Se puede forzar: dotnet build -p:AcadDir="…" -->
+  <PropertyGroup>
+    <AcadDir Condition="'$(AcadDir)' == '' And Exists('C:\Program Files\Autodesk\AutoCAD 2025\acdbmgd.dll')">C:\Program Files\Autodesk\AutoCAD 2025</AcadDir>
+    <AcadDir Condition="'$(AcadDir)' == '' And Exists('C:\Program Files\Autodesk\AutoCAD 2026\acdbmgd.dll')">C:\Program Files\Autodesk\AutoCAD 2026</AcadDir>
+    <AcadDir Condition="'$(AcadDir)' == '' And Exists('C:\Program Files\Autodesk\AutoCAD 2027\acdbmgd.dll')">C:\Program Files\Autodesk\AutoCAD 2027</AcadDir>
+    <AcadDir Condition="'$(AcadDir)' == ''">C:\Program Files\Autodesk\AutoCAD 2025</AcadDir>
+    <!-- Civil 3D / AutoCAD 2025 y 2026 corren sobre .NET 8; la 2027, sobre .NET 10.
+         El DLL sirve SOLO para la versión con la que se compiló. -->
+    <AcadTfm>net8.0-windows</AcadTfm>
+    <AcadTfm Condition="$(AcadDir.Contains('2027'))">net10.0-windows</AcadTfm>
+  </PropertyGroup>
+
+  <!-- Para TODOS los proyectos (plugin y pruebas): mismo lenguaje que el plugin principal.
+       LangVersion 12 = la de .NET 8 (AutoCAD 2025/2026): así nadie usa algo de C# 13/14
+       que no compilaría en el equipo de integración. -->
+  <PropertyGroup>
+    <LangVersion>12.0</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <!-- Solo el plugin (todo proyecto cuyo nombre NO termine en «.Pruebas»). -->
+  <PropertyGroup Condition="!$(MSBuildProjectName.EndsWith('.Pruebas'))">
+    <TargetFramework>$(AcadTfm)</TargetFramework>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <!-- Ventanas en WPF (igual que el plugin principal). WinForms NO está habilitado allá:
+         no usarlo sin consultar a Deyvy. -->
+    <UseWPF>true</UseWPF>
+    <!-- Copia dependencias NuGet a bin; las DLL de Autodesk NO (Private=false abajo). -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <!-- Paquetes NuGet: SOLO los del plugin principal y con su versión exacta.
+       Si se necesitan, se agregan en el .csproj del plugin así (no otra versión):
+         <PackageReference Include="ClosedXML" Version="0.104.2" />
+         <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+       Cualquier otro paquete se consulta a Deyvy antes. -->
+
+  <!-- Referencias de AutoCAD / Civil 3D: las mismas del plugin principal, sin copiarlas a bin. -->
+  <ItemGroup Condition="!$(MSBuildProjectName.EndsWith('.Pruebas'))">
+    <Reference Include="accoremgd">
+      <HintPath>$(AcadDir)\accoremgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Acdbmgd">
+      <HintPath>$(AcadDir)\acdbmgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Acmgd">
+      <HintPath>$(AcadDir)\acmgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AecBaseMgd">
+      <HintPath>$(AcadDir)\ACA\AecBaseMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AeccDbMgd">
+      <HintPath>$(AcadDir)\C3D\AeccDbMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AeccPressurePipesMgd">
+      <HintPath>$(AcadDir)\C3D\AeccPressurePipesMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AecPropDataMgd">
+      <HintPath>$(AcadDir)\ACA\AecPropDataMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

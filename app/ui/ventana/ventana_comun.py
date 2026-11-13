@@ -47,7 +47,7 @@ from nucleo import normas_aprobacion, normas_catalogo, normas_validar
 from nucleo.model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
                    Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE, GRAVITY_LAYERS,
                    TAB_PIPE, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ, TAB_CURVE, TAB_CL,
-                   TAB_DB, TAB_ACC,
+                   TAB_DB, TAB_ACC, TAB_SUP,
                    WORK_UNITS, DEFAULT_WORK_UNIT, CHANGELOG,
                    PIPE_DIAMETERS_IN, PIPE_MATERIALS, DEFAULT_PIPE_MATERIAL, NETWORK_KIND)
 

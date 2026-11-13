@@ -1401,7 +1401,7 @@ copia de recuperación).</p>
     donde la tubería cambia de pendiente aunque en planta siga recta, como lo pone Civil 3D); conexiones
     verticales aprobadas con sus accesorios como en Civil 3D (codo si la utilidad termina en el cruce, Tee si
     pasa de largo, y en un quiebre Wye + tubo corto + codos; el brazo hacia la utilidad sigue su pendiente) y las marcas de los avisos de normativa (ámbar) y de los <b>conflictos</b> (rojo, con su número C-n; clic = su ficha).</li>
-<li>El <b>suelo</b>, semitransparente, para ver lo que queda bajo tierra.</li>
+<li>La <b>superficie</b>, semitransparente, para ver lo que queda bajo tierra: si importaste una (Importar superficies) es ese terreno; si no, un plano a la cota elegida.</li>
 <li>Con <b>«Ángulos y pendientes por tramo»</b> (Mostrar), un rótulo con la pendiente de cada tramo y otro con
     el ángulo de cada quiebre sobre cada utilidad. Como en el plano, de lejos solo salen los de los tramos que se
     alcanzan a leer y, de los que se tapan, uno (primero los de lo elegido); al acercarte aparecen los demás. Al
@@ -1451,13 +1451,13 @@ del plano. Clic en una fila resalta ese tramo en el plano. <span class="key">&nb
 <ul>
 <li><b>Utilidades</b>: también es la leyenda de colores; desmarca las que no quieras ver.</li>
 <li><b>Mostrar</b>: buzones y sólidos, accesorios, avisos.</li>
-<li><b>Suelo</b>: mostrarlo, su opacidad y su cota (automática = la tapa más alta, o 3 ft sobre la tubería
+<li><b>Superficie</b>: mostrarla, su opacidad y su cota (automática = la tapa más alta, o 3 ft sobre la tubería
     más alta si no hay buzones). <b>Restablecer</b> vuelve a lo de fábrica.</li>
 </ul>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
 Es una <b>vista previa</b>: sigue las mismas reglas que el plugin, pero los accesorios se dibujan
-con su forma de fábrica (sin detalles como bridas) y el suelo es plano (Civil 3D usa tu superficie).
+con su forma de fábrica (sin detalles como bridas) y, sin superficie importada, el terreno es un plano.
 </td></tr></table>
 <h3>Resolver conflictos desde la Vista 3D</h3>
 <ol>
@@ -1567,6 +1567,23 @@ EPSG:2229). Es para anteproyecto: el dato exacto viene de la topografía.</p>
 </ol>
 <p><span class="key">&nbsp;Ctrl+Z&nbsp;</span> borra el último punto. Si conoces el código del
 sistema de coordenadas de Civil 3D (por ejemplo <b>CA83VF</b>), escríbelo y el dibujo quedará configurado.</p>
+</section>
+
+<section data-title="Superficies (terreno)">
+<p>Importa el terreno que te da el cliente para que viaje a Civil 3D <b>junto a las redes</b>.</p>
+<ol>
+<li><b>Hoja y PDF → Importar superficies…</b> (o Herramientas). Elige uno o varios archivos <b>LandXML (.xml)</b>
+    o <b>GeoTIFF (.tif)</b>.</li>
+<li>Cada superficie aparece en una tarjeta con sus puntos, triángulos y unidades. Puedes cambiarle el nombre y,
+    si el archivo no dice su sistema de coordenadas, escribir su número <b>EPSG</b> (p. ej. 32717) o el código de Civil 3D (p. ej. <b>UTM84-17S</b>, el de Configuración de dibujo → Unidades y huso); vacío = el del proyecto.</li>
+<li>Si el plano no está georreferenciado, elige: <b>Ubicar el plano en el sistema de la superficie</b> (el plano toma ese sistema, centrado sobre la superficie, sin giro y a la escala de la hoja; luego lo afinas con Georreferenciar) o <b>Importar sin georreferenciar</b>.</li>
+<li>Pulsa <span class="btn">Importar N superficies</span>. Un aviso abajo a la derecha dice si llegaron bien o qué falló.</li>
+</ol>
+<p>La superficie se ve en el plano como un contorno con su nombre (el plano debe estar <b>georreferenciado</b>).
+En <b>Inventario → Superficies</b> ves cada una con su estado (✔ bien, ⚠ aviso, ✖ error) y, al elegirla, lo que se revisó: archivo guardado, puntos y triángulos, cotas, sistema y si cae sobre la hoja. En <b>Capas ▾ → Superficies</b> la enciendes, la apagas o la quitas (<span class="key">&nbsp;Ctrl+Z&nbsp;</span> la devuelve).</p>
+<p>Al exportar el DXF, junto a él se crea la carpeta <b>&lt;nombre&gt;_superficies</b> con un LandXML por superficie,
+ya en el sistema de coordenadas de las redes y con las cotas en pies. En Civil 3D, <b>IMPORTAR_RED</b> la crea con los
+<b>mismos puntos y triángulos</b> y lo comprueba en la consola (✔ o ⚠). Lleva esa carpeta siempre junto al DXF.</p>
 </section>
 
 <section data-title="Exportar y abrir en Civil 3D">

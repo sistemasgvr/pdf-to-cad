@@ -19,6 +19,7 @@ class HerramientasMixin:
     def clear_georef(self):
         if not self.georef.active():
             self._info(_tr("El plano no está georreferenciado.")); return
+        self._push()                                     # Ctrl+Z la devuelve (la georreferencia va en el deshacer)
         self._dirty = True; self.georef = georef_mod.Georef()
         self._update_geo_status(); self._info(_tr("Georreferencia quitada; se usa la escala del titleblock."))
 
@@ -204,6 +205,7 @@ class HerramientasMixin:
             self._llenar_lista_accesorios()
         self._vista3d_al_dia()
         self._perfil_al_dia()
+        self._superficies_al_dia()
 
     def aprobar_avisos(self, avisos, nota=""):
         """Aprueba esos avisos de normativa (con deshacer): dejan de marcarse en el plano y

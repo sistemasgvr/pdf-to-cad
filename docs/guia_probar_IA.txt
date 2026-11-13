@@ -1,0 +1,82 @@
+PROBAR LA IA DE PDF-a-CAD (cmd de Windows)
+==========================================
+
+1) Tailscale conectado. Comprobar que el servidor responde y que modelos tiene:
+
+   curl http://100.64.200.58:11434/api/tags
+
+   (debe salir una lista con "qwen3-vl:8b" o, mejor, "qwen3-vl:8b-instruct")
+
+2) Prueba rapida del modelo (opcional):
+
+   curl http://100.64.200.58:11434/api/chat -d "{\"model\":\"qwen3-vl:8b\",\"messages\":[{\"role\":\"user\",\"content\":\"hola\"}],\"stream\":false,\"think\":false}"
+
+3) Abrir la app desde la carpeta del proyecto:
+
+   cd /d D:\GVR\Proyectos_DEV\EEUU\pdf-to-cad
+   python app\main.py
+
+4) En la app: menu IA -> Configurar IA...
+   - Proveedor: Ollama
+   - Servidor: http://100.64.200.58:11434
+   - Buscar modelos -> elegir qwen3-vl:8b-instruct (o qwen3-vl:8b)
+   - Probar -> Aceptar
+
+5) Abrir un proyecto con conflictos (.digproj) y probar:
+   - IA -> Preguntale al proyecto (Ctrl+Shift+I): "¿Cuantos conflictos hay y donde estan?"
+     Clic en un codigo (C-1, AGUA-5) lleva al plano. Probar Util / No util / Corregir / Copiar.
+   - IA -> Resolver conflictos...: elegir un C-n, ver propuestas, "Aplicar" (Ctrl+Z deshace).
+   - Normativas -> pestana Reglas -> elegir fila -> "Explicar con IA".
+   - Herramientas -> Informe automatico... (redacta el Word con la IA).
+
+6) Lo aprendido queda en la carpeta "<proyecto> - IA" junto al .digproj
+   (IA -> Abrir carpeta de aprendizaje).
+
+7) Pruebas automaticas (sin servidor real, usan un Ollama simulado):
+
+   python -m pytest tests\test_ia.py tests\test_ia_soluciones.py tests\test_informe.py -q
+
+Nota: con qwen3-vl:8b (el que "piensa") cada respuesta tarda mucho; con la version
+-instruct es mucho mas rapido. Si la IA no responde, la app usa su plantilla.
+
+
+RESUMEN PARA SANTOS: COMO ESTA HECHA LA IA (para integrarla al reconocimiento)
+==============================================================================
+
+1) Donde esta
+	- app/ia/ : puro, sin Qt, solo biblioteca estandar.
+
+2) Regla de oro
+	- Los NUMEROS los pone la app; la IA solo redacta o elige.
+	- Cifras que no estan en los datos se marcan: ia/texto.no_respaldados.
+	- Si la IA falla o no responde, sale el texto de la app (plantilla).
+
+3) Conexion con el modelo: ia/proveedor.py
+	- prov = P.crear(win._config_ia())   -> Proveedor, o None si no hay IA.
+	- prov.chat(mensajes, sistema, json=, al_texto=, cancelado=)
+	- Hoy Ollama; Claude despues (solo cambia este archivo).
+
+4) Memoria: ia/memoria.py
+	- mem = win._ia_memoria()
+	- Texto plano JSONL en "<proyecto> - IA/" junto al .digproj.
+	- Cache: mem.redaccion(clave) / mem.guardar_redaccion(clave, texto).
+
+5) Patron para usarla en el reconocimiento
+   (ej.: explicar avisos de "Para verificar", sugerir la utilidad de una capa dudosa)
+	a. Armar un JSON chico con lo que el reconocimiento YA midio.
+	b. Pedir a la IA que solo redacte o elija entre opciones que da la app.
+	c. Revisar cifras con no_respaldados.
+	d. Si no pasa, usar el texto de la app.
+	e. Guardar en cache para no volver a preguntar.
+
+6) Ejemplos para copiar
+	- ia/explicar_norma.py : el mas simple, cache por contenido.
+	- ia/soluciones_ia.py  : la IA elige entre opciones ya validadas.
+
+7) En la ventana
+	- La llamada va en un HILO con senales Qt, nunca en el hilo de la interfaz.
+	- Ver ui/dialogos/ia_chat.py o ui/dialogos/normas_ia_panel.py.
+
+8) Pruebas
+	- tests/ollama_falso.py simula el servidor (sin red).
+	- Detalle: docs/pendientes_ia.md y la seccion "IA" de CLAUDE.md.

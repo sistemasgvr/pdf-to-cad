@@ -1,0 +1,167 @@
+{
+ "archivo": "@repo/tests/fixtures/escaneado_vectorizado.pdf",
+ "hojas": {
+  "0": {
+   "anotaciones": 0,
+   "utilidades": {
+    "AGUA": {
+     "abandonadas": 0,
+     "avisos": [
+      "Hoja aplanada: sin capas",
+      "Sin líneas en esta hoja"
+     ],
+     "avisos_texto": [
+      "Esta hoja no tiene capas originales: asigna el estilo de la red a esta utilidad en «Capas de la hoja» o con «Ajustar capas…». Si la red está en una imagen, requiere dibujo manual.",
+      "No se encontraron líneas de agua en esta hoja."
+     ],
+     "bovedas": 0,
+     "bovedas_importables": 0,
+     "cobertura": 1.0,
+     "codos": 0,
+     "codos_aproximados": 0,
+     "diametros": {},
+     "grosor_estados": {},
+     "huellas": [],
+     "kinds": {},
+     "largo_pt": 0.0,
+     "polilineas": 0,
+     "radios_pt": [],
+     "vertices": 0
+    },
+    "ALCANTARILLADO": {
+     "abandonadas": 0,
+     "avisos": [
+      "Hoja aplanada: sin capas",
+      "Sin líneas en esta hoja"
+     ],
+     "avisos_texto": [
+      "Esta hoja no tiene capas originales: asigna el estilo de la red a esta utilidad en «Capas de la hoja» o con «Ajustar capas…». Si la red está en una imagen, requiere dibujo manual.",
+      "No se encontraron líneas de alcantarillado en esta hoja."
+     ],
+     "bovedas": 0,
+     "bovedas_importables": 0,
+     "cobertura": 1.0,
+     "codos": 0,
+     "codos_aproximados": 0,
+     "diametros": {},
+     "grosor_estados": {},
+     "huellas": [],
+     "kinds": {},
+     "largo_pt": 0.0,
+     "polilineas": 0,
+     "radios_pt": [],
+     "vertices": 0
+    },
+    "DRENAJE": {
+     "abandonadas": 0,
+     "avisos": [
+      "Hoja aplanada: sin capas",
+      "Sin líneas en esta hoja"
+     ],
+     "avisos_texto": [
+      "Esta hoja no tiene capas originales: asigna el estilo de la red a esta utilidad en «Capas de la hoja» o con «Ajustar capas…». Si la red está en una imagen, requiere dibujo manual.",
+      "No se encontraron líneas de drenaje en esta hoja."
+     ],
+     "bovedas": 0,
+     "bovedas_importables": 0,
+     "cobertura": 1.0,
+     "codos": 0,
+     "codos_aproximados": 0,
+     "diametros": {},
+     "grosor_estados": {},
+     "huellas": [],
+     "kinds": {},
+     "largo_pt": 0.0,
+     "polilineas": 0,
+     "radios_pt": [],
+     "vertices": 0
+    },
+    "ELECTRICO": {
+     "abandonadas": 0,
+     "avisos": [
+      "Hoja aplanada: sin capas",
+      "Sin líneas en esta hoja"
+     ],
+     "avisos_texto": [
+      "Esta hoja no tiene capas originales: asigna el estilo de la red a esta utilidad en «Capas de la hoja» o con «Ajustar capas…». Si la red está en una imagen, requiere dibujo manual.",
+      "No se encontraron líneas eléctricas subterráneas en esta hoja."
+     ],
+     "bovedas": 0,
+     "bovedas_importables": 0,
+     "cobertura": 1.0,
+     "codos": 0,
+     "codos_aproximados": 0,
+     "diametros": {},
+     "grosor_estados": {},
+     "huellas": [],
+     "kinds": {},
+     "largo_pt": 0.0,
+     "polilineas": 0,
+     "radios_pt": [],
+     "vertices": 0
+    },
+    "GAS": {
+     "abandonadas": 0,
+     "avisos": [
+      "Hoja aplanada: sin capas",
+      "Sin líneas en esta hoja"
+     ],
+     "avisos_texto": [
+      "Esta hoja no tiene capas originales: asigna el estilo de la red a esta utilidad en «Capas de la hoja» o con «Ajustar capas…». Si la red está en una imagen, requiere dibujo manual.",
+      "No se encontraron líneas de gas en esta hoja."
+     ],
+     "bovedas": 0,
+     "bovedas_importables": 0,
+     "cobertura": 1.0,
+     "codos": 0,
+     "codos_aproximados": 0,
+     "diametros": {},
+     "grosor_estados": {},
+     "huellas": [],
+     "kinds": {},
+     "largo_pt": 0.0,
+     "polilineas": 0,
+     "radios_pt": [],
+     "vertices": 0
+    },
+    "TELECOM": {
+     "abandonadas": 0,
+     "avisos": [
+      "Hoja aplanada: sin capas",
+      "Sin líneas en esta hoja"
+     ],
+     "avisos_texto": [
+      "Esta hoja no tiene capas originales: asigna el estilo de la red a esta utilidad en «Capas de la hoja» o con «Ajustar capas…». Si la red está en una imagen, requiere dibujo manual.",
+      "No se encontraron líneas de telecomunicaciones en esta hoja."
+     ],
+     "bovedas": 0,
+     "bovedas_importables": 0,
+     "cobertura": 1.0,
+     "codos": 0,
+     "codos_aproximados": 0,
+     "diametros": {},
+     "grosor_estados": {},
+     "huellas": [],
+     "kinds": {},
+     "largo_pt": 0.0,
+     "polilineas": 0,
+     "radios_pt": [],
+     "vertices": 0
+    }
+   },
+   "valvulas": 0
+  }
+ },
+ "id": "escaneo_vectorizado",
+ "sha1": "0c297ef1398621e59725409e18341f69d2df577f",
+ "utilidades": [
+  "ELECTRICO",
+  "DRENAJE",
+  "AGUA",
+  "ALCANTARILLADO",
+  "GAS",
+  "TELECOM"
+ ],
+ "version": 1,
+ "zoom": 3.5
+}

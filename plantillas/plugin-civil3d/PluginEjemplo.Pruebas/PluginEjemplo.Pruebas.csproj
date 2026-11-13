@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Arnés de pruebas de la lógica PURA (como PerfilPruebas del plugin principal).
+       Sin AutoCAD: compila y corre en cualquier equipo.  dotnet run -c Release  → 0 = todo OK.
+       Incluye SOLO los .cs de Logica/: si uno usa Autodesk, esto deja de compilar (a propósito). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- net8.0 = el .NET más bajo de AutoCAD (2025/2026): la lógica no puede usar APIs más nuevas. -->
+    <TargetFramework>net8.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\PluginEjemplo\Logica\**\*.cs" LinkBase="Logica" />
+  </ItemGroup>
+</Project>

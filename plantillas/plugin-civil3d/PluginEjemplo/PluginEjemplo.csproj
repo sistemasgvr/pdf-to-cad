@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Versiones, .NET y referencias de AutoCAD: en ..\Directory.Build.props (NO cambiarlas aquí). -->
+  <PropertyGroup>
+    <RootNamespace>Civil3DBasico.Ejemplo</RootNamespace>
+    <AssemblyName>PluginEjemplo</AssemblyName>
+  </PropertyGroup>
+</Project>

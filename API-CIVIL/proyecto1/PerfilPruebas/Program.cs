@@ -4,7 +4,7 @@ using System.Linq;
 using Civil3DBasico;
 
 // Arnés de los módulos puros del perfil (DISENO.md F.12). `dotnet run -c Release` → 0 = todo OK.
-internal static class Program
+internal static partial class Program
 {
     static int fallos, total;
 
@@ -20,7 +20,7 @@ internal static class Program
     static int Main()
     {
         Formatos(); Metrica(); VVE(); Empaquetado(); Recorrido();
-        M1(); M2(); M2b(); M3(); M4(); M5(); M6(); M7(); M8(); M9(); M10(); M11(); Complementos(); Enderezar(); Valvulas();
+        M1(); M2(); M2b(); M3(); M4(); M5(); M6(); M7(); M8(); M9(); M10(); M11(); Complementos(); Enderezar(); Valvulas(); Superficies();
         Console.WriteLine($"\n{total - fallos}/{total} comprobaciones OK" + (fallos > 0 ? $" — {fallos} FALLO(S)" : ""));
         return fallos == 0 ? 0 : 1;
     }

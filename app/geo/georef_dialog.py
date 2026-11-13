@@ -1044,6 +1044,7 @@ class GeorefDialog(QtWidgets.QDialog):
                for p in self.pairs]
         self.result_georef = georef_mod.Georef(matrix=matrix, epsg=TARGET_EPSG, kind=ttype,
                                                rms=rms, points=pts, cs_code=cs_code)
+        self._main._push()                               # Ctrl+Z vuelve a la georreferencia anterior
         self._main.georef = self.result_georef; self._main._dirty = True
         self._main._update_geo_status(); self._main._redraw()
         try:

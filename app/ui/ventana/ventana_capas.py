@@ -49,7 +49,7 @@ class CapasMixin:
     def _construir_boton_capas(self, tb):
         """El botón «Capas ▾» en la barra de herramientas."""
         self.btn_capas = CP.BotonCapas(self._estado_capas, self._cambiar_capa, self._solo_capa,
-                                       self._encender_capas)
+                                       self._encender_capas, al_quitar=self._quitar_capa)
         tb.addWidget(self.btn_capas)
 
     # ── lo que muestra el panel ───────────────────────────────────────────
@@ -147,7 +147,7 @@ class CapasMixin:
                                   layer_qcolor(utils[0]) if len(utils) == 1 else None,
                                   _tr("{n} hoja(s)").format(n=hojas),
                                   _tr("Plano original del PDF: {pdf}").format(pdf=self._pdfs_plano(g))))
-        return CP.Estado(utilidades, planos)
+        return CP.Estado(utilidades, planos, self._filas_superficies())
 
     def _sync_boton_capas(self):
         """Cuántas capas hay apagadas, en el botón (lo llama cada redibujo: barato)."""
@@ -156,6 +156,7 @@ class CapasMixin:
             return
         presentes = set(self._capas_utilidad())
         n = sum(1 for c in getattr(self, "capas_apagadas", ()) if c.split("/")[0] in presentes)
+        n += sum(1 for r in getattr(self, "superficies", ()) if not r.get("visible", True))
         gs = self._grupos_planos()
         if gs:
             n += len(gs) - len(self._planos_encendidos())
@@ -163,6 +164,9 @@ class CapasMixin:
 
     # ── lo que pide el usuario ────────────────────────────────────────────
     def _cambiar_capa(self, tipo, clave, encendida):
+        if tipo == CP.SUPERFICIE:
+            self._cambiar_superficie(int(clave), encendida)
+            return
         if tipo == CP.PLANO:
             vis = set(self._planos_encendidos())
             (vis.add if encendida else vis.discard)(int(clave))
@@ -192,6 +196,12 @@ class CapasMixin:
 
     def _solo_capa(self, tipo, clave):
         """«Ver solo esta» (LAYISO de AutoCAD): las demás de su sección se apagan."""
+        if tipo == CP.SUPERFICIE:
+            for k in range(len(self.superficies)):
+                self.superficies[k]["visible"] = k == int(clave)
+            self._superficies_al_dia()
+            self._sync_boton_capas()
+            return
         if tipo == CP.PLANO:
             self._poner_planos({int(clave)})
             return
@@ -202,8 +212,15 @@ class CapasMixin:
         self._aplicar_capas()
         self._info(_tr("Solo a la vista: {c}.").format(c=self._nombre_capa(clave)))
 
+    def _quitar_capa(self, tipo, clave):
+        if tipo == CP.SUPERFICIE:
+            self.quitar_superficie(int(clave))
+
     def _encender_capas(self):
         self.capas_apagadas = set()
+        for r in getattr(self, "superficies", ()):
+            r["visible"] = True
+        self._superficies_al_dia()
         gs = self._grupos_planos()
         if gs and len(self._planos_encendidos()) != len(gs):
             self._poner_planos(gs)

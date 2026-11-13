@@ -22,7 +22,7 @@ from ui.comun import theme
 from ui.comun.icons import icon as _icon
 from ui.comun.ui_common import swatch_icon
 
-UTILIDAD, PLANO = "utilidad", "plano"
+UTILIDAD, PLANO, SUPERFICIE = "utilidad", "plano", "superficie"
 BOMBILLA_ON = "#f2b705"            # la bombilla de AutoCAD (no se pinta en el lienzo: es un icono)
 
 
@@ -37,15 +37,17 @@ class Fila:
     globo: str = ""
     padre: object = None           # clave de la fila de la que cuelga (subgrupo de una utilidad)
     parcial: bool = False          # grupo con algún subgrupo apagado
+    quitable: bool = False         # lleva botón «Quitar» (superficies, 2.1.0)
 
 
 @dataclass
 class Estado:
     utilidades: List[Fila] = field(default_factory=list)
     planos: List[Fila] = field(default_factory=list)
+    superficies: List[Fila] = field(default_factory=list)
 
     def apagadas(self) -> int:
-        return sum(1 for f in self.utilidades + self.planos if not f.encendida or f.parcial)
+        return sum(1 for f in self.utilidades + self.planos + self.superficies if not f.encendida or f.parcial)
 
 
 class _FilaCapa(QtWidgets.QFrame):
@@ -53,6 +55,7 @@ class _FilaCapa(QtWidgets.QFrame):
     conmutar = QtCore.Signal()
     menu = QtCore.Signal(QtCore.QPoint)
     plegar = QtCore.Signal()
+    quitar = QtCore.Signal()
 
     def __init__(self, fila: Fila, parent=None, abierta=None):
         """`abierta`: True/False = grupo con subgrupos (flecha); None = sin ellos."""
@@ -94,6 +97,15 @@ class _FilaCapa(QtWidgets.QFrame):
         self.det = QtWidgets.QLabel(fila.detalle)
         self.det.setObjectName("hint")
         h.addWidget(self.det)
+        if fila.quitable:
+            self.btn_quitar = QtWidgets.QToolButton()
+            self.btn_quitar.setAutoRaise(True)
+            self.btn_quitar.setIcon(_icon("mdi:delete-outline", color=theme.tokens().text_muted))
+            self.btn_quitar.setToolTip(_tr("Quitar"))
+            self.btn_quitar.setAccessibleName(_tr("Quitar {n}").format(n=fila.nombre))
+            self.btn_quitar.setFocusPolicy(QtCore.Qt.NoFocus)
+            self.btn_quitar.clicked.connect(self.quitar)
+            h.addWidget(self.btn_quitar)
         if fila.globo:
             self.setToolTip(fila.globo)
         self.pintar()
@@ -127,8 +139,10 @@ class _FilaCapa(QtWidgets.QFrame):
 class PanelCapas(QtWidgets.QFrame):
     """La ventana emergente con las filas. Se arma de nuevo tras cada cambio (son pocas filas)."""
 
-    def __init__(self, estado: Callable[[], Estado], al_cambiar, al_solo, al_todas, parent=None, abiertos=None):
+    def __init__(self, estado: Callable[[], Estado], al_cambiar, al_solo, al_todas, parent=None, abiertos=None,
+                 al_quitar=None):
         super().__init__(parent, QtCore.Qt.Popup)
+        self._al_quitar = al_quitar
         self.abiertos = abiertos if abiertos is not None else set()    # grupos desplegados
         self.setObjectName("panelCapas")
         self._estado, self._al_cambiar, self._al_solo, self._al_todas = estado, al_cambiar, al_solo, al_todas
@@ -164,13 +178,14 @@ class PanelCapas(QtWidgets.QFrame):
         caja = QtWidgets.QWidget()
         caja.setLayout(cab)
         self._v.addWidget(caja)
-        if not est.utilidades and not est.planos:
+        if not est.utilidades and not est.planos and not est.superficies:
             vacio = QtWidgets.QLabel(_tr("Todavía no hay utilidades dibujadas."))
             vacio.setObjectName("hint")
             vacio.setContentsMargins(6, 6, 6, 6)
             self._v.addWidget(vacio)
         for titulo_sec, filas in ((_tr("UTILIDADES (lo dibujado)"), est.utilidades),
-                                  (_tr("PLANOS DEL PDF (fondo)"), est.planos)):
+                                  (_tr("PLANOS DEL PDF (fondo)"), est.planos),
+                                  (_tr("SUPERFICIES (terreno)"), est.superficies)):
             if not filas:
                 continue
             sec = QtWidgets.QLabel(titulo_sec)
@@ -184,6 +199,7 @@ class PanelCapas(QtWidgets.QFrame):
                 w.plegar.connect(lambda fila=fila: self._plegar(fila))
                 w.conmutar.connect(lambda fila=fila: self._conmutar(fila))
                 w.menu.connect(lambda pos, fila=fila: self._menu(fila, pos))
+                w.quitar.connect(lambda fila=fila: self._quitar(fila))
                 self._v.addWidget(w)
                 self.filas.append(w)
         self.adjustSize()
@@ -212,8 +228,17 @@ class PanelCapas(QtWidgets.QFrame):
         self._al_todas()
         self._despues()
 
+    def _quitar(self, fila: Fila):
+        if self._al_quitar is not None:
+            self._al_quitar(fila.tipo, fila.clave)
+            self.armar()
+
     def _menu(self, fila: Fila, pos):
         m = QtWidgets.QMenu(self)
+        if fila.quitable and self._al_quitar is not None:
+            q = m.addAction(_tr("Quitar"))
+            q.triggered.connect(lambda: self._quitar(fila))
+            m.addSeparator()
         a = m.addAction(_tr("Ver solo esta"))
         a.triggered.connect(lambda: (self._al_solo(fila.tipo, fila.clave), self._despues()))
         b = m.addAction(_tr("Encender todas"))
@@ -224,9 +249,10 @@ class PanelCapas(QtWidgets.QFrame):
 class BotonCapas(QtWidgets.QToolButton):
     """«Capas ▾» de la barra: abre el panel debajo de sí."""
 
-    def __init__(self, estado, al_cambiar, al_solo, al_todas, parent=None):
+    def __init__(self, estado, al_cambiar, al_solo, al_todas, parent=None, al_quitar=None):
         super().__init__(parent)
         self._args = (estado, al_cambiar, al_solo, al_todas)
+        self._al_quitar = al_quitar
         self.panel: Optional[PanelCapas] = None
         self._abiertos: set = set()        # los grupos siguen desplegados al volver a abrir el panel
         self.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
@@ -248,7 +274,7 @@ class BotonCapas(QtWidgets.QToolButton):
         if self.panel is not None:
             self.panel.close()
             self.panel.deleteLater()
-        self.panel = PanelCapas(*self._args, parent=self, abiertos=self._abiertos)
+        self.panel = PanelCapas(*self._args, parent=self, abiertos=self._abiertos, al_quitar=self._al_quitar)
         self.panel.adjustSize()
         abajo = self.mapToGlobal(QtCore.QPoint(0, self.height()))
         pantalla = (self.screen() or QtGui.QGuiApplication.primaryScreen()).availableGeometry()

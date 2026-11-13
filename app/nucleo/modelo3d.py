@@ -85,6 +85,7 @@ class Escena:
     origen: tuple = (0.0, 0.0, 0.0)                 # (x, y, z del suelo) en pies del dibujo
     caja: tuple = ((0, 0, 0), (0, 0, 0))            # límites de lo dibujado (sin suelo)
     suelo_z: float = 0.0
+    con_superficie: bool = False                     # `suelo` es la superficie importada (no el plano genérico)
     cuentas: dict = field(default_factory=dict)
     etiquetas: list = field(default_factory=list)   # [(id, punto 3D, «C-n»)] de los conflictos
     rotulos: list = field(default_factory=list)     # [(id, punto 3D, texto)] pendientes y ángulos (`rotulos3d`)
@@ -92,7 +93,8 @@ class Escena:
 
     @property
     def vacia(self):
-        return not len(self.base) and not len(self.transparentes) and not any(len(F) for F in self.instancias.values())
+        return (not len(self.base) and not len(self.transparentes) and not any(len(F) for F in self.instancias.values())
+                and not self.con_superficie)
 
     @property
     def opacos(self):
@@ -446,7 +448,8 @@ def _z_eje(pipes, i, x, y):
 # ─────────────────────────── escena completa ───────────────────────────
 
 def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avisos=(), conflictos=(),
-              ocultas=(), ver=None, suelo_z=None, origen=None, solo=None, foco=None, sin_accesorio=(), valvulas=()):
+              ocultas=(), ver=None, suelo_z=None, origen=None, solo=None, foco=None, sin_accesorio=(), valvulas=(),
+              superficies=()):
     """Escena 3D. `ft` = pies por px del lienzo; `colores` = {capa: (r, g, b)} 0–1;
     `duct_banks` = [{name, width_in, height_in, conduits, pipes}]; `avisos` =
     [{x, y, clase, mensaje, pipe, info}]; `conflictos` = [{id, titulo, x, y, mensaje, pipes,
@@ -457,7 +460,9 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
     utilidades que se arman (las demás ni se miran: como si no tuvieran puntos); `foco` = de ésas, las
     únicas cuyos tubos, accesorios y rótulos se dibujan (las demás solo cuentan para hallar los nodos);
     `sin_accesorio` = puntos donde el usuario dijo «no hay codo/T/Y/cruz» (`nucleo/sin_accesorio`);
-    `valvulas` = las válvulas ubicadas (`nucleo/valvulas.Lugar` como dicts), con la pieza del plugin (`valvulas3d`)."""
+    `valvulas` = las válvulas ubicadas (`nucleo/valvulas.Lugar` como dicts), con la pieza del plugin (`valvulas3d`);
+    `superficies` = terreno importado (2026-11-12) como [{px: (n, 2) px del lienzo, z: (n,) pies, tri: (m, 3)}]: si
+    hay, la superficie REAL reemplaza al suelo plano genérico (`Escena.suelo`)."""
     ver = dict(dict(estructuras=True, accesorios=True, avisos=True, rotulos=False), **(ver or {}))
     if not ft or ft <= 0:
         return Escena()
@@ -543,9 +548,12 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
 
         todo = [m for m in ar.op + ar.tr if len(m)]
         ext = I3.extremos(col.arreglos())              # instancias: los mismos vértices, sin armarlos
-        if not todo and not sueltos and ext is None:
+        terreno = _terreno(ar, superficies)
+        if not todo and not sueltos and ext is None and not len(terreno):
             return Escena(cuentas=dict(utilidades=0, estructuras=0, accesorios=0))
         trozos = [m[:, :3] for m in todo] + ([np.vstack(ext)] if ext is not None else [])
+        if not trozos and len(terreno):                   # solo la superficie: la escena es ella
+            trozos = [terreno[:, :3]]
         pos = np.concatenate(trozos) if trozos else np.zeros((1, 3))
         lo, hi = pos.min(axis=0), pos.max(axis=0)
         rims = [o["z1"] for o in ar.objetos.values() if o["tipo"] == "struct" and not o.get("solido")]
@@ -568,14 +576,18 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
     opacos, transp = centrar(M.juntar(ar.op)), centrar(M.juntar(ar.tr))
     inst = I3.centrar(inst, origen)
     margen = max(hi[0] - lo[0], hi[1] - lo[1]) * 0.08 + 10.0
-    suelo = M.plano(lo[0] - margen - origen[0], lo[1] - margen - origen[1],
-                    hi[0] + margen - origen[0], hi[1] + margen - origen[1], 0.0, (0.55, 0.47, 0.36, 1.0))
+    if len(terreno):                                       # la superficie importada en lugar del plano genérico
+        suelo = centrar(terreno.copy())
+    else:
+        suelo = M.plano(lo[0] - margen - origen[0], lo[1] - margen - origen[1],
+                        hi[0] + margen - origen[0], hi[1] + margen - origen[1], 0.0, (0.55, 0.47, 0.36, 1.0))
     A, B, R, I = ar.picks.arreglos()
     for o in ar.objetos.values():
         o["caja"] = (o["caja"][0] - origen, o["caja"][1] - origen)
     return Escena(base=opacos, instancias=inst, transparentes=transp, suelo=suelo,
                   picks=(A - origen, B - origen, R, I),
                   objetos=ar.objetos, origen=tuple(origen), caja=(lo - origen, hi - origen), suelo_z=suelo_z,
+                  con_superficie=bool(len(terreno)),
                   cuentas=dict(utilidades=sum(1 for o in ar.objetos.values() if o["tipo"] == "pipe"),
                                estructuras=sum(1 for o in ar.objetos.values() if o["tipo"] == "struct"),
                                accesorios=n_acc,
@@ -583,6 +595,23 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
                   etiquetas=[(i, tuple(np.asarray(p) - origen), txt) for i, p, txt in etiquetas],
                   rotulos=[(i, tuple(np.asarray(p) - origen), txt) for i, p, txt, _l in rotulos],
                   rotulos_largos=[largo for *_r, largo in rotulos])
+
+
+COLOR_TERRENO = (0.55, 0.47, 0.36, 1.0)
+
+
+def _terreno(ar, superficies):
+    """Mallas de las superficies en pies del dibujo (`ar.mundo`: px → pies, Y invertida; Z = la cota)."""
+    partes = []
+    for s in superficies or ():
+        px = np.asarray(s.get("px"), np.float64).reshape(-1, 2)
+        z = np.asarray(s.get("z"), np.float64).reshape(-1)
+        tri = np.asarray(s.get("tri"), np.int64).reshape(-1, 3)
+        if not len(px) or not len(tri) or len(z) != len(px):
+            continue
+        pos = np.column_stack([px[:, 0] * ar.ft, -px[:, 1] * ar.ft, z])
+        partes.append(M.tin(pos, tri, COLOR_TERRENO))
+    return M.juntar(partes)
 
 
 def construir_datos(datos, progreso=None):

@@ -415,11 +415,11 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         fila_c.addWidget(self.btn_revisar)
         v.addLayout(fila_c)
         v.addSpacing(8)
-        v.addWidget(R.texto("Suelo", "sec"))
+        v.addWidget(R.texto("Superficie", "sec"))
         g = R.transparente(QtWidgets.QWidget())
         f = QtWidgets.QFormLayout(g)
         f.setContentsMargins(0, 0, 0, 0)
-        fila = R.fila_interruptor("Mostrar el suelo", encendido=True)
+        fila = R.fila_interruptor("Mostrar la superficie", encendido=True)
         self.chk_suelo = fila.interruptor
         self.chk_suelo.toggled.connect(self._suelo)
         f.addRow(fila)
@@ -434,7 +434,7 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         self.spn_suelo.editingFinished.connect(lambda: self.actualizar(forzar=True))
         f.addRow(_tr("Cota"), self.spn_suelo)
         b = QtWidgets.QPushButton(_icon("mdi:restore"), _tr("Restablecer"))
-        b.setToolTip(_tr("Volver a los valores por defecto del suelo: visible, opacidad 18 % y cota automática"))
+        b.setToolTip(_tr("Volver a los valores por defecto de la superficie: visible, opacidad 18 % y cota automática"))
         b.setProperty("kind", "ghost"); b.setAutoDefault(False)
         b.clicked.connect(self.restablecer_suelo)
         f.addRow(b)
@@ -550,10 +550,14 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         if self.escena.vacia:
             self.lbl_estado.setText("")
             return
+        if getattr(self.escena, "con_superficie", False):         # terreno importado: su cota varía
+            cola = _tr("superficie importada")
+        else:
+            cola = _tr("superficie a {z} ft").format(z=f"{self.escena.suelo_z:.2f}")
         self.lbl_estado.setText(_tr("{u} utilidades · {e} buzones/cajas · {a} accesorios · {k} conflictos · "
-                                    "suelo a {z} ft").format(
+                                    "{s}").format(
             u=c.get("utilidades", 0), e=c.get("estructuras", 0), a=c.get("accesorios", 0),
-            k=c.get("conflictos", 0), z=f"{self.escena.suelo_z:.2f}"))
+            k=c.get("conflictos", 0), s=cola))
 
     # ── selección ──
     def _id_del_plano(self):

@@ -205,6 +205,7 @@ def _merge_into_modelo(win, doc, marks=True):
     _export_sin_accesorio(win, doc, msp)
     _export_valvulas(win, doc, msp)
     _export_perfiles(win, doc, msp)
+    _export_superficies(win, doc, msp)
     VP.ensure_layer(doc, "ANOTACION")
     if "CAD_TEXT" not in doc.styles: doc.styles.add("CAD_TEXT", font=C.TEXT_FONT)
     for ld in win.leaders:
@@ -393,6 +394,22 @@ def _export_perfiles(win, doc, msp):
             fx, fy = win._to_cad(float(fin[1]), float(fin[2]))
             xd += [(1000, f"FIN_X={fx:.6f}"), (1000, f"FIN_Y={fy:.6f}")]
         pt.set_xdata("PDFCAD", xd)
+
+
+def _export_superficies(win, doc, msp):
+    """Superficies (2.1.0): el LandXML de cada una junto al DXF (`<dxf>_superficies/`, el MISMO TIN de la app en el
+    sistema de las redes) y un punto PDFCAD_SUPERFICIE con NAME, ARCHIVO, SHA1, cifras y MUESTRAS en la capa
+    PDFCAD_SUPERFICIES. IMPORTAR_RED la crea con CreateFromLandXML y la verifica (ImportarRedSuperficies.cs)."""
+    ruta = getattr(win, "_out", None)
+    if not getattr(win, "superficies", None) or not ruta:
+        return
+    from nucleo import superficies as S
+    if "PDFCAD" not in doc.appids: doc.appids.add("PDFCAD")
+    VP.ensure_layer(doc, S.CAPA)
+    for reg, pts, tri, rel, abso, sha, unidad in win.escribir_para_dxf(ruta):
+        x0, y0, x1, y1 = S.recuadro(pts)
+        pt = msp.add_point(((x0 + x1) / 2, (y0 + y1) / 2, 0), dxfattribs={"layer": S.CAPA})
+        pt.set_xdata("PDFCAD", S.xdata(reg, pts, tri, rel, abso, sha, unidad))
 
 
 def _export_cs_code(win, doc, msp):

@@ -1,0 +1,153 @@
+{
+ "archivo": "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf",
+ "hojas": {
+  "8": {
+   "anotaciones": 45,
+   "utilidades": {
+    "DRENAJE": {
+     "abandonadas": 0,
+     "avisos": [
+      "N letras/barras omitidas",
+      "N quiebres con ángulo a pasos de N°",
+      "N trazos de la vista de perfil excluidos",
+      "grosor",
+      "orphans",
+      "uncovered",
+      "vault_snaps",
+      "vaults"
+     ],
+     "avisos_texto": [
+      "Bóvedas detectadas: 1 (ya son vértices de las líneas).",
+      "Bóvedas sin línea cercana: 1.",
+      "Cobertura de guiones: 100.0%.",
+      "Diámetros del plano (rótulos con flecha y paredes dibujadas): 3 tubería(s) los toman; 0 dudosa(s) quedan con el diámetro por defecto y un aviso en el editor.",
+      "Puntas unidas a su bóveda (imán): 2 — quedaban a menos de 3 pt de su contorno y se llevaron hasta él por su propia recta.",
+      "Se excluyeron 62 trazo(s) dentro de una vista de PERFIL (grilla de estación/elevación): esa vista no es planta y no se reconoce.",
+      "Se omitieron 71 trazos de marcador/linetype (letras, barras); solo se dibuja la centerline.",
+      "Ángulos de los quiebres a pasos de 0.25°: 6 — cada vértice se movió lo mínimo (máx. 0.01 pt); los codos conservan su radio."
+     ],
+     "bovedas": 5,
+     "bovedas_importables": 5,
+     "cobertura": 1.0,
+     "codos": 0,
+     "codos_aproximados": 0,
+     "diametros": {
+      "18\"": 2,
+      "81\"": 1
+     },
+     "grosor_estados": {
+      "leido": 3
+     },
+     "huellas": [
+      "5188af94d5",
+      "be6d30f1f3",
+      "feff12948f"
+     ],
+     "kinds": {
+      "cut": 2,
+      "edge": 4,
+      "stop": 4,
+      "vault": 2
+     },
+     "largo_pt": 1826.3,
+     "polilineas": 3,
+     "radios_pt": [],
+     "vertices": 12
+    },
+    "ELECTRICO": {
+     "abandonadas": 4,
+     "avisos": [
+      "N letras/barras omitidas",
+      "N quiebres con ángulo a pasos de N°",
+      "N rutas unen N tramos",
+      "abandoned",
+      "curvy",
+      "fillets",
+      "grosor_sin",
+      "letters",
+      "uncovered",
+      "vault_snaps",
+      "vaults"
+     ],
+     "avisos_texto": [
+      "Bóvedas detectadas: 3 (ya son vértices de las líneas).",
+      "Cobertura de guiones: 100.0%.",
+      "Codos como esquina + radio: 8.",
+      "Curvas que quedan como polilínea: 2 tramo(s) — curva compuesta (radio variable) o sin recta tangente a un lado; no se inventa un arco que no está en el plano.",
+      "Puntas unidas a su bóveda (imán): 3 — quedaban a menos de 3 pt de su contorno y se llevaron hasta él por su propia recta.",
+      "Reconocidas por las letras de su línea (no por el nombre de la capa): 1 — «SE» G-XREF.",
+      "Rutas: 16 (unen 17 tramos de la misma capa).",
+      "Se omitieron 76 trazos de marcador/linetype (letras, barras); solo se dibuja la centerline.",
+      "Tuberías sin diámetro en el plano: 16 — ningún rótulo con flecha llega a ellas ni tienen paredes dibujadas; quedan con el diámetro por defecto y un aviso en el editor.",
+      "Utilidades abandonadas (capa «-A» + patrón «/», o patrón «//»): 4 — se importan marcadas (AB).",
+      "Ángulos de los quiebres a pasos de 0.25°: 43 — cada vértice se movió lo mínimo (máx. 0.37 pt); los codos conservan su radio."
+     ],
+     "bovedas": 4,
+     "bovedas_importables": 4,
+     "cobertura": 1.0,
+     "codos": 8,
+     "codos_aproximados": 0,
+     "diametros": {
+      "sin dato": 16
+     },
+     "grosor_estados": {
+      "sin_dato": 16
+     },
+     "huellas": [
+      "0fd2d1b341",
+      "27ef2bb026",
+      "5196cb122c",
+      "54af4e13f8",
+      "55cf0f8275",
+      "5b70644f30",
+      "6fa5a3ea95",
+      "6fd3ccd354",
+      "705b496d6d",
+      "a51bbd30ee",
+      "a606c37ff4",
+      "b032149df6",
+      "d08ef0e997",
+      "d0b2d98e09",
+      "df001cc9c1",
+      "e2a94fadb5"
+     ],
+     "kinds": {
+      "bend": 13,
+      "corner": 4,
+      "curve": 2,
+      "cut": 9,
+      "edge": 11,
+      "end": 7,
+      "fillet": 8,
+      "junction": 2,
+      "stop": 6,
+      "tee": 12,
+      "vault": 7
+     },
+     "largo_pt": 5273.1,
+     "polilineas": 16,
+     "radios_pt": [
+      17.4,
+      18.5,
+      42.4,
+      65.7,
+      123.8,
+      124.9,
+      125.3,
+      138.3
+     ],
+     "vertices": 81
+    }
+   },
+   "valvulas": 0
+  }
+ },
+ "id": "du06_h9_abandonadas",
+ "sha1": "bc36ce4f0b105caa045bab09a417c48dea0ae6dd",
+ "utilidades": [
+  "ELECTRICO",
+  "DRENAJE"
+ ],
+ "version": 1,
+ "zoom": 3.5
+}

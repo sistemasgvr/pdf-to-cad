@@ -54,7 +54,7 @@ from nucleo import normas_catalogo, normas_validar
 from nucleo.model import (VERSION, TIPOS, ACI_RGB, LEADER_TEXT_FT, LEADER_ORIENT,
                    Z_PDF, Z_ERASE, Z_MARK, Z_HANDLE, GRAVITY_LAYERS,
                    TAB_PIPE, TAB_LEADER, TAB_TEXT, TAB_REGION, TAB_BZ, TAB_CURVE, TAB_CL,
-                   TAB_DB, TAB_ACC,
+                   TAB_DB, TAB_ACC, TAB_SUP,
                    WORK_UNITS, DEFAULT_WORK_UNIT, CHANGELOG,
                    PIPE_DIAMETERS_IN, PIPE_MATERIALS, DEFAULT_PIPE_MATERIAL, NETWORK_KIND)
 
@@ -82,6 +82,8 @@ from ui.ventana.ventana_menu import MenuMixin
 from ui.ventana.ventana_diametro_ia import DiametroIAMixin
 from ui.ventana.ventana_anotaciones import AnotacionesMixin
 from ui.ventana.ventana_valvulas import ValvulasMixin
+from ui.ventana.ventana_superficies import SuperficiesMixin
+from ui.ventana.ventana_lista_superficies import ListaSuperficiesMixin
 from ui.ventana.ventana_flujo import FlujoMixin
 from ui.ventana.ventana_panel_izq import PanelIzquierdoMixin
 from ui.ventana.ventana_panel_der import PanelDerechoMixin
@@ -137,7 +139,7 @@ from ui.ventana.ventana_pasos import PasosVivosMixin
 
 class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, SinAccesorioMixin, ListaAccesoriosMixin, DibujarAccesoriosMixin, SeleccionAccesorioMixin, PerfilMixin, AccionesIAMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
-           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, FlujoMixin, QtWidgets.QMainWindow):
+           AgregarUtilidadMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, FlujoMixin, SuperficiesMixin, ListaSuperficiesMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"
@@ -200,6 +202,8 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         self.perfiles = []            # perfiles longitudinales guardados (ventana_perfil)
         self.sin_accesorio = []       # puntos donde el usuario dijo «no hay codo/T/Y/cruz» (nucleo/sin_accesorio)
         self.valvulas = []            # válvulas de compuerta en agua/gas (nucleo/valvulas)
+        self.superficies = []         # superficies (terreno) importadas (ventana_superficies, 2.1.0)
+        self._superficies_datos = {}  # sha1 → bytes del archivo del cliente
         self.normas_aprobados = []    # avisos de normativa aprobados (normas_aprobacion)
         # Normativas de diseño en tablas: catálogo GLOBAL (el Excel del usuario, ver
         # normas_catalogo.py) y los avisos del proyecto (normas_validar, en cada redibujo).
@@ -297,6 +301,9 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
                                sin_accesorio=getattr(self, "sin_accesorio", []) or [],
                                anotaciones=getattr(self, "anotaciones", []) or [],
                                valvulas=getattr(self, "valvulas", []) or [],
+                               superficies=getattr(self, "superficies", []) or [],
+                               # 2026-11-12: «Ubicar el plano» al importar una superficie se deshace con Ctrl+Z
+                               georef=self.georef.to_dict() if getattr(self, "georef", None) is not None else None,
                                bitacora_vigentes=bitacora.vigentes(self.bitacora)),
                           getattr(self, "_ultimo_paso", None))
         self._ultimo_paso = p
@@ -324,6 +331,11 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             self.valvulas = s["valvulas"]
         if "anotaciones" in s:
             self.anotaciones = s["anotaciones"]
+        if "superficies" in s:
+            self.superficies = s["superficies"]
+        if "georef" in s and s["georef"] != self.georef.to_dict():
+            self.georef = georef_mod.Georef.from_dict(s["georef"])
+            self._update_geo_status()
         if "valvulas" in s:
             self.valvulas = s["valvulas"]
             self._valvula_sel = -1
@@ -1566,6 +1578,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         self._conf_registro = None              # números de los conflictos (ventana_conflictos_lista)
         self.capas_apagadas = set()             # «Capas»: todas las utilidades encendidas
         self.anotaciones = []                   # rótulos del plano reconocidos (ventana_anotaciones)
+        self.superficies = []; self._superficies_datos = {}   # superficies (ventana_superficies)
         self.valvulas = []                      # válvulas reconocidas (ventana_valvulas)
         self._valvula_sel = -1
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = -1
@@ -1609,6 +1622,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
                 entradas.append(("source.pdf", pdf_bytes))
             entradas += [(f"external/{i:03d}.pdf", d) for i, d in enumerate(externos)]
             entradas += [(f"sources/{i:03d}.pdf", d) for i, d in enumerate(fuentes)]
+            entradas += self._sup_entradas_zip()        # archivos de las superficies (ventana_superficies)
             en_hilo.ejecutar(self, lambda: archivo_zip.escribir(path, entradas), _tr("Guardando proyecto…"),
                              avance=av.recibir, relanzar=True)
             self.project_path = path; self._dirty = False; self._update_title()
@@ -1805,6 +1819,9 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
                 self.canvas.set_pdf_bg(QtGui.QColor(0, 0, 0) if data["pdf_fondo_negro"] else QtGui.QColor(255, 255, 255))
             self.anotaciones = data.get("anotaciones", []) or []            # rótulos del plano (ventana_anotaciones)
             self.valvulas = data.get("valvulas", []) or []                  # válvulas (ventana_valvulas)
+            self.superficies = data.get("superficies", []) or []            # superficies (ventana_superficies)
+            self._superficies_datos = {n.split("/")[1].split(".")[0]: arch[n] for n in arch
+                                       if n.startswith("superficies/")}
             self._valvula_sel = -1
             self.georef = data["georef"]
             self.work_unit = data["work_unit"]

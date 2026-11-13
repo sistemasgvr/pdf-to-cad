@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proceso de trabajo</title>
+<style>
+:root{
+  --bg:#f5f6f8; --card:#ffffff; --text:#1d2730; --muted:#5d6b76; --line:#dfe4e8; --flecha:#7b8a96;
+  --cli:#f39237; --cli-s:#fff1e4; --gh:#4b5b68; --gh-s:#eef1f4;
+  --san:#2e9e4f; --san-s:#e6f5ea; --jea:#3b7dd8; --jea-s:#e7f0fc; --elv:#8b5cf6; --elv-s:#f1ebfe;
+  --int:#4f46e5; --int-s:#ecebfd; --cal:#d6457d; --cal-s:#fdebf2; --adm:#3d4b55; --adm-s:#eceff1;
+  --sal:#0f8a7a; --sal-s:#e3f5f2; --mal:#d64545;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#12161b; --card:#1b2128; --text:#e6ebef; --muted:#9aa7b1; --line:#2c343d; --flecha:#8796a3;
+  --cli-s:#3a2a1a; --gh-s:#242c33; --san-s:#16301f; --jea-s:#172a44; --elv-s:#2a2046;
+  --int-s:#24264a; --cal-s:#3d1a2a; --adm-s:#262d33; --sal-s:#123430; --gh:#8fa3b3; --adm:#a9b6c0;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+.wrap{max-width:1240px;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:28px;margin:0 0 4px}h2{font-size:20px;margin:34px 0 12px}
+.sub{color:var(--muted);margin:0 0 18px}
+.lienzo{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px;overflow:hidden}
+svg{width:100%;height:auto;display:block}
+svg text{fill:var(--text);font-family:"Segoe UI",system-ui,sans-serif}
+svg .t{font-size:15px;font-weight:700}
+svg .d{font-size:12.5px;fill:var(--muted)}
+svg .carril{font-size:12px;font-weight:700;letter-spacing:.08em;fill:var(--muted)}
+svg .flecha{fill:none;stroke:var(--flecha);stroke-width:2}
+svg .mal{fill:none;stroke:var(--mal);stroke-width:2;stroke-dasharray:6 5}
+svg .lazo{fill:none;stroke:var(--cli);stroke-width:2.2;stroke-dasharray:8 6}
+svg .et{font-size:12px;font-weight:600;fill:var(--muted)}
+.ley{display:flex;flex-wrap:wrap;gap:14px;margin:12px 4px 0;color:var(--muted);font-size:13px}
+.ley span{display:inline-flex;align-items:center;gap:6px}
+.ley i{width:26px;height:0;border-top:2px solid var(--flecha);display:inline-block}
+.ley i.mal{border-top:2px dashed var(--mal)}.ley i.lazo{border-top:2px dashed var(--cli)}
+.ciclo{display:grid;grid-template-columns:repeat(10,1fr);gap:6px}
+.dia{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px;min-height:92px;font-size:12.5px}
+.dia b{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+.dia.cli{border-top:4px solid var(--cli)}.dia.dev{border-top:4px solid var(--int)}
+.dia.cal{border-top:4px solid var(--cal)}.dia.ent{border-top:4px solid var(--sal)}
+.roles{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.rol{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;border-top:5px solid}
+.rol h3{margin:0 0 2px;font-size:17px}.rol .que{color:var(--muted);font-size:13px;margin-bottom:8px}
+.rol ul{margin:0;padding-left:18px}.rol li{margin:4px 0;font-size:14px}
+code{font-family:Consolas,monospace;font-size:12.5px;background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:0 4px}
+@media (max-width:760px){.ciclo{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Proceso de trabajo</h1>
+  <p class="sub">Asistente C3D · cómo viaja un pedido del cliente hasta la entrega. Ciclo de unas 2 semanas.</p>
+
+  <div class="lienzo">
+  <svg viewBox="0 0 1200 1010" role="img" aria-label="Diagrama del proceso de trabajo">
+    <defs>
+      <marker id="pt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="var(--flecha)"/></marker>
+      <marker id="ptm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="var(--mal)"/></marker>
+      <marker id="ptl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="var(--cli)"/></marker>
+    </defs>
+
+    <!-- carriles -->
+    <text class="carril" x="40" y="22">1 · PEDIDOS</text>
+    <text class="carril" x="40" y="212">2 · DESARROLLO (cada uno con su Claude Code y su CLAUDE.md)</text>
+    <text class="carril" x="40" y="432">3 · INTEGRACIÓN (lunes y jueves)</text>
+    <text class="carril" x="40" y="592">4 · CALIDAD (congelamiento: 2 días antes de entregar, no entra nada nuevo)</text>
+    <text class="carril" x="40" y="782">5 · APROBACIÓN Y ENTREGA</text>
+
+    <!-- 1 PEDIDOS -->
+    <rect x="40" y="34" width="220" height="118" rx="14" fill="var(--cli-s)" stroke="var(--cli)" stroke-width="2"/>
+    <text class="t" x="56" y="62">Cliente</text>
+    <text class="d" x="56" y="84">Reunión semanal</text>
+    <text class="d" x="56" y="102">Observaciones en PDF,</text>
+    <text class="d" x="56" y="120">WhatsApp o en la reunión</text>
+
+    <rect x="320" y="34" width="270" height="118" rx="14" fill="var(--gh-s)" stroke="var(--gh)" stroke-width="2"/>
+    <text class="t" x="336" y="62">GitHub Issues</text>
+    <text class="d" x="336" y="84">1 observación = 1 issue</text>
+    <text class="d" x="336" y="102">Captura con Ctrl+V · etiqueta de área</text>
+    <text class="d" x="336" y="120">Hito = versión · «falta responder»</text>
+
+    <rect x="650" y="34" width="250" height="118" rx="14" fill="var(--gh-s)" stroke="var(--gh)" stroke-width="2"/>
+    <text class="t" x="666" y="62">Tablero (Projects)</text>
+    <text class="d" x="666" y="84">Pendiente → En desarrollo</text>
+    <text class="d" x="666" y="102">→ Por probar → Probado</text>
+    <text class="d" x="666" y="120">→ Entregado</text>
+
+    <rect x="960" y="34" width="200" height="118" rx="14" fill="var(--int-s)" stroke="var(--int)" stroke-width="2"/>
+    <text class="t" x="976" y="62">Deyvy prioriza</text>
+    <text class="d" x="976" y="84">Qué entra en la versión</text>
+    <text class="d" x="976" y="102">y quién lo hace</text>
+    <text class="d" x="976" y="120">(Discord para conversar)</text>
+
+    <path class="flecha" d="M260,93 H316" marker-end="url(#pt)"/>
+    <path class="flecha" d="M590,93 H646" marker-end="url(#pt)"/>
+    <path class="flecha" d="M900,93 H956" marker-end="url(#pt)"/>
+
+    <!-- bus hacia el desarrollo -->
+    <path class="flecha" d="M1060,152 V180 H330 V218" marker-end="url(#pt)"/>
+    <path class="flecha" d="M600,180 V218" marker-end="url(#pt)"/>
+    <path class="flecha" d="M870,180 V218" marker-end="url(#pt)"/>
+    <text class="et" x="612" y="174">asigna issues</text>
+
+    <!-- 2 DESARROLLO -->
+    <rect x="40" y="222" width="330" height="168" rx="14" fill="var(--san-s)" stroke="var(--san)" stroke-width="2"/>
+    <text class="t" x="56" y="250">Santos · Reconocimiento del PDF</text>
+    <text class="d" x="56" y="274">Repo principal, rama dev_santos_v2</text>
+    <text class="d" x="56" y="294">Prueba que falla antes de cada arreglo</text>
+    <text class="d" x="56" y="314">pytest + regresion.py de su parte</text>
+    <text class="d" x="56" y="334">Propone el estado de sus funciones</text>
+    <text class="d" x="56" y="354">Mueve el issue a «Por probar»</text>
+    <text class="d" x="56" y="374">Suplente para aprobar estados</text>
+
+    <rect x="435" y="222" width="330" height="168" rx="14" fill="var(--jea-s)" stroke="var(--jea)" stroke-width="2"/>
+    <text class="t" x="451" y="250">Jean · Piezas 3D automáticas</text>
+    <text class="d" x="451" y="274">Repo propio (desde la plantilla)</text>
+    <text class="d" x="451" y="294">Logica pura + proyecto de Pruebas</text>
+    <text class="d" x="451" y="314">Versiones fijas: Directory.Build.props</text>
+    <text class="d" x="451" y="334">Ficha + captura de cada pieza</text>
+    <text class="d" x="451" y="354">Commit + push (nada por WhatsApp)</text>
+    <text class="d" x="451" y="374">Hace la lista de humo al entregar</text>
+
+    <rect x="830" y="222" width="330" height="168" rx="14" fill="var(--elv-s)" stroke="var(--elv)" stroke-width="2"/>
+    <text class="t" x="846" y="250">Elvis · Laminado del modelo 3D</text>
+    <text class="d" x="846" y="274">Repo propio (desde la plantilla)</text>
+    <text class="d" x="846" y="294">Logica pura + proyecto de Pruebas</text>
+    <text class="d" x="846" y="314">Versiones fijas: Directory.Build.props</text>
+    <text class="d" x="846" y="334">Ficha + captura de cada elemento</text>
+    <text class="d" x="846" y="354">Commit + push (nada por WhatsApp)</text>
+    <text class="d" x="846" y="374">Hace la lista de humo al entregar</text>
+
+    <!-- hacia integración -->
+    <path class="flecha" d="M330,390 V436" marker-end="url(#pt)"/>
+    <path class="flecha" d="M600,390 V436" marker-end="url(#pt)"/>
+    <path class="flecha" d="M870,390 V436" marker-end="url(#pt)"/>
+    <text class="et" x="340" y="418">merge de la rama</text>
+    <text class="et" x="612" y="418">commit de su repo</text>
+    <text class="et" x="880" y="418">commit de su repo</text>
+
+    <!-- 3 INTEGRACIÓN -->
+    <rect x="300" y="440" width="600" height="120" rx="14" fill="var(--int-s)" stroke="var(--int)" stroke-width="2.5"/>
+    <text class="t" x="316" y="468">Deyvy integra (con su Claude)</text>
+    <text class="d" x="316" y="492">Une la rama de Santos · pasa la Logica de Jean y Elvis al plugin principal</text>
+    <text class="d" x="316" y="512">Copia sus fichas a gestion/catalogo · App, plugin, MCP e IA</text>
+    <text class="d" x="316" y="532">Funciones nuevas → funciones.toml con estado «propuesto»</text>
+
+    <path class="flecha" d="M600,560 V602" marker-end="url(#pt)"/>
+
+    <!-- 4 CALIDAD -->
+    <rect x="40" y="606" width="260" height="118" rx="14" fill="var(--cal-s)" stroke="var(--cal)" stroke-width="2"/>
+    <text class="t" x="56" y="634">Pruebas automáticas</text>
+    <text class="d" x="56" y="656">pytest (app)</text>
+    <text class="d" x="56" y="674">PerfilPruebas / McpPruebas</text>
+    <text class="d" x="56" y="692">Pruebas de Jean y Elvis</text>
+
+    <rect x="330" y="606" width="260" height="118" rx="14" fill="var(--cal-s)" stroke="var(--cal)" stroke-width="2"/>
+    <text class="t" x="346" y="634">Regresión</text>
+    <text class="d" x="346" y="656">scripts/regresion.py</text>
+    <text class="d" x="346" y="674">Casos dorados: 0 diferencias</text>
+    <text class="d" x="346" y="692">Lo que ya funcionaba sigue igual</text>
+
+    <rect x="620" y="606" width="260" height="118" rx="14" fill="var(--cal-s)" stroke="var(--cal)" stroke-width="2"/>
+    <text class="t" x="636" y="634">Instalador</text>
+    <text class="d" x="636" y="656">build_all.bat</text>
+    <text class="d" x="636" y="674">verificar_instalador.py</text>
+    <text class="d" x="636" y="692">(DLL, MCP, autoprueba del .exe)</text>
+
+    <rect x="910" y="606" width="250" height="118" rx="14" fill="var(--cal-s)" stroke="var(--cal)" stroke-width="2"/>
+    <text class="t" x="926" y="634">Lista de humo</text>
+    <text class="d" x="926" y="656">~40 min con el instalador</text>
+    <text class="d" x="926" y="674">La hacen Jean o Elvis</text>
+    <text class="d" x="926" y="692">gestion/entregas/&lt;v&gt;/humo.md</text>
+
+    <path class="flecha" d="M300,665 H326" marker-end="url(#pt)"/>
+    <path class="flecha" d="M590,665 H616" marker-end="url(#pt)"/>
+    <path class="flecha" d="M880,665 H906" marker-end="url(#pt)"/>
+
+    <!-- si falla -->
+    <path class="mal" d="M1100,606 V575 H904" marker-end="url(#ptm)"/>
+    <text class="et" x="944" y="569" style="fill:var(--mal)">si algo falla → issue y se corrige</text>
+
+    <path class="flecha" d="M1035,724 V760 H300 V792" marker-end="url(#pt)"/>
+    <text class="et" x="540" y="754">todo bien</text>
+
+    <!-- 5 APROBACIÓN Y ENTREGA -->
+    <rect x="40" y="796" width="330" height="140" rx="14" fill="var(--adm-s)" stroke="var(--adm)" stroke-width="2"/>
+    <text class="t" x="56" y="824">Administrador (solo tu PC)</text>
+    <text class="d" x="56" y="846">gestion.bat → aprueba o rechaza estados</text>
+    <text class="d" x="56" y="866">Cada cambio de la versión asociado</text>
+    <text class="d" x="56" y="884">a una función aprobada</text>
+    <text class="d" x="56" y="904">Marca la versión como publicada</text>
+    <text class="d" x="56" y="922">Nunca se sube a internet</text>
+
+    <rect x="430" y="796" width="230" height="140" rx="14" fill="var(--sal-s)" stroke="var(--sal)" stroke-width="2"/>
+    <text class="t" x="446" y="824">Sitio del cliente</text>
+    <text class="d" x="446" y="846">Cloudflare Pages</text>
+    <text class="d" x="446" y="866">Link público, siempre igual</text>
+    <text class="d" x="446" y="886">Funciones · Versiones</text>
+    <text class="d" x="446" y="906">Piezas (solo lo aprobado)</text>
+
+    <rect x="690" y="796" width="230" height="140" rx="14" fill="var(--sal-s)" stroke="var(--sal)" stroke-width="2"/>
+    <text class="t" x="706" y="824">Reporte de la entrega</text>
+    <text class="d" x="706" y="846">PDF de una página</text>
+    <text class="d" x="706" y="866">+ texto para WhatsApp</text>
+    <text class="d" x="706" y="886">Novedades · Mejoras ·</text>
+    <text class="d" x="706" y="906">Correcciones · Próxima</text>
+
+    <rect x="950" y="796" width="210" height="140" rx="14" fill="var(--sal-s)" stroke="var(--sal)" stroke-width="2"/>
+    <text class="t" x="966" y="824">Instalador</text>
+    <text class="d" x="966" y="846">AsistenteC3D-Setup</text>
+    <text class="d" x="966" y="866">Ya verificado</text>
+    <text class="d" x="966" y="886">Issues → «Entregado»</text>
+    <text class="d" x="966" y="906">y respondidos</text>
+
+    <path class="flecha" d="M370,866 H426" marker-end="url(#pt)"/>
+    <path class="flecha" d="M370,866 H400 V950 H805 V940" marker-end="url(#pt)"/>
+    <path class="flecha" d="M370,866 H400 V950 H1055 V940" marker-end="url(#pt)"/>
+
+    <!-- vuelta al cliente -->
+    <path class="lazo" d="M1160,866 H1185 V985 H18 V93 H36" marker-end="url(#ptl)"/>
+    <text class="et" x="480" y="1002" style="fill:var(--cli)">se entrega al cliente → nuevas observaciones → vuelve a empezar</text>
+  </svg>
+  <div class="ley">
+    <span><i></i> sigue el flujo</span>
+    <span><i class="mal"></i> si algo falla, vuelve a integración</span>
+    <span><i class="lazo"></i> nuevo ciclo con el cliente</span>
+  </div>
+  </div>
+
+  <h2>Ciclo de 2 semanas</h2>
+  <div class="ciclo">
+    <div class="dia cli"><b>Día 1</b>Reunión con el cliente. Sus observaciones pasan a issues. Se crea la versión.</div>
+    <div class="dia dev"><b>Día 2</b>Desarrollo</div>
+    <div class="dia dev"><b>Día 3</b>Desarrollo · integración (lunes)</div>
+    <div class="dia dev"><b>Día 4</b>Desarrollo</div>
+    <div class="dia dev"><b>Día 5</b>Desarrollo · integración (jueves)</div>
+    <div class="dia dev"><b>Día 6</b>Desarrollo</div>
+    <div class="dia dev"><b>Día 7</b>Desarrollo · integración</div>
+    <div class="dia dev"><b>Día 8</b>Última integración. Funciones nuevas propuestas.</div>
+    <div class="dia cal"><b>Día 9</b>Congelamiento: pruebas, regresión, instalador y lista de humo.</div>
+    <div class="dia ent"><b>Día 10</b>Aprobar, publicar el sitio, enviar reporte e instalador.</div>
+  </div>
+
+  <h2>Qué hace cada uno</h2>
+  <div class="roles">
+    <div class="rol" style="border-top-color:var(--int)">
+      <h3>Deyvy</h3><div class="que">Líder técnico · integración, app, MCP e IA</div>
+      <ul>
+        <li>Pasa las observaciones del cliente a issues y decide qué entra.</li>
+        <li>Integra lunes y jueves: rama de Santos, Logica de Jean y Elvis.</li>
+        <li>Corre la calidad del día 9 y genera el instalador.</li>
+        <li>Aprueba estados, publica el sitio y envía el reporte.</li>
+      </ul>
+    </div>
+    <div class="rol" style="border-top-color:var(--san)">
+      <h3>Santos</h3><div class="que">Reconocimiento automático del PDF · repo principal</div>
+      <ul>
+        <li>Trabaja en <code>dev_santos_v2</code>; antes de pedir merge: pytest y <code>regresion.py</code>.</li>
+        <li>Si un cambio altera una foto de la regresión, lo explica en el issue y vuelve a grabar la foto.</li>
+        <li>Cada arreglo lleva una prueba que fallaba antes.</li>
+        <li>Propone estados con <code>python scripts/gestion proponer</code>; suplente para aprobar.</li>
+      </ul>
+    </div>
+    <div class="rol" style="border-top-color:var(--jea)">
+      <h3>Jean</h3><div class="que">Piezas 3D automáticas · repo propio</div>
+      <ul>
+        <li>Ordena su proyecto con el prompt de <code>Prompt_Claude_Jean_Elvis.txt</code>.</li>
+        <li>Lógica pura separada, con pruebas que pasen antes de cada commit.</li>
+        <li>Una ficha + captura por pieza, solo con el estado propuesto.</li>
+        <li>Entrega con commit + push. El día 9 hace la lista de humo.</li>
+      </ul>
+    </div>
+    <div class="rol" style="border-top-color:var(--elv)">
+      <h3>Elvis</h3><div class="que">Laminado del modelo 3D · repo propio</div>
+      <ul>
+        <li>Ordena su proyecto con el mismo prompt (área «laminado»).</li>
+        <li>Lógica pura separada, con pruebas que pasen antes de cada commit.</li>
+        <li>Una ficha + captura por elemento, solo con el estado propuesto.</li>
+        <li>Entrega con commit + push. El día 9 hace la lista de humo.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+</body>
+</html>

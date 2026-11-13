@@ -426,7 +426,7 @@ class ModosMixin:
         # "Eliminar" no aplica en la pestaña Buzones: los buzones se
         # auto-detectan de los vertices de las tuberias, borrarlos no tiene
         # efecto porque _rebuild_structures los repone. Se oculta el boton.
-        self.btn_del.setVisible(ti not in (TAB_BZ, TAB_ACC))   # accesorios: clic derecho en la lista
+        self.btn_del.setVisible(ti not in (TAB_BZ, TAB_ACC, TAB_SUP))   # accesorios: clic derecho en la lista
         self.btn_xd.setVisible(ti in (TAB_PIPE, TAB_BZ))
         if getattr(self, "cabecera_inspector", None) is not None:   # cabecera del inspector (2.0.0)
             self.cabecera_inspector.refrescar(desde_ui=True)
@@ -507,6 +507,7 @@ class ModosMixin:
         if hasattr(self, "cl_list"): m[self.cl_list] = TAB_CL
         if hasattr(self, "_db_tab_widget"): m[self._db_tab_widget] = TAB_DB
         if hasattr(self, "_acc_tab_widget"): m[self._acc_tab_widget] = TAB_ACC
+        if hasattr(self, "_sup_tab_widget"): m[self._sup_tab_widget] = TAB_SUP
         return m
 
     def _current_tab(self):
@@ -533,6 +534,7 @@ class ModosMixin:
         elif ti == TAB_CURVE: self._sync_curve_panel()
         elif ti == TAB_CL: self._sync_cl_panel()
         elif ti == TAB_ACC: self._llenar_lista_accesorios(forzar=True)
+        elif ti == TAB_SUP: self._llenar_lista_superficies()
         elif ti == TAB_PIPE and 0 <= self.sel_pipe < len(self.pipes):
             self._rebuild_seg_inv_table(self.pipes[self.sel_pipe])
         self._update_ui(); self._redraw()

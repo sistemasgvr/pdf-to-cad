@@ -1,0 +1,138 @@
+{
+ "archivo": "DU06_09_UD_Drainage_20251216(SUBMITTAL SET).pdf",
+ "hojas": {
+  "13": {
+   "anotaciones": 47,
+   "utilidades": {
+    "AGUA": {
+     "abandonadas": 3,
+     "avisos": [
+      "N letras/barras omitidas",
+      "N quiebres con ángulo a pasos de N°",
+      "abandoned",
+      "grosor",
+      "grosor_sin",
+      "letters",
+      "orphans",
+      "uncovered"
+     ],
+     "avisos_texto": [
+      "Bóvedas sin línea cercana: 1.",
+      "Cobertura de guiones: 100.0%.",
+      "Diámetros del plano (rótulos con flecha y paredes dibujadas): 1 tubería(s) los toman; 0 dudosa(s) quedan con el diámetro por defecto y un aviso en el editor.",
+      "Reconocidas por las letras de su línea (no por el nombre de la capa): 1 — «W» G-XREF.",
+      "Se omitieron 121 trazos de marcador/linetype (letras, barras); solo se dibuja la centerline.",
+      "Tuberías sin diámetro en el plano: 15 — ningún rótulo con flecha llega a ellas ni tienen paredes dibujadas; quedan con el diámetro por defecto y un aviso en el editor.",
+      "Utilidades abandonadas (capa «-A» + patrón «/», o patrón «//»): 3 — se importan marcadas (AB).",
+      "Ángulos de los quiebres a pasos de 0.25°: 11 — cada vértice se movió lo mínimo (máx. 0.12 pt); los codos conservan su radio."
+     ],
+     "bovedas": 1,
+     "bovedas_importables": 1,
+     "cobertura": 1.0,
+     "codos": 0,
+     "codos_aproximados": 0,
+     "diametros": {
+      "8\"": 1,
+      "sin dato": 15
+     },
+     "grosor_estados": {
+      "leido": 1,
+      "sin_dato": 15
+     },
+     "huellas": [
+      "3f3f9ef89a",
+      "4bb2d61e07",
+      "4facdbad1c",
+      "6fc6a744be",
+      "706555b4f5",
+      "7765b34c8d",
+      "7fd4a84e33",
+      "9a2463a628",
+      "a65b2d8897",
+      "c1c30fad0d",
+      "cd3d037a88",
+      "d31d1a26af",
+      "dc31d030b4",
+      "e4f36c75ba",
+      "ec8c6b6cf0",
+      "ef98e664b8"
+     ],
+     "kinds": {
+      "corner": 1,
+      "cut": 10,
+      "end": 12,
+      "tee": 20
+     },
+     "largo_pt": 6093.1,
+     "polilineas": 16,
+     "radios_pt": [],
+     "vertices": 43
+    },
+    "DRENAJE": {
+     "abandonadas": 0,
+     "avisos": [
+      "N letras/barras omitidas",
+      "N quiebres con ángulo a pasos de N°",
+      "grosor",
+      "orphans",
+      "uncovered",
+      "vault_snaps",
+      "vaults"
+     ],
+     "avisos_texto": [
+      "Bóvedas detectadas: 2 (ya son vértices de las líneas).",
+      "Bóvedas sin línea cercana: 3.",
+      "Cobertura de guiones: 100.0%.",
+      "Diámetros del plano (rótulos con flecha y paredes dibujadas): 8 tubería(s) los toman; 0 dudosa(s) quedan con el diámetro por defecto y un aviso en el editor.",
+      "Puntas unidas a su bóveda (imán): 5 — quedaban a menos de 3 pt de su contorno y se llevaron hasta él por su propia recta.",
+      "Se omitieron 81 trazos de marcador/linetype (letras, barras); solo se dibuja la centerline.",
+      "Ángulos de los quiebres a pasos de 0.25°: 7 — cada vértice se movió lo mínimo (máx. 0.00 pt); los codos conservan su radio."
+     ],
+     "bovedas": 10,
+     "bovedas_importables": 10,
+     "cobertura": 1.0,
+     "codos": 0,
+     "codos_aproximados": 0,
+     "diametros": {
+      "18\"": 7,
+      "78\"": 1
+     },
+     "grosor_estados": {
+      "leido": 8
+     },
+     "huellas": [
+      "09fa1ca7e6",
+      "26420250d9",
+      "547846817e",
+      "96cf222910",
+      "991da51981",
+      "aa1174f414",
+      "cc1c78003f",
+      "f69c058658"
+     ],
+     "kinds": {
+      "cut": 2,
+      "edge": 2,
+      "end": 3,
+      "stop": 7,
+      "tee": 8,
+      "vault": 2
+     },
+     "largo_pt": 2253.8,
+     "polilineas": 8,
+     "radios_pt": [],
+     "vertices": 24
+    }
+   },
+   "valvulas": 4
+  }
+ },
+ "id": "du06_h14_grosor",
+ "sha1": "bc36ce4f0b105caa045bab09a417c48dea0ae6dd",
+ "utilidades": [
+  "DRENAJE",
+  "AGUA"
+ ],
+ "version": 1,
+ "zoom": 3.5
+}

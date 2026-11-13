@@ -31,12 +31,12 @@ MODULOS_POR_NOMBRE = (
 MODULOS_APP = (
     "ui.ventana.app_window", "exportar.dxf_export", "exportar.informe_word", "reconocimiento.recognition",
     "geo.georef_dialog", "ia.civil3d_agente", "ia.civil3d_mcp", "nucleo.normas_excel", "nucleo.tabla_excel",
-    "digitize", "vector_pipeline", "raster_pipeline", "detect",
+    "digitize", "vector_pipeline", "raster_pipeline", "detect", "nucleo.superficies", "ui.dialogos.superficies_dialog",
 )
 TERCEROS = ("PySide6.QtWidgets", "PySide6.QtOpenGLWidgets", "fitz", "numpy", "ezdxf", "docx", "openpyxl", "pyproj",
-            "shiboken6")
+            "shiboken6", "PIL.TiffImagePlugin")          # PIL: GeoTIFF de las superficies (2.1.0)
 # Terceros que solo usa una parte de la app (si faltan, esa parte avisa; no impiden abrir).
-OPCIONALES = ("contextily", "rasterio", "mercantile", "cv2", "pytesseract", "PIL")
+OPCIONALES = ("contextily", "rasterio", "mercantile", "cv2", "pytesseract")
 
 
 def _importar(nombre):
@@ -78,7 +78,29 @@ def _datos():
             fallas["entrenamiento_ia"] = f"falta {ruta}"
     except BaseException as e:                     # noqa: BLE001
         fallas["entrenamiento_ia"] = f"{type(e).__name__}: {e}"
+    try:
+        _superficies()
+    except BaseException as e:                     # noqa: BLE001
+        fallas["superficies"] = f"{type(e).__name__}: {e}"
     return fallas
+
+
+def _superficies():
+    """Superficies (2.1.0) de punta a punta en el .exe: un GeoTIFF float32 hecho aquí → TIN → LandXML → leído igual.
+    Falla si el .exe no trae el lector de TIFF de Pillow, numpy o el lector/escritor de LandXML."""
+    import io
+    import numpy as np
+    from PIL import Image, TiffImagePlugin
+    from nucleo import superficies as S, superficies_leer as L
+    info = TiffImagePlugin.ImageFileDirectory_v2()
+    info[33550] = (1.0, 1.0, 0.0)
+    info[33922] = (0.0, 0.0, 0.0, 1000.0, 2000.0, 0.0)
+    buf = io.BytesIO()
+    Image.fromarray(np.arange(9, dtype=np.float32).reshape(3, 3), mode="F").save(buf, format="TIFF", tiffinfo=info)
+    (s,) = L.leer("a.tif", buf.getvalue())
+    (r,) = L.leer_landxml(S.escribir_landxml("a", s.puntos, s.triangulos, "foot"))
+    if len(s.triangulos) != 8 or not np.array_equal(r.puntos, s.puntos):
+        raise RuntimeError("la superficie de prueba no volvió igual")
 
 
 def _hijo(modulos, espera_s=90):

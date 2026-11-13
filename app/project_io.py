@@ -35,6 +35,7 @@ def build_model_dict(win):
         normas_aprobados=list(getattr(win, "normas_aprobados", None) or []),
         sin_accesorio=list(getattr(win, "sin_accesorio", None) or []),
         valvulas=list(getattr(win, "valvulas", None) or []),
+        superficies=list(getattr(win, "superficies", None) or []),
         perfiles=list(getattr(win, "perfiles", None) or []),
         bitacora=list(getattr(win, "bitacora", None) or []),
         revision=dict(getattr(win, "revision", None) or {"saltados": []}),
@@ -132,6 +133,7 @@ def parse_model(model):
         normas_aprobados=list(model.get("normas_aprobados", []) or []),    # retrocompat: sin avisos aprobados
         sin_accesorio=list(model.get("sin_accesorio", []) or []),          # retrocompat: sin puntos sin accesorio
         valvulas=[dict(v) for v in model.get("valvulas") or () if isinstance(v, dict)],   # retrocompat: sin válvulas
+        superficies=[dict(v) for v in model.get("superficies") or () if isinstance(v, dict)],   # 2.1.0
         perfiles=list(model.get("perfiles", []) or []),                    # retrocompat: sin perfiles guardados
         bitacora=list(model.get("bitacora", []) or []),                    # retrocompat: sin bitácora del Copiloto
         revision=dict(model.get("revision") or {"saltados": []}),          # retrocompat: sin revisión guiada

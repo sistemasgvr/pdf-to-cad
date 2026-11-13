@@ -1,0 +1,93 @@
+# Entrega al cliente: lo que se escribe aquí sale tal cual en el sitio y en el reporte.
+# Títulos cortos y simples (no técnicos). `publicada = true` solo lo pone el administrador.
+
+[version]
+numero = "2.0.0"
+fecha = "2026-11-11"
+titulo = "Interfaz renovada, Asistente IA y conexión con Civil 3D"
+resumen = "Nueva interfaz, un asistente que conversa sobre el proyecto y sobre el dibujo de Civil 3D, perfil longitudinal, válvulas y sentido del flujo."
+publicada = true
+
+[[novedad]]
+tipo = "nuevo"
+titulo = "Interfaz renovada"
+detalle = "Pantalla de inicio, barra superior, paneles laterales y paleta de comandos (Ctrl + K), sin perder ninguna función."
+funciones = ["app.inicio-y-proyectos.pantalla-de-inicio-con-accesos-rapidos", "app.interfaz-y-navegacion.buscar-y-ejecutar-comandos-ctrl-k", "app.interfaz-y-navegacion.paneles-que-se-ocultan-solos"]
+
+[[novedad]]
+tipo = "nuevo"
+titulo = "Asistente IA"
+detalle = "Responde preguntas sobre el proyecto y el uso de la app, y hace cambios con su confirmación."
+funciones = ["app.asistente-ia.preguntas-sobre-el-proyecto", "app.asistente-ia.ordenes-con-confirmacion"]
+
+[[novedad]]
+tipo = "nuevo"
+titulo = "Conversar con el dibujo de Civil 3D"
+detalle = "Desde la app, la IA revisa el dibujo abierto en Civil 3D, encuentra choques y propone arreglos que usted aplica."
+funciones = ["app.asistente-ia.chat-con-el-dibujo-de-civil-3d-mcp", "mcp.herramientas.conflictos-con-propuesta-de-solucion", "mcp.herramientas.revision-del-plano-y-arreglar-textos-cot"]
+
+[[novedad]]
+tipo = "nuevo"
+titulo = "Perfil longitudinal"
+detalle = "Perfil de un tramo con dos clics, con rótulos, cruces, alertas y edición de cotas; también se crea en Civil 3D."
+funciones = ["app.perfil-longitudinal.recorrido-de-un-tramo-con-un-clic", "app.perfil-longitudinal.alertas-en-el-perfil", "app.perfil-longitudinal.editar-cotas-arrastrando", "plugin.generar-perfil-longitudinal.tuberias-y-cruces"]
+
+[[novedad]]
+tipo = "nuevo"
+titulo = "Válvulas en agua y gas"
+detalle = "Se leen del PDF o se colocan a mano, con su caja, y se llevan a Civil 3D."
+funciones = ["app.accesorios.valvulas", "app.reconocimiento-de-accesorios-auto.valvulas"]
+
+[[novedad]]
+tipo = "nuevo"
+titulo = "Sentido del flujo"
+detalle = "Por utilidad o por tramo, en redes por gravedad y a presión, con validación de contrapendientes."
+funciones = ["app.datos-de-la-utilidad.sentido-del-flujo"]
+
+[[novedad]]
+tipo = "nuevo"
+titulo = "Diámetro sugerido por la IA"
+detalle = "Cuando el plano no dice el diámetro con certeza, la IA busca en el plano y propone uno para que usted lo apruebe."
+funciones = ["app.asistente-ia.sugerencias-de-diametro"]
+
+[[novedad]]
+tipo = "mejora"
+titulo = "Reconocimiento más rápido"
+detalle = "Entre un 30 % y un 40 % menos de tiempo con varias utilidades, con avance visible."
+funciones = ["app.reconocimiento-automatico.lineas-de-las-6-utilidades"]
+
+[[novedad]]
+tipo = "mejora"
+titulo = "Conflictos con número fijo"
+detalle = "Cada conflicto conserva su número aunque se resuelvan otros; se pueden resolver desde la Vista 3D."
+funciones = ["app.conflictos.numerados-c-1-c-2-fijos", "app.vista-3d.resolver-conflictos-en-3d"]
+
+[[novedad]]
+tipo = "mejora"
+titulo = "Hojas vectoriales y escaneadas juntas"
+detalle = "La hoja de trabajo puede combinar hojas de ambos tipos."
+funciones = ["app.digitalizacion-de-la-hoja.composicion-hibrida-pdf-vectorizado-y-es"]
+
+[[novedad]]
+tipo = "correccion"
+titulo = "Instalador completo"
+detalle = "El plugin de Civil 3D y la conexión con la IA quedan instalados con todo lo que necesitan."
+funciones = ["app.ajustes-y-ayuda.instalador"]
+
+[[novedad]]
+tipo = "correccion"
+titulo = "Tuberías abandonadas"
+detalle = "Una tubería abandonada ya no se une con accesorios a una activa."
+funciones = ["app.datos-de-la-utilidad.abandonada", "plugin.importar-red-desde-dxf.codos-tee-wye-y-cruces"]
+
+[[novedad]]
+tipo = "correccion"
+titulo = "Altura de buzones en Civil 3D"
+detalle = "La altura de cada buzón queda dentro del rango permitido por su pieza."
+funciones = ["plugin.importar-red-desde-dxf.buzones-cajas-y-solidos"]
+
+[[novedad]]
+tipo = "correccion"
+titulo = "Reducciones en tuberías a presión"
+detalle = "Dos tuberías de distinto diámetro que siguen derecho llevan su reducción en Civil 3D."
+funciones = ["app.accesorios.reduccion-cambio-de-diametro", "plugin.importar-red-desde-dxf.codos-tee-wye-y-cruces"]
