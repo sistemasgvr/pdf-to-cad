@@ -122,6 +122,7 @@ from ui.ventana.ventana_trazo import TrazoMixin
 from ui.ventana.ventana_agregar import AgregarUtilidadMixin
 from ui.ventana.ventana_reconocer_mas import ReconocerMasMixin
 from ui.ventana.ventana_orto import OrtoPolarMixin
+from ui.ventana.ventana_texto_plano import TextoPlanoMixin
 from ui.ventana.ventana_calculo import CalculoPlanoMixin
 from ui.ventana.calculo_fondo import CalculoFondoMixin
 from ui.ventana.ventana_estados import EstadosPreviosMixin
@@ -141,7 +142,7 @@ from ui.ventana.ventana_pasos import PasosVivosMixin
 
 class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, SinAccesorioMixin, ListaAccesoriosMixin, DibujarAccesoriosMixin, SeleccionAccesorioMixin, PerfilMixin, AccionesIAMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
-           AgregarUtilidadMixin, ReconocerMasMixin, OrtoPolarMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, FlujoMixin, SuperficiesMixin, ListaSuperficiesMixin, QtWidgets.QMainWindow):
+           AgregarUtilidadMixin, ReconocerMasMixin, OrtoPolarMixin, TextoPlanoMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, FlujoMixin, SuperficiesMixin, ListaSuperficiesMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"
@@ -167,6 +168,8 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         # volver a componer/capas sin cambios abre la vista previa sin reconocer otra vez.
         self._recog_cache = recognition_cache.RecognitionCache()
         self._src_fingerprints = recognition_cache.SourceFingerprints()
+        self.texto_plano = None             # texto del plano (ventana_texto_plano)
+        self._texto_plano_pendiente = None
         self._recog_pending_key = None   # clave del reconocimiento que corre en el hilo
         self.sheet_layout = None  # hoja principal y vecinas del PDF; índices 0-based
         self.sheet_rotations = {}  # giros de vista por posición, múltiplos de 90°
@@ -1572,6 +1575,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         self.canvas.set_image(qimg, escala, tam)
         self._reset_model(); self._update_page_label()
         self._refresh_scale_label()
+        self._texto_plano_programar()             # todo el texto del plano, para buscar (ventana_texto_plano)
         self._info(_tr("Página {n} cargada.").format(n=idx + 1))
 
     def _reset_model(self):
@@ -1634,6 +1638,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             entradas += [(f"external/{i:03d}.pdf", d) for i, d in enumerate(externos)]
             entradas += [(f"sources/{i:03d}.pdf", d) for i, d in enumerate(fuentes)]
             entradas += self._sup_entradas_zip()        # archivos de las superficies (ventana_superficies)
+            entradas += self._texto_plano_entrada_zip()  # texto del plano (ventana_texto_plano)
             en_hilo.ejecutar(self, lambda: archivo_zip.escribir(path, entradas), _tr("Guardando proyecto…"),
                              avance=av.recibir, relanzar=True)
             self.project_path = path; self._dirty = False; self._update_title()
@@ -1833,6 +1838,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             self.superficies = data.get("superficies", []) or []            # superficies (ventana_superficies)
             self._superficies_datos = {n.split("/")[1].split(".")[0]: arch[n] for n in arch
                                        if n.startswith("superficies/")}
+            self._texto_plano_de_zip(arch)            # texto del plano (ventana_texto_plano)
             self._valvula_sel = -1
             self.georef = data["georef"]
             self.work_unit = data["work_unit"]

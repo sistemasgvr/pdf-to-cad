@@ -115,6 +115,9 @@ def rechazo(motivo: str = AJENO) -> str:
 
 
 def _del_proyecto(pregunta, datos) -> bool:
+    texto = getattr(datos, "texto", None) if datos is not None else None
+    if texto is not None and texto.nombra(pregunta):
+        return True                                   # nombra algo que dice el plano («¿dónde está Thomas Rd?»)
     if datos is not None:
         fichas, utils = datos.seleccionar(pregunta)
         q = normalizar(pregunta)

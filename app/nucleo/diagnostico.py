@@ -35,13 +35,35 @@ def registrar(detalle, contexto="Error"):
     return path
 
 
+def _versiones():
+    """Versiones de las bibliotecas que más importan (2026-11-13: el .exe del cliente se compiló con
+    otras y en el registro no se veía). Sin importarlas: lee los metadatos instalados."""
+    import importlib
+    from importlib import metadata
+    # (paquete, módulo, atributo): en el .exe PyInstaller no siempre copia los metadatos
+    cuales = (("pymupdf", "fitz", "VersionBind"), ("numpy", "numpy", "__version__"),
+              ("PySide6", "PySide6", "__version__"), ("shapely", "shapely", "__version__"),
+              ("ezdxf", "ezdxf", "__version__"), ("opencv-python", "cv2", "__version__"))
+    out = []
+    for nombre, modulo, attr in cuales:
+        try:
+            v = metadata.version(nombre)
+        except Exception:
+            try:
+                v = str(getattr(importlib.import_module(modulo), attr))
+            except Exception:
+                v = "?"
+        out.append(f"{nombre} {v}")
+    return ", ".join(out)
+
+
 def activar():
     """Mantener el descriptor abierto: faulthandler lo usa incluso en un fallo de C/Qt."""
     global _archivo
     if _archivo is not None:
         return
     try:
-        path = registrar(f"Python {sys.version}", "Inicio de sesión")
+        path = registrar(f"Python {sys.version}\n{_versiones()}", "Inicio de sesión")
         if path:
             _archivo = open(path, "a", encoding="utf-8")
             faulthandler.enable(file=_archivo, all_threads=True)

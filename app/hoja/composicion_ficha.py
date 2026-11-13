@@ -43,6 +43,8 @@ VISTA_MAX_FRAC = 0.95       # …y no es la hoja entera
 BANDA_CAD_PT = 110.0        # trazos que se guardan a cada lado de un borde de la vista (match line + franja)
 BANDA_MAPA_FRAC = 0.35      # en un mapa, franja interior de cada borde (las hojas vecinas se solapan)
 INDICE_MAX_FRAC = 0.7       # el mapa índice va en letra más chica que el número de la hoja
+BORDE_FRAC = 0.08           # vecina escrita junto al borde: a ≤ esto del ancho/alto de la hoja
+BORDE_CENTRO_FRAC = 0.30    # …y cerca del centro de ese lado (no en una esquina ni en el cajetín)
 LINEA_MIN_PT = 2.0
 
 
@@ -70,6 +72,10 @@ class Ficha:
     vecinas: Dict[Tuple[int, int], Tuple[int, int]] = field(default_factory=dict)  # celda → (dx, dy) en la hoja
     lineas: List[Linea] = field(default_factory=list)                              # trazos de los bordes
     titulo: str = ""                               # texto más grande del cajetín (para mostrar)
+    # atlas con las vecinas escritas en los BORDES (Southwest Gas): las hojas se tocan borde con
+    # borde por su marco (`marco` = 4 esquinas sup-izq, sup-der, inf-der, inf-izq en la hoja visible)
+    por_bordes: bool = False
+    marco: Optional[List[Tuple[float, float]]] = None
 
     @property
     def clave(self) -> Tuple[int, int]:
@@ -169,8 +175,30 @@ def _textos(page: fitz.Page) -> Tuple[List[_Texto], List[_Bloque]]:
                 p = fitz.Point(*c.origen) * m
                 lineas.append(_Texto(c.texto.strip(), p.x, p.y, float(c.tam)))
     except Exception:
-        pass
+        # sin el texto la hoja no tiene cuadrícula ni rótulos y la sugerencia «no encuentra nada»:
+        # que quede en el diagnóstico (reporte 2026-11-13: en el .exe del cliente pasaba en silencio)
+        _anotar_fallo("leer el texto Type3 de la hoja", page)
     return lineas, bloques
+
+
+_FALLOS_ANOTADOS: set = set()
+
+
+def _anotar_fallo(que: str, page=None):
+    """Una vez por (qué, error): el traceback al registro de diagnóstico de este proceso."""
+    import traceback
+    det = traceback.format_exc()
+    clave = (que, det.strip().splitlines()[-1] if det.strip() else "")
+    if clave in _FALLOS_ANOTADOS:
+        return
+    _FALLOS_ANOTADOS.add(clave)
+    try:
+        from nucleo import diagnostico
+        donde = f" (hoja {page.number + 1})" if page is not None else ""
+        diagnostico.registrar(f"No se pudo {que}{donde} — PyMuPDF {fitz.VersionBind}\n{det}",
+                              "Composición sugerida")
+    except Exception:
+        pass
 
 
 def _rotulos(bloques: Sequence[_Bloque]) -> List[Rotulo]:
@@ -198,23 +226,70 @@ def _numero(lineas: Sequence[_Texto], tam: Tuple[float, float]) -> str:
     return best.texto.upper()
 
 
-def _celda(lineas: Sequence[_Texto]):
+def _celda(lineas: Sequence[_Texto], tam: Optional[Tuple[float, float]] = None):
+    propia, vecinas, _bordes_ = _celda_y_origen(lineas, tam)
+    return propia, vecinas
+
+
+def _celda_y_origen(lineas: Sequence[_Texto], tam: Optional[Tuple[float, float]] = None):
     """(celda propia, vecinas del mapa índice) o (None, {}). Solo cuenta un número
-    con mapa índice (≥3 vecinas) o con el prefijo «Q» de Quarter Section: un «380-4»
-    suelto de una portada o un «0-0» de una tabla no son una cuadrícula."""
+    con mapa índice (≥3 vecinas), con el prefijo «Q» de Quarter Section o con las vecinas
+    escritas junto a los BORDES de la hoja (`_bordes`): un «380-4» suelto de una portada o
+    un «0-0» de una tabla no son una cuadrícula."""
     ids = []
     for t in lineas:
         mt = CELDA_RX.match(t.texto)
         if mt:
             ids.append((t, (int(mt.group(1)), int(mt.group(2)))))
     if not ids:
-        return None, {}
+        return None, {}, False
     for big, propia in sorted(ids, key=lambda it: -it[0].alto):
         chicos = [(t, c) for t, c in ids if t.alto < INDICE_MAX_FRAC * big.alto]
         vecinas = _indice(chicos, propia, big.alto)
+        por_bordes = False
+        if not vecinas and tam is not None:
+            vecinas = _bordes(chicos, propia, tam)
+            por_bordes = bool(vecinas)
         if vecinas or big.texto.upper().startswith("Q"):
-            return propia, vecinas
-    return None, {}
+            return propia, vecinas, por_bordes
+    return None, {}, False
+
+
+def _bordes(chicos, propia, tam) -> Dict[Tuple[int, int], Tuple[int, int]]:
+    """Vecinas escritas en los BORDES de la hoja (atlas de Southwest Gas, reporte 2026-11-13: la
+    celda «14-6» en grande y «15-6» arriba, «13-6» abajo, «14-5» a la izquierda y «14-7» a la
+    derecha; sin mapa índice ni prefijo Q la hoja no tenía celda y la composición no unía nada).
+    Cuenta un número junto al centro de un lado que es la celda propia ±1 en UNA coordenada, y
+    vale con ≥2 lados que no se contradicen. → {celda vecina: (dx, dy)} (x a la derecha, y abajo)."""
+    W, H = tam
+    out: Dict[Tuple[int, int], Tuple[int, int]] = {}
+    lados = {}
+    for t, c in chicos:
+        if c == propia or abs(c[0] - propia[0]) + abs(c[1] - propia[1]) != 1:
+            continue
+        cerca_x = abs(t.x - W / 2.0) <= BORDE_CENTRO_FRAC * W
+        cerca_y = abs(t.y - H / 2.0) <= BORDE_CENTRO_FRAC * H
+        if t.y <= BORDE_FRAC * H and cerca_x:
+            d = (0, -1)
+        elif t.y >= (1 - BORDE_FRAC) * H and cerca_x:
+            d = (0, 1)
+        elif t.x <= BORDE_FRAC * W and cerca_y:
+            d = (-1, 0)
+        elif t.x >= (1 - BORDE_FRAC) * W and cerca_y:
+            d = (1, 0)
+        else:
+            continue
+        if d in lados and lados[d] != c:
+            return {}                               # dos celdas distintas del mismo lado: no se entiende
+        lados[d] = c
+        out[c] = d
+    # opuestos coherentes: lo que está arriba y abajo cambian la MISMA coordenada en sentidos contrarios
+    for a, b in (((0, -1), (0, 1)), ((-1, 0), (1, 0))):
+        if a in lados and b in lados:
+            ca, cb = lados[a], lados[b]
+            if not (ca[0] + cb[0] == 2 * propia[0] and ca[1] + cb[1] == 2 * propia[1]):
+                return {}
+    return out if len(out) >= 2 else {}
 
 
 def _indice(chicos, propia, alto_grande: float) -> Dict[Tuple[int, int], Tuple[int, int]]:
@@ -330,6 +405,20 @@ def _vista_cad(clips: Sequence[Rect], rotulos: Sequence[Rotulo]) -> Optional[Rec
     return best and best[1]
 
 
+def _marco(page: fitz.Page, v: Rect, lineas) -> List[Tuple[float, float]]:
+    """Las 4 esquinas del marco del mapa (su borde puede ir inclinado, `borde_inclinado`); si no se
+    halla, las del recuadro de la vista."""
+    try:
+        from hoja import borde_inclinado as BI
+        q = BI.cuadrilatero(page, tuple(v), segs=lineas)
+        if q:
+            return [(float(x), float(y)) for x, y in q]
+    except Exception:
+        _anotar_fallo("hallar el marco del mapa", page)
+    x0, y0, x1, y1 = v
+    return [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+
+
 def _vista_mapa(clips: Sequence[Rect]) -> Optional[Rect]:
     """En un mapa el marco del mapa es el recorte grande más INTERIOR (el exterior
     suele ser la zona imprimible de toda la hoja)."""
@@ -347,7 +436,7 @@ def ficha(page: fitz.Page, doc_index: int = 0) -> Ficha:
     f.rotulos = _rotulos(bloques)
     f.numero = _numero(lineas_t, tam)
     f.serie = serie_de(f.numero)
-    f.celda, f.vecinas = _celda(lineas_t)
+    f.celda, f.vecinas, f.por_bordes = _celda_y_origen(lineas_t, tam)
     if not f.rotulos and f.celda is None:
         return f
     paths = page.get_drawings(extended=True)
@@ -363,6 +452,8 @@ def ficha(page: fitz.Page, doc_index: int = 0) -> Ficha:
         if f.vista is not None:
             v = f.vista
             f.lineas = _trazos(paths, page, v, 2.0, BANDA_MAPA_FRAC * min(v[2] - v[0], v[3] - v[1]))
+            if f.por_bordes:
+                f.marco = _marco(page, v, f.lineas)
         else:
             f.lineas = _trazos(paths, page, None, 0.0, 0.0)  # sin marco (SD): la plantilla se quita después
     return f
@@ -378,6 +469,7 @@ def fichas(doc: fitz.Document, doc_index: int = 0, progreso=None, cancelado=None
         try:
             out.append(ficha(doc[i], doc_index))
         except Exception:
+            _anotar_fallo("leer la ficha de la hoja", doc[i])
             out.append(Ficha(doc_index, i, (doc[i].rect.width, doc[i].rect.height)))
         if progreso is not None:
             progreso(i + 1, n)

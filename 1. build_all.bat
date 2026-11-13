@@ -93,6 +93,16 @@ REM Limpiar dist previa (solo el exe, no el instalador si ya existe).
 if exist "dist\Asistente C3D.exe" del /q "dist\Asistente C3D.exe" 2>nul
 if exist build rmdir /s /q build 2>nul
 
+REM El .exe lleva SU propio Python y bibliotecas: deben ser las mismas que en desarrollo
+REM (requirements-build.txt). Con otras versiones el .exe del cliente fallaba (2026-11-13).
+python scripts\verificar_entorno_build.py
+if errorlevel 1 (
+    echo.
+    echo [ERROR] El entorno de compilacion no coincide con el de desarrollo ^(ver arriba^). No se compila.
+    pause
+    exit /b 1
+)
+
 python -m PyInstaller --clean -y PDF-a-CAD.spec
 set "PYI_RC=%errorlevel%"
 if not "%PYI_RC%"=="0" (

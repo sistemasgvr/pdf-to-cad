@@ -47,7 +47,9 @@ def _llamada(nombre, **args):
 
 def test_cliente_no_tiene_herramientas_de_cambio():
     nombres = {h["name"] for h in ClienteProyecto(datos()).herramientas()}
-    assert nombres == {"buscar_lineas", "ver_ficha", "listar_avisos", "listar_conflictos", "definir_plan"}
+    # (buscar_texto y listar_calles: el texto del plano, también solo lectura — 2026-11-13)
+    assert nombres == {"buscar_lineas", "ver_ficha", "listar_avisos", "listar_conflictos", "definir_plan",
+                       "buscar_texto", "listar_calles"}
 
 
 def test_argumento_raro_no_lanza():

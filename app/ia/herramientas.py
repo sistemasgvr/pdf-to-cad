@@ -23,6 +23,13 @@ _CATALOGO = (
      {"clase": dict(_TEXTO, description="grosor (diámetro del plano), diametro, material, pendiente, separacion, "
                                         "buzon…")}, []),
     ("listar_conflictos", "Los conflictos del proyecto.", {}, []),
+    ("buscar_texto", "Busca en TODO el texto del plano (calles, lugares, direcciones, números de servicio, notas, "
+                     "rótulos de tubería). Cada resultado trae su código TX-n (lleva al lugar), su hoja y las "
+                     "utilidades que tiene cerca.",
+     {"texto": dict(_TEXTO, description="lo que buscas, p. ej. THOMAS RD, 9701461994, CHURCH, 2\" PE"),
+      "tipo": dict(_TEXTO, description="opcional: calle, tuberia, direccion, servicio, lugar, nota, estacion, largo")},
+     ["texto"]),
+    ("listar_calles", "Las calles que nombra el plano, cada una una vez, con sus hojas y las utilidades cerca.", {}, []),
     ("definir_plan", "Escribe tu propio plan para un pedido de varios pasos: serán tus instrucciones hasta terminar.",
      {"objetivo": _TEXTO, "pasos": _TEXTO, "como_saber": dict(_TEXTO, description="cómo sabrás que terminaste")},
      ["objetivo", "pasos"]),
@@ -52,7 +59,8 @@ class ClienteProyecto:
 
     def llamar(self, nombre, args=None):
         fn = {"buscar_lineas": self._buscar, "ver_ficha": self._ficha, "listar_avisos": self._avisos,
-              "listar_conflictos": self._conflictos, "definir_plan": self._definir_plan}.get(nombre)
+              "listar_conflictos": self._conflictos, "definir_plan": self._definir_plan,
+              "buscar_texto": self._buscar_texto, "listar_calles": self._calles}.get(nombre)
         if fn is None:
             return False, t("Esa herramienta no existe.")
         ok, salida = fn(args if isinstance(args, dict) else {})
@@ -108,12 +116,33 @@ class ClienteProyecto:
     def _conflictos(self, _a):
         return self._filas(self._fichas_de(("conflicto",)))
 
+    def _buscar_texto(self, a):
+        tx = getattr(self.datos, "texto", None)
+        if tx is None or not len(tx):
+            return True, t("Este proyecto no tiene texto del plano (PDF escaneado, o aún se está leyendo).")
+        filas, total = tx.buscar(str(a.get("texto") or ""), str(a.get("tipo") or ""))
+        if not filas:
+            return True, t("El plano no dice «{q}».").format(q=a.get("texto") or "")
+        extra = [t("hay {n} más").format(n=total - len(filas))] if total > len(filas) else []
+        return True, "\n".join(filas + extra)
+
+    def _calles(self, _a):
+        tx = getattr(self.datos, "texto", None)
+        if tx is None or not len(tx):
+            return True, t("Este proyecto no tiene texto del plano (PDF escaneado, o aún se está leyendo).")
+        filas, total = tx.calles()
+        if not filas:
+            return True, t("El plano no nombra calles.")
+        extra = [t("hay {n} más").format(n=total - len(filas))] if total > len(filas) else []
+        return True, "\n".join(filas + extra)
+
 
 _PASOS = {"ver_plano": "Miré el plano: {que_buscar}", "listar_zonas": "Busqué zonas con más datos", "ver_zona": "Miré la zona {zona}",
           "senalar": "Señalé en el plano", "buscar_funcion": "Busqué una función: {texto}", "usar_funcion": "Usé: {nombre}",
           "definir_plan": "Me hice un plan: {objetivo}", "ver_ficha": "Leí la ficha de {codigo}", "buscar_lineas": "Busqué líneas",
           "listar_avisos": "Revisé los avisos", "listar_conflictos": "Revisé los conflictos", "ir_a": "Te llevé a {codigo}",
           "proponer_diametro": "Te propuse un diámetro", "proponer_accion": "Te propuse un cambio",
+          "buscar_texto": "Busqué en el texto del plano: {texto}", "listar_calles": "Revisé las calles del plano",
           "quitar_senales": "Quité las señales"}
 
 

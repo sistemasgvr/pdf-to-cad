@@ -24,7 +24,7 @@ import time
 # Los que se cargan por nombre (texto): PyInstaller no los ve si no van en `hiddenimports`.
 MODULOS_POR_NOMBRE = (
     "hoja.area_sugerida", "hoja.capas_trabajo", "hoja.composicion_trabajo", "hoja.composite_trabajo",
-    "hoja.hoja_calcada", "hoja.leyenda_trabajo", "hoja.planos_trabajo", "nucleo.modelo3d",
+    "hoja.hoja_calcada", "hoja.indice_texto", "hoja.leyenda_trabajo", "hoja.planos_trabajo", "nucleo.modelo3d",
     "reconocimiento.recognition_trabajo", "ui.comun.fondo_trabajo", "ui.ventana.calculo_fondo",
 )
 # Lo que la ventana necesita para abrir y lo pesado de cada flujo (importarlos detecta un paquete que no viajó).
@@ -149,10 +149,63 @@ def correr(hijo=True):
     return inf
 
 
-def main(salida):
+def _reconocer_en_hijo(ruta, hoja, utilidades):
+    """En un proceso hijo, como el trabajador de la app: cuántas líneas da cada utilidad."""
+    from reconocimiento import recognition_trabajo as RT
+    res = RT.reconocer_hoja(ruta, hoja, zoom=1.0, utilities=tuple(utilidades))
+    return {r.utility: len(r.polylines) for r in res}
+
+
+def funcional(pdfs, espera_s=1800):
+    """Con PDF reales (`--pdf a.pdf b.pdf`, reporte 2026-11-13: en el .exe del cliente la composición
+    sugerida no encontraba nada y el reconocimiento cerraba el proceso, y en desarrollo andaba): corre
+    DENTRO del ejecutable la composición sugerida (con sus procesos en paralelo) y el reconocimiento de
+    la primera hoja de cada PDF en un proceso hijo. Dice cuántos juegos de hojas encontró y cuántas
+    líneas salieron; un error o un proceso que se cierra quedan en el informe."""
+    import multiprocessing as mp
+    out = {"pdfs": [os.path.basename(p) for p in pdfs], "sugerencia": None, "reconocimiento": {}, "ok": True}
+    t0 = time.time()
+    try:
+        from hoja import composicion_trabajo as CT
+        fuentes = []
+        for p in pdfs:
+            with open(p, "rb") as f:
+                fuentes.append({"data": f.read(), "name": os.path.basename(p), "path": p})
+        res = CT.analizar(fuentes)
+        an = getattr(res, "analisis", None)
+        out["sugerencia"] = {"grupos": [len(g.nodos) for g in an.grupos] if an else None,
+                             "error": getattr(res, "error", "") or "", "segundos": round(time.time() - t0, 1)}
+        if not an or not an.grupos:
+            out["ok"] = False
+    except BaseException as e:                     # noqa: BLE001
+        import traceback
+        out["sugerencia"] = {"grupos": None, "error": traceback.format_exc()}
+        out["ok"] = False
+    utilidades = ("ELECTRICO", "TELECOM", "AGUA", "GAS", "ALCANTARILLADO", "DRENAJE")
+    for p in pdfs:
+        t0 = time.time()
+        try:
+            with mp.get_context("spawn").Pool(1) as pool:
+                lineas = pool.apply_async(_reconocer_en_hijo, (p, 0, utilidades)).get(espera_s)
+            out["reconocimiento"][os.path.basename(p)] = {"lineas": lineas, "segundos": round(time.time() - t0, 1)}
+        except BaseException as e:                 # noqa: BLE001
+            out["reconocimiento"][os.path.basename(p)] = {"error": f"{type(e).__name__}: {e}"}
+            out["ok"] = False
+    return out
+
+
+def main(salida, pdfs=()):
     """Punto de entrada de `--autoprueba`: escribe el informe y devuelve el código de salida."""
     try:
         inf = correr()
+        if pdfs:
+            inf["funcional"] = funcional(pdfs)
+            inf["ok"] = bool(inf.get("ok")) and inf["funcional"]["ok"]
+        try:
+            from nucleo import diagnostico
+            inf["versiones"] = diagnostico._versiones()
+        except BaseException:                      # noqa: BLE001
+            pass
     except BaseException as e:                     # noqa: BLE001
         inf = {"ok": False, "error": f"{type(e).__name__}: {e}"}
     with open(salida, "w", encoding="utf-8") as f:

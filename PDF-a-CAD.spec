@@ -22,6 +22,7 @@ binaries = []
 # tests/test_empaquetado_trabajos.py.
 hiddenimports = [
     "hoja.area_sugerida", "hoja.capas_trabajo", "hoja.composicion_trabajo", "hoja.composite_trabajo",
+    "hoja.indice_texto",
     "hoja.hoja_calcada", "hoja.leyenda_trabajo", "hoja.planos_trabajo", "nucleo.modelo3d",
     "reconocimiento.recognition_trabajo", "ui.comun.fondo_trabajo", "ui.ventana.calculo_fondo",
     # Superficies (2.1.0): el lector de GeoTIFF de Pillow se carga por formato, no por import (la autoprueba lo prueba)

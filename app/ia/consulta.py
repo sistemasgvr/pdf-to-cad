@@ -93,6 +93,10 @@ def armar_pedido(pregunta, datos, memoria=None):
     if utils:
         partes += ["### " + t("Utilidades que vienen al caso ({n} de {total})").format(
             n=len(utils), total=len(datos.utilidades)), *(ln.texto for ln in utils), ""]
+    textos = datos.textos_para(pregunta) if hasattr(datos, "textos_para") else []
+    if textos:
+        partes += ["### " + t("Texto del plano que viene al caso ({n} de {total}; TX-n lleva al lugar)").format(
+            n=len(textos), total=len(datos.texto)), *textos, ""]
     partes += ["## " + t("Pregunta"), A.envolver(pregunta)]
     return "\n".join(partes), len(ens)
 

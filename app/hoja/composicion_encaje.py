@@ -51,6 +51,13 @@ MAPA_MIN_DIRECCIONES = 2      # coincidencias en ≥2 rumbos separados ≥ 30°
 MAPA_GUIA_VENTANA_PT = 40.0
 MAPA_GUIA_DOMINIO = 1.5       # guiada: el pico dentro de la ventana también tiene que destacar…
 MAPA_GUIA_RMS_MAX = 0.3       # …y ajustar mejor (en SD las líneas a guiones dan picos vecinos)
+# Atlas con las vecinas escritas en los BORDES y hojas que se tocan borde con borde (Southwest Gas,
+# 2026-11-13): el lado común del marco mide lo mismo y va igual de inclinado en las dos hojas.
+MARCO_LARGO_TOL = 0.03        # largo del lado común: B / A dentro de ±esto
+MARCO_GIRO_TOL_DEG = 0.6      # rumbo del lado común igual ±esto
+MARCO_ESQUINA_TOL_PT = 3.0    # las dos esquinas del lado, llevadas, quedan a ≤ esto
+_ESQUINAS = {"right": (1, 2), "left": (0, 3), "top": (0, 1), "bottom": (3, 2)}
+_DIR = {"right": (1, 0), "left": (-1, 0), "bottom": (0, 1), "top": (0, -1)}
 
 
 @dataclass
@@ -308,6 +315,73 @@ def _ajuste(pares):
         keep = nuevo
     rms = float(np.sqrt((res[keep] ** 2).mean())) if keep.any() else math.inf
     return s2, (float(t2[0]), float(t2[1])), rms, int(keep.sum())
+
+
+def _sobre_la_raya(f: Ficha, i: int, j: int):
+    """Las esquinas i, j del marco llevadas hacia adentro hasta el EJE de la raya del marco: el
+    lado hallado va por fuera de ella (`borde_inclinado.MARGEN_PT` + medio grosor de la más gruesa
+    paralela y pegada al lado)."""
+    from hoja import borde_inclinado as BI
+    p1, p2 = f.marco[i], f.marco[j]
+    ex, ey = p2[0] - p1[0], p2[1] - p1[1]
+    L = math.hypot(ex, ey)
+    if L < 1e-9:
+        return p1, p2
+    ux, uy = ex / L, ey / L
+    cx = sum(p[0] for p in f.marco) / 4.0
+    cy = sum(p[1] for p in f.marco) / 4.0
+    nx, ny = -uy, ux                                  # normal hacia adentro (hacia el centro del marco)
+    if (cx - p1[0]) * nx + (cy - p1[1]) * ny < 0:
+        nx, ny = -nx, -ny
+    grosor = 0.0
+    for l in f.lineas or ():
+        x0, y0, x1, y1, w = l[0], l[1], l[2], l[3], l[4]
+        lx, ly = x1 - x0, y1 - y0
+        ll = math.hypot(lx, ly)
+        if ll < 0.2 * L or abs(lx * uy - ly * ux) / ll > 0.035:   # larga y paralela (±2°)
+            continue
+        d = (((x0 + x1) / 2.0 - p1[0]) * nx + ((y0 + y1) / 2.0 - p1[1]) * ny)
+        if 0.0 <= d <= w / 2.0 + BI.MARGEN_PT + 1.0:
+            grosor = max(grosor, w)
+    if grosor <= 0.0:
+        return p1, p2
+    k = grosor / 2.0 + BI.MARGEN_PT
+    return (p1[0] + nx * k, p1[1] + ny * k), (p2[0] + nx * k, p2[1] + ny * k)
+
+
+def encaje_marco(fa: Ficha, fb: Ficha, lado: str) -> Optional[Costura]:
+    """Unión «borde con borde» de dos hojas de un atlas cuyas vecinas van escritas en los bordes
+    (`Ficha.por_bordes`): las dos hojas se nombran mutuamente del lado que corresponde, y el lado
+    común de sus marcos mide lo mismo y va igual de inclinado. B queda con su lado del marco justo
+    sobre el de A (escala + traslación por las dos esquinas). None si algo no cuadra."""
+    if not (fa.por_bordes and fb.por_bordes and fa.marco and fb.marco):
+        return None
+    d = _DIR[lado]
+    if fa.vecinas.get(fb.celda) != d or fb.vecinas.get(fa.celda) != (-d[0], -d[1]):
+        return None
+    ia, ja = _ESQUINAS[lado]
+    ib, jb = _ESQUINAS[OPUESTO[lado]]
+    # el marco hallado va por FUERA de su raya (medio grosor + margen): se juntan las RAYAS, si no
+    # entre dos hojas quedaban dos rayas gruesas con un hueco de ~5 pt
+    pa1, pa2 = _sobre_la_raya(fa, ia, ja)
+    pb1, pb2 = _sobre_la_raya(fb, ib, jb)
+    la = math.hypot(pa2[0] - pa1[0], pa2[1] - pa1[1])
+    lb = math.hypot(pb2[0] - pb1[0], pb2[1] - pb1[1])
+    if la < 1.0 or lb < 1.0:
+        return None
+    s = lb / la                                   # B = s·A + t
+    if abs(s - 1.0) > MARCO_LARGO_TOL:
+        return None
+    ga = math.degrees(math.atan2(pa2[1] - pa1[1], pa2[0] - pa1[0]))
+    gb = math.degrees(math.atan2(pb2[1] - pb1[1], pb2[0] - pb1[0]))
+    if abs((ga - gb + 180.0) % 360.0 - 180.0) > MARCO_GIRO_TOL_DEG:
+        return None
+    tx = ((pb1[0] - s * pa1[0]) + (pb2[0] - s * pa2[0])) / 2.0
+    ty = ((pb1[1] - s * pa1[1]) + (pb2[1] - s * pa2[1])) / 2.0
+    err = max(math.hypot(s * p[0] + tx - q[0], s * p[1] + ty - q[1]) for p, q in ((pa1, pb1), (pa2, pb2)))
+    if err > MARCO_ESQUINA_TOL_PT:
+        return None
+    return Costura(fa.clave, fb.clave, lado, s, (tx, ty), "marco", float(la), 0.0, err)
 
 
 def encaje_mapa(fa: Ficha, fb: Ficha, lado: str, escala: Optional[float] = None,

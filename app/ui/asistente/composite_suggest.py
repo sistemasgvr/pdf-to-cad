@@ -461,7 +461,22 @@ class SuggestionMixin:
         res = self._sug_res
         an = res.analisis
         if an is None:
-            self.sug_card.hide()
+            if not res.error:
+                self.sug_card.hide()
+                return
+            # el análisis FALLÓ (antes la tarjeta se ocultaba y el usuario no sabía por qué; reporte
+            # 2026-11-13, .exe del cliente): se dice y queda en el diagnóstico
+            from nucleo import diagnostico
+            ruta = diagnostico.registrar(res.error, "Composición sugerida")
+            self.lbl_sug.setText(f"<span style='color:{t.warning}'>"
+                                 + _tr("No se pudo analizar cómo se unen las hojas ({motivo}). Compón la hoja "
+                                       "a mano; el detalle quedó en el registro de diagnóstico.").format(
+                                     motivo=diagnostico.resumen(res.error)) + "</span>")
+            if ruta:
+                self.lbl_sug.setToolTip(ruta)
+            self.cmb_sug.hide(); self.btn_sug_usar.hide(); self.btn_sug_deshacer.hide()
+            self.sug_hermano.hide(); self.sug_acciones.hide()
+            self.sug_card.show()
             return
         if self._sug_usada is not None:
             self.lbl_sug.setText(_tr("✔ Composición sugerida en la hoja compuesta: {txt}.").format(

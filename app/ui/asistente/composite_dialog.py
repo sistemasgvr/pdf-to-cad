@@ -51,6 +51,7 @@ from ui.asistente.composite_scan_ui import ScanToolsMixin
 from ui.asistente.composite_mixto import MixtoMixin
 from ui.asistente.composite_choice import ChosenSheetMixin
 from ui.asistente.composite_suggest import SuggestionMixin
+from ui.asistente.composite_encimadas import EncimadasMixin
 from ui.asistente.composite_area_suggest import AreaSugeridaMixin
 from ui.asistente.tool_strip import ToolStrip
 from ui.comun.busy import busy
@@ -157,6 +158,7 @@ def _banner(color: str) -> tuple[QtWidgets.QFrame, QtWidgets.QLabel]:
 
 
 class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanToolsMixin, MixtoMixin, SuggestionMixin,
+                     EncimadasMixin,
                       AreaSugeridaMixin, QtWidgets.QDialog):
     def __init__(self, parent, sources: List[dict], comp: Optional[C.Composite],
                  hidden_by_source: Optional[Dict[str, List[str]]], current_page: int = 0, manual: bool = False,
@@ -1160,6 +1162,8 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
             if choice == "take":
                 self._take(full=False)
         if self._decidir_todo_escaneo() == "back":    # todas las piezas escaneadas (composite_mixto)
+            return
+        if self._revisar_encimadas() == "back":         # hojas una encima de otra (composite_encimadas)
             return
         super().accept()
 

@@ -95,7 +95,8 @@ class IAMixin:
         from ia.contexto import DatosProyecto
         from nucleo import informe_datos
         self._resultados_al_dia()
-        firma = (self._firma_modelo(), getattr(self, "project_path", None))
+        tp = getattr(self, "texto_plano", None)
+        firma = (self._firma_modelo(), getattr(self, "project_path", None), (tp or {}).get("clave"))
         cache = getattr(self, "_ia_cache_datos", None)
         if cache is not None and cache[0] == firma:
             return cache[1]
@@ -104,7 +105,8 @@ class IAMixin:
         avisos = list(getattr(self, "_normas_avisos", None) or [])
         fichas, _sin_tipo = informe_datos.fichas(conflictos, avisos, self.pipes, informe_datos.Opciones())
         informe_datos.zonas(fichas, ft)                 # las mismas zonas (y números N-n) que el informe
-        datos = DatosProyecto.armar(self.pipes, fichas, ft, self._titulo_informe())
+        datos = DatosProyecto.armar(self.pipes, fichas, ft, self._titulo_informe(), texto_plano=tp,
+                                    zoom=self.zoom or 1.0)
         self._ia_cache_datos = (firma, datos)
         return datos
 

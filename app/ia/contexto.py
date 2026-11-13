@@ -61,14 +61,31 @@ class DatosProyecto:
     lineas_fichas: list = field(default_factory=list)  # Linea por conflicto/aviso
     refs: dict = field(default_factory=dict)            # código → {objeto, indice, x, y}
     resumen: str = ""
+    texto: object = None                                 # `ia.texto_plano.IndiceTexto` (todo lo que dice el plano)
 
     @classmethod
-    def armar(cls, pipes, fichas, ft_per_px, titulo=""):
+    def armar(cls, pipes, fichas, ft_per_px, titulo="", texto_plano=None, zoom=1.0):
         d = cls(pipes, fichas, ft_per_px or 0.0, titulo)
         d._armar_utilidades()
         d._armar_fichas()
+        if texto_plano and texto_plano.get("lineas"):
+            from ia.texto_plano import IndiceTexto
+            d.texto = IndiceTexto(texto_plano, pipes, zoom)
         d.resumen = d._resumen()
         return d
+
+    def textos_para(self, pregunta, maximo=20):
+        """Las líneas del TEXTO del plano que vienen al caso de la pregunta (nunca todas): las que nombra; si
+        pregunta por las calles en general, la lista de calles."""
+        if self.texto is None:
+            return []
+        q = normalizar(pregunta)
+        filas = []
+        if re.search(r"\bcalles?\b|\bavenidas?\b|\bstreets?\b", q):
+            filas += self.texto.calles(maximo=maximo)[0]
+        if self.texto.nombra(pregunta) or re.search(r"\b(direccion|servicio|lugar|nota|escuela|iglesia|canal)", q):
+            filas += [f for f in self.texto.buscar(pregunta, maximo=maximo)[0] if f not in filas]
+        return filas[:maximo]
 
     # ── líneas ──
     def _armar_utilidades(self):
@@ -178,6 +195,8 @@ class DatosProyecto:
         if zonas:
             lineas.append(t("Zonas: {z}.").format(z=", ".join(t("zona {z} ({n})").format(z=z, n=n)
                                                               for z, n in sorted(zonas.items()))))
+        if self.texto is not None and len(self.texto):
+            lineas.append(self.texto.resumen())
         return "\n".join(lineas)
 
     # ── selección ──
@@ -219,7 +238,10 @@ class DatosProyecto:
         return elegidas, utils[:max_utilidades]
 
     def ref(self, codigo):
-        return self.refs.get(normalizar(codigo))
+        r = self.refs.get(normalizar(codigo))
+        if r is None and self.texto is not None:
+            r = self.texto.ref(codigo)                    # TX-n: una línea del texto del plano
+        return r
 
 
 def _raices_capas(capas):

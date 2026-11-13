@@ -39,6 +39,7 @@ Nodo = Tuple[int, int]                       # (pdf, hoja)
 
 TOL_ESTACION_FT = 60.0       # rótulos de una misma costura: misma estación (las erratas medidas: 50 ft)
 TOL_CICLO_PT = 1.0           # una unión de control que no cierra a ≤ esto parte el grupo
+TOL_CICLO_MARCO_PT = 4.0     # …unión «por marco» (atlas borde con borde): cada cuarto de sección tiene su forma
 DOMINIO_CANDIDATO = 1.5      # varias vecinas confirmadas por el mismo lado: la mejor debe destacar
 LADOS_ADELANTE = ("right", "bottom")
 DIR_LADO = {(1, 0): "right", (-1, 0): "left", (0, 1): "bottom", (0, -1): "top"}
@@ -219,6 +220,11 @@ def _confirmar_mapa(fichas: Dict[Nodo, Ficha], cancelado=None, enc: Encajes = _D
     for fa, lado, fb in parejas:
         if cancelado is not None and cancelado():
             return hechas, 0
+        # atlas con las vecinas escritas en los bordes: hojas borde con borde, se unen por el marco
+        c = E.encaje_marco(fa, fb, lado) if (fa.por_bordes and fb.por_bordes) else None
+        if c is not None:
+            hechas.append(c)
+            continue
         c = enc.mapa(fa, fb, lado)
         if c is None:
             pend.append((fa, lado, fb))
@@ -277,7 +283,7 @@ def _encadenar(nodos: Sequence[Nodo], costuras: Sequence[E.Costura], fichas: Dic
             continue
         r = _residuo(c, T, fichas)
         peor = max(peor, r)
-        if r > TOL_CICLO_PT:
+        if r > (TOL_CICLO_MARCO_PT if c.metodo == "marco" else TOL_CICLO_PT):
             malos.append(c)
     return T, rej, peor, malos
 

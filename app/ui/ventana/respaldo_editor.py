@@ -34,7 +34,7 @@ _HOJA = ("doc", "work_pdf_path", "_tmp_composite", "src_pdfs", "composite",
 _MODELO = ("cur_pts", "pipes", "leaders", "text_marks", "erase_regions", "_erase_pts",
            "structures", "ref_centerlines", "_cl_pts", "duct_banks", "cross_connections",
            "normas_aprobados", "georef", "capas_apagadas", "sin_accesorio", "perfiles", "anotaciones", "valvulas", "superficies", "_superficies_datos",
-           "bitacora", "revision")
+           "bitacora", "revision", "texto_plano")
 # …y la marca de cambios sin guardar (se repone SIN el setter de `_dirty`: borraría
 # la copia automática y tomaría como «guardado» lo que no lo está).
 _CAMBIOS = ("_dirty_flag", "_clean_sig", "_forzar_cambios")

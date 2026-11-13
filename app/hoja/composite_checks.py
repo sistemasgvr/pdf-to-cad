@@ -56,3 +56,34 @@ def checks(n_pieces: int, untaken_area_page: Optional[int] = None,
 def ready(found: List[Check]) -> bool:
     """¿Se puede continuar? Solo los errores bloquean."""
     return not any(c.level == ERROR for c in found)
+
+
+# ── hojas encimadas (reporte 2026-11-13, cliente en fase beta) ──────────────────────────────
+# Sin composición sugerida, el usuario tomó 10–15 hojas una por una y las dejó donde caían, unas
+# ENCIMA de otras. Al reconocer, la tinta y las leyendas de una pieza tapaban a la de abajo: las
+# líneas se asignaban a la utilidad equivocada (alcantarillado 0 líneas, agua 8 278) y el proceso
+# podía no terminar. Las costuras normales (borde con borde, el solape de «Fundir bordes») son
+# angostas; dos hojas puestas una sobre otra comparten una buena parte de su área.
+ENCIMADA_FRAC = 0.25        # dos piezas que comparten ≥ esto del área de la MÁS CHICA = encimadas
+
+
+def encimadas(rects, frac: float = ENCIMADA_FRAC):
+    """[(i, j, fracción)] de las piezas (rectángulos x0, y0, x1, y1 en la hoja compuesta) que se
+    tapan una a otra en ≥ `frac` del área de la más chica. i < j, de más a menos tapadas."""
+    out = []
+    for i in range(len(rects)):
+        ax0, ay0, ax1, ay1 = rects[i]
+        aa = max(0.0, ax1 - ax0) * max(0.0, ay1 - ay0)
+        for j in range(i + 1, len(rects)):
+            bx0, by0, bx1, by1 = rects[j]
+            ab = max(0.0, bx1 - bx0) * max(0.0, by1 - by0)
+            w = min(ax1, bx1) - max(ax0, bx0)
+            h = min(ay1, by1) - max(ay0, by0)
+            chica = min(aa, ab)
+            if w <= 0 or h <= 0 or chica <= 0:
+                continue
+            f = w * h / chica
+            if f >= frac:
+                out.append((i, j, f))
+    out.sort(key=lambda t: -t[2])
+    return out

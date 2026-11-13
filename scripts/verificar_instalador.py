@@ -160,8 +160,14 @@ def revisar_exe(espera_s=300):
     if not os.path.isfile(EXE):
         return [f"No existe {EXE} (corre PyInstaller)"], None
     salida = os.path.join(tempfile.mkdtemp(prefix="pdfcad_autoprueba_"), "informe.json")
+    # PDF reales de prueba (opcional): PDFCAD_AUTOPRUEBA_PDF="a.pdf;b.pdf". El .exe corre con ellos la
+    # composición sugerida y el reconocimiento (2026-11-13: en el .exe del cliente fallaban y en desarrollo no).
+    pdfs = [p for p in (os.environ.get("PDFCAD_AUTOPRUEBA_PDF") or "").split(";") if p.strip() and os.path.isfile(p.strip())]
+    cmd = [EXE, "--autoprueba", salida] + (["--pdf"] + [p.strip() for p in pdfs] if pdfs else [])
+    if pdfs:
+        espera_s += 1800
     try:
-        subprocess.run([EXE, "--autoprueba", salida], timeout=espera_s, check=False)
+        subprocess.run(cmd, timeout=espera_s, check=False)
     except subprocess.TimeoutExpired:
         return [f"El .exe no terminó la autoprueba en {espera_s} s"], None
     if not os.path.isfile(salida):
@@ -179,6 +185,15 @@ def revisar_exe(espera_s=300):
         errores.append(f".exe · proceso hijo: {hijo.get('fallas')}")
     if inf.get("error"):
         errores.append(f".exe · {inf['error']}")
+    fun = inf.get("funcional")
+    if fun is not None:
+        sug = fun.get("sugerencia") or {}
+        if not sug.get("grupos"):
+            errores.append(f".exe · composición sugerida con {fun.get('pdfs')}: no encontró hojas que se unan "
+                           f"{('— ' + sug['error'].strip().splitlines()[-1]) if sug.get('error') else ''}")
+        for pdf, r in (fun.get("reconocimiento") or {}).items():
+            if r.get("error"):
+                errores.append(f".exe · reconocimiento de {pdf}: {r['error']}")
     return errores, inf
 
 
