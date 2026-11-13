@@ -155,8 +155,9 @@ class BuzonesMixin:
             solid = bool(s.get("solid"))
             _bind(self.gprop_bz, "setTitle", "Propiedades del sólido" if solid
                   else ("Propiedades de la caja" if net == "conduit" else "Propiedades del buzón"))
-            for w in (self.bz_family, self._bz_size_box, self.bz_height):
+            for w in (self.bz_family, self._bz_size_box, self.bz_rim, self.bz_sump):
                 self._fbz.setRowVisible(w, not solid)
+            self._fbz.setRowVisible(self.bz_height, not solid and float(s.get("height_ft") or 0.0) > 0.01)
             for w in (self.sld_len, self.sld_wid, self.sld_h, self._sld_top_w, self.lbl_sld_top_src):
                 self._fbz.setRowVisible(w, solid)
             if solid:
@@ -246,12 +247,15 @@ class BuzonesMixin:
                 self._bz_prop_guard = True; self.bz_cod.setText(s.get("cod", "")); self._bz_prop_guard = False
                 return
             s["cod"] = cod_new
-        s["rim"] = float(self.bz_rim.value()) if self.bz_rim.value() != 0.0 else s.get("rim")
-        s["sump"] = float(self.bz_sump.value()) if self.bz_sump.value() != 0.0 else s.get("sump")
-        # Si el usuario dejó los spins en 0.0 pero el valor original era 0 o None, respetar 0.
+        # 0.0 = «(automática)»: no va al DXF (RIM/SUMP vacíos) y lo calcula el plugin.
+        rim_antes = float(s.get("rim") or 0.0)
         s["rim"] = float(self.bz_rim.value()); s["sump"] = float(self.bz_sump.value())
-        # 0.0 = "(automática)" (sin override) — no se manda al DXF como altura explícita.
         s["height_ft"] = float(self.bz_height.value())
+        if s["rim"] and abs(s["rim"] - rim_antes) > 1e-9 and s["height_ft"]:
+            # la cota de terreno reemplaza a la «Altura» de antes (que la pisaría en Civil 3D)
+            s["height_ft"] = 0.0
+            self._bz_prop_guard = True; self.bz_height.setValue(0.0); self._bz_prop_guard = False
+            self._fbz.setRowVisible(self.bz_height, False)
         if self.bz_size.isEnabled():
             s["part_size"] = self.bz_size.currentData() or ""
         self._dirty = True
@@ -412,6 +416,31 @@ class BuzonesMixin:
         if not (0 <= self.sel_bz < len(self.structures)): return
         s = self.structures[self.sel_bz]
         if bool(s.get("hidden")) == bool(v): return
+        if v:
+            # Sin buzón, el QUIEBRE de una tubería de gravedad pasa a curva de radio mínimo (en
+            # Civil 3D, una tubería curva): si no, las dos quedaban encimadas en la esquina, sin
+            # codo (observación 7 de la revisión, 2026-11-13). `quiebres_curvas.curva_al_desactivar`.
+            from nucleo import quiebres_curvas
+            ft_px = (self.scale / self.zoom) if self.scale and self.zoom else 0.0
+            self._push()
+            que = quiebres_curvas.curva_al_desactivar(self.pipes, self.structures, s, ft_px)
+            if que == "curva":
+                x0, y0 = s.get("x"), s.get("y")
+                self._dirty = True
+                self._refresh_lists()
+                new_idx = next((i for i, o in enumerate(self.structures)
+                                if o.get("x") == x0 and o.get("y") == y0), -1)
+                if new_idx in self._curve_rows:
+                    self._no_center = True; self._show_tab(TAB_CURVE)
+                    self.curve_list.setCurrentRow(self._curve_rows.index(new_idx))
+                    self._no_center = False
+                self._info(_tr("Sin buzón, el quiebre pasa a ser una curva de radio mínimo (en Civil 3D, "
+                               "una tubería curva). Para volver al buzón: «Volver a tratar como buzón/caja»."))
+                self._redraw()
+                return
+            if que == "no_entra":
+                self._info(_tr("La curva mínima no entra en este quiebre: queda sin buzón y sin curva "
+                               "(en Civil 3D, una estructura nula). Alarga los tramos o pon la curva a mano."))
         s["hidden"] = bool(v); self._dirty = True
         self.bz_is_curve.setEnabled(not s.get("solid") and not s["hidden"])
         self._refresh_lists(); self._redraw()

@@ -63,6 +63,11 @@ class Aviso:
     nivel: str = "AVISO"             # ERROR / AVISO / INFO (de la regla)
     fuente: str = ""
     lugar: tuple = None              # punto de la regla si se muestra en otro (`avisos_lugar`): identifica la aprobación
+    unidas: tuple = ()               # accesorio: TODAS las utilidades que une (la de `pipe` es una de ellas)
+
+    def toca(self, i) -> bool:
+        """¿El aviso es de la utilidad i? (la suya o, en un accesorio, cualquiera de las que une)."""
+        return self.pipe == i or i in (self.unidas or ())
 
 
 # ─────────────────────────── medir y comparar ───────────────────────────

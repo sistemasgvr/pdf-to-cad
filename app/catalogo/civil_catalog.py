@@ -772,6 +772,24 @@ def pressure_pipe_sizes(year, fid):
     return [_pretty(s) for s in raw]
 
 
+_RX_CUADRADO = re.compile(r"\s*(\d+(?:\.\d+)?)\s*(in|\")?\s*[xX×]\s*(\d+(?:\.\d+)?)\s*(in|\")?\s*")
+
+
+def etiqueta_tamano(fid, tamano):
+    """Texto a MOSTRAR de un tamaño del catálogo. Las tuberías de presión son siempre circulares,
+    pero Autodesk guarda el DIAMETER_NOMINAL de algunas familias como «14 in x 14 in» (p. ej.
+    pipe-flanged-ductile iron-250 psi, cuyo diámetro interior es 14): se muestra «14 in». El dato
+    que se guarda y va al DXF/plugin sigue siendo el del catálogo (el plugin lo busca tal cual).
+    Las de gravedad («W x H» de verdad, también cuadradas) no se tocan: su fid no lleva «|»."""
+    t = str(tamano or "")
+    if "|" not in (fid or ""):
+        return t
+    m = _RX_CUADRADO.fullmatch(t)
+    if m and float(m.group(1)) == float(m.group(3)):
+        return f"{m.group(1)} in"
+    return t
+
+
 def pressure_families(year):
     """Familias de accesorios de presión (nodos: válvulas, hidrantes, tees, codos…).
     Agrupa por (sub-catálogo, PART_FAMILY_NAME) para no explotar en cientos de tamaños."""

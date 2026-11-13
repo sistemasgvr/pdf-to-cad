@@ -118,6 +118,7 @@ from ui.ventana.ventana_vertices import VerticesMixin
 from ui.ventana.ventana_trazo import TrazoMixin
 from ui.ventana.ventana_agregar import AgregarUtilidadMixin
 from ui.ventana.ventana_reconocer_mas import ReconocerMasMixin
+from ui.ventana.ventana_orto import OrtoPolarMixin
 from ui.ventana.ventana_calculo import CalculoPlanoMixin
 from ui.ventana.calculo_fondo import CalculoFondoMixin
 from ui.ventana.ventana_estados import EstadosPreviosMixin
@@ -137,7 +138,7 @@ from ui.ventana.ventana_pasos import PasosVivosMixin
 
 class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, SinAccesorioMixin, ListaAccesoriosMixin, DibujarAccesoriosMixin, SeleccionAccesorioMixin, PerfilMixin, AccionesIAMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
-           AgregarUtilidadMixin, ReconocerMasMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, QtWidgets.QMainWindow):
+           AgregarUtilidadMixin, ReconocerMasMixin, OrtoPolarMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"

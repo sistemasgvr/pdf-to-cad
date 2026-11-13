@@ -4660,6 +4660,30 @@ EN: dict[str, str] = {
     'DXF exportado': 'DXF exported',
     'Abrir carpeta': 'Open folder',
     'Cumple las normativas': 'Meets the standards',
+    'Sin buzón, el quiebre pasa a ser una curva de radio mínimo (en Civil 3D, una tubería curva). Para volver al buzón: «Volver a tratar como buzón/caja».':
+        'Without a manhole, the bend becomes a minimum-radius curve (in Civil 3D, a curved pipe). To get the manhole back: «Treat as manhole/box again».',
+    'La curva mínima no entra en este quiebre: queda sin buzón y sin curva (en Civil 3D, una estructura nula). Alarga los tramos o pon la curva a mano.':
+        'The minimum curve does not fit at this bend: it stays without a manhole and without a curve (in Civil 3D, a null structure). Lengthen the segments or add the curve by hand.',
+    'Quiebres que pasan a curva de radio mínimo: {n}.': 'Bends turned into minimum-radius curves: {n}.',
+    'Sin lugar para la curva (quedan como esquina): {n}.': 'No room for the curve (left as a corner): {n}.',
+    'Modo ortogonal': 'Ortho mode',
+    'Rastreo polar': 'Polar tracking',
+    '<b>ORTO</b> — Modo ortogonal (F8)<br>Al dibujar, cada tramo solo en horizontal o vertical.':
+        '<b>ORTHO</b> — Ortho mode (F8)<br>When drawing, each segment only horizontal or vertical.',
+    '<b>POLAR</b> — Rastreo polar (F10)<br>La línea se pega a los ángulos múltiplos de {inc}.<br>Clic derecho para cambiar el incremento.':
+        '<b>POLAR</b> — Polar tracking (F10)<br>The line snaps to angles that are multiples of {inc}.<br>Right-click to change the increment.',
+    'Incremento del rastreo polar': 'Polar tracking increment',
+    'Rastreo polar cada {inc}.': 'Polar tracking every {inc}.',
+    'Modo ortogonal: activado.': 'Ortho mode: on.',
+    'Modo ortogonal: desactivado.': 'Ortho mode: off.',
+    'Rastreo polar: activado ({inc}).': 'Polar tracking: on ({inc}).',
+    'Rastreo polar: desactivado.': 'Polar tracking: off.',
+    'Cota de terreno (ft):': 'Ground elevation (ft):',
+    'Cota de fondo (ft):': 'Bottom elevation (ft):',
+    'Cota de terreno (tapa del buzón), en pies.\n(automática) = la rasante de la tubería más el recubrimiento; en Civil 3D, la superficie si la hay.':
+        'Ground elevation (manhole rim), in feet.\n(automatic) = the pipe invert plus the cover; in Civil 3D, the surface if there is one.',
+    'Cota de fondo del buzón, en pies. Más baja que la tubería = buzón de salto.\n(automática) = la rasante más baja de las tuberías que llegan.':
+        'Bottom elevation of the manhole, in feet. Lower than the pipe = drop manhole.\n(automatic) = the lowest invert of the incoming pipes.',
     'Aprobar…': 'Approve…',
     'Ver opciones': 'See options',
     '{id}: {titulo}. El asistente propone soluciones y prueba cada una en una copia del proyecto.':

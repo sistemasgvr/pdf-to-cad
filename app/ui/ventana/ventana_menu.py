@@ -350,6 +350,9 @@ class MenuMixin:
         self.btn_opacity.clicked.connect(self._open_opacity_popup)
         self.lbl_geo = _bind(QtWidgets.QLabel(), "setText", "Georref: no")
         # Color por _apply_theme_custom_styles (usa text_info para contraste).
+        # ORTO (F8) y POLAR (F10) al dibujar, como en Civil 3D (`ventana_orto`, 2026-11-13)
+        for w in self._armar_orto_polar():
+            self.status.addPermanentWidget(w)
         for w in (self.lbl_coords, self.lbl_counts, self.lbl_dirty):
             self.status.addPermanentWidget(w)
         self.status.addPermanentWidget(self.btn_scale)

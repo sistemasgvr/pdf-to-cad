@@ -675,6 +675,10 @@ vertex</b> of another pipe the point snaps there exactly (the previous point sli
 the angle stays on the step); on a <b>segment</b>, it lands exactly where the allowed direction crosses it.</p>
 <p>When you <b>edit/move</b> a vertex it also stays on the step, and next to it you see its turn with ✓ (or ⚠ if
 snapping to another utility leaves an angle off the step) and the length of its segments.</p>
+<p><b>ORTHO and POLAR</b> (in the status bar, as in Civil 3D): with <b>ORTHO</b> (F8) each segment is only
+horizontal or vertical; with <b>POLAR</b> (F10) the line snaps to angles that are multiples of the chosen
+increment (right-click POLAR: 5° to 90°; 45° by default). They do not go together: turning one on turns the
+other off. The end or vertex of another pipe still takes priority.</p>
 
 <h2>The green magnet (to join pipes precisely)</h2>
 <p>When you get close to another pipe of the same type, a green mark appears. Its shape tells you what the click will snap to:</p>

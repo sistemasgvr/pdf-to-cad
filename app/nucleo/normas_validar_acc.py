@@ -42,6 +42,18 @@ def _grupos(por_util, u, elemento, tipo_p, memo):
 
 
 def revisar(por_util, pipes, todos, a, out, memo=None):
+    """Avisos del accesorio `a`. Cada aviso queda en su utilidad de siempre (`pipe`: la principal o
+    el ramal) y lleva en `unidas` TODAS las que une el accesorio: una mala unión no es «cumple» en
+    ninguna de ellas (observación de la revisión, 2026-11-13: la otra mitad del tronco de una Tee o
+    el ramal de un aviso de la principal decían «Cumple las normativas» en el panel)."""
+    n0 = len(out)
+    _revisar(por_util, pipes, todos, a, out, memo)
+    unidas = tuple(dict.fromkeys(j for j in (a.get("pipes") or []) if isinstance(j, int) and j >= 0))
+    for av in out[n0:]:
+        av.unidas = unidas
+
+
+def _revisar(por_util, pipes, todos, a, out, memo=None):
     u = nc.clave(a.get("capa"))
     reglas = por_util.get(u) or []
     if not reglas or a.get("tipo") not in _ELEMENTO:

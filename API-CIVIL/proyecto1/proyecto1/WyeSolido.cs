@@ -34,8 +34,9 @@ namespace Civil3DBasico
     //
     //  Rigidez en Z (pedido del usuario): la pieza es un cuerpo RÍGIDO. Si los
     //  tubos que llegan traen cotas distintas, los brazos NO se doblan para
-    //  seguirlos: todos salen horizontales desde una Z común y son los tubos
-    //  los que se recortan contra la pieza. Ver `Aplanar`.
+    //  seguirlos: todos salen desde una Z común y son los tubos los que se
+    //  recortan contra la pieza. Cada brazo sí sigue la PENDIENTE de su tubo
+    //  (2026-11-13), para que la punta entre derecha en la campana. Ver `Aplanar`.
     // ─────────────────────────────────────────────────────────────────────────
     internal static partial class WyeSolido
     {
@@ -54,6 +55,15 @@ namespace Civil3DBasico
         private const double HOLGURA_FT = 0.02;
         // Espesor de pared de la campana, en pies.
         private const double PARED_FT = 0.04;
+        // Espesor de pared del CUERPO de la pieza (observación de la revisión,
+        // 2026-11-13: «los accesorios requieren más espesor y diámetro que las
+        // tuberías»): el cuerpo es más grueso que el tubo y la campana más que el
+        // cuerpo. Radial, en múltiplos del diámetro, con un mínimo en pies.
+        private const double ESPESOR_CUERPO_D = 0.06;
+        private const double ESPESOR_CUERPO_MIN_FT = 0.04;
+        internal static double RadioCuerpoFt(double d) =>
+            d / 2.0 + Math.Max(ESPESOR_CUERPO_MIN_FT, d * ESPESOR_CUERPO_D);
+        internal static double RadioCampanaFt(double d) => RadioCuerpoFt(d) + HOLGURA_FT + PARED_FT;
         // Cuánto monta la campana SOBRE el cuerpo, en múltiplos del diámetro.
         // Sin solape, los dos sólidos solo se tocan en un plano y la unión deja
         // un escalón visible; con él, la campana envuelve el final del cuerpo.
@@ -99,7 +109,7 @@ namespace Civil3DBasico
         // Como la campana es más ancha que el tubo, esto también garantiza que
         // el cuerpo no se superpone consigo mismo (R − D/2 > 0).
         private static double RadioMinimoViable(double d) =>
-            d / 2.0 + HOLGURA_FT + PARED_FT + SEPARACION_MIN_FT / 2.0;
+            RadioCampanaFt(d) + SEPARACION_MIN_FT / 2.0;
         // Holgura mínima entre las paredes de dos brazos contiguos, en pies.
         // Si el ángulo entre ellos es tan cerrado que sus cuerpos se tocarían,
         // se alargan los dos lo justo para separarlos (ver `SepararBrazos`).
@@ -306,19 +316,15 @@ namespace Civil3DBasico
             // La cruz es compacta como una Tee (brazos casi a ras del cuerpo).
             double factor = (tipo == "TEE" || tipo == "CROSS") ? LARGO_BRAZO_TEE_D : LARGO_BRAZO_D;
             bool rigidoEnZ = (tipo == "TEE" || tipo == "WYE" || tipo == "CROSS");
+            // Cada brazo sigue la PENDIENTE de su tubo (observación de la revisión,
+            // 2026-11-13: con los brazos horizontales, un tubo que baja llegaba torcido
+            // a la campana y no empalmaba). Lo rígido sigue siendo la ALTURA: todos
+            // salen del mismo centro (zRef + OffsetZFt); ningún brazo sube ni baja para
+            // buscar una cota distinta. Mismo criterio en la app (accesorios3d.aplanar).
             foreach (var b in brazos)
             {
-                if (rigidoEnZ && !EsRamalVertical(b.Direccion))
-                {
-                    var d = new Vector3d(b.Direccion.X, b.Direccion.Y, 0);
-                    b.Direccion = d.Length > 1e-9 ? d.GetNormal() : b.Direccion.GetNormal();
-                }
-                else
-                {
-                    // Codo: mantiene la pendiente real de los tubos.
-                    b.Direccion = b.Direccion.Length > 1e-9
-                        ? b.Direccion.GetNormal() : Vector3d.XAxis;
-                }
+                b.Direccion = b.Direccion.Length > 1e-9
+                    ? b.Direccion.GetNormal() : Vector3d.XAxis;
                 if (b.LargoCuerpoFt <= 1e-9) b.LargoCuerpoFt = b.DiamFt * factor;
             }
             if (!rigidoEnZ) return centro;
@@ -396,7 +402,7 @@ namespace Civil3DBasico
             double margen = SEPARACION_MIN_FT / 2.0;
             foreach (var i in brazos)
             {
-                double rCamp = i.DiamFt / 2.0 + HOLGURA_FT + PARED_FT;
+                double rCamp = RadioCampanaFt(i.DiamFt);
                 double monta = i.DiamFt * MONTAJE_CAMPANA_D;   // la campana arranca un poco antes
                 double requerido = 0; Brazo grueso = null;
                 foreach (var j in brazos)
@@ -410,8 +416,8 @@ namespace Civil3DBasico
                     // (más ancha que el cuerpo, incluso engrosado). Midiendo solo
                     // contra el cuerpo, en una Tee a 72° el borde de arranque de
                     // las dos campanas seguía montándose 0.01 ft.
-                    double rVecino = Math.Max(j.DiamFt / 2.0 + j.EngroseFt,
-                                              j.DiamFt / 2.0 + HOLGURA_FT + PARED_FT);
+                    double rVecino = Math.Max(RadioCuerpoFt(j.DiamFt) + j.EngroseFt,
+                                              RadioCampanaFt(j.DiamFt));
                     double s0 = (rVecino + margen + rCamp * Math.Cos(th)) / sin;
                     if (s0 + monta > requerido) { requerido = s0 + monta; grueso = j; }
                 }
@@ -460,8 +466,8 @@ namespace Civil3DBasico
                     }
                     double cos = Math.Cos(ang);
                     // Radio EXTERIOR de cada campana.
-                    double rA = a.DiamFt / 2.0 + HOLGURA_FT + PARED_FT;
-                    double rB = b.DiamFt / 2.0 + HOLGURA_FT + PARED_FT;
+                    double rA = RadioCampanaFt(a.DiamFt);
+                    double rB = RadioCampanaFt(b.DiamFt);
                     double minimo = rA + rB + SEPARACION_MIN_FT;
 
                     // Centro de cada campana, medido desde el centro de la pieza.
@@ -543,7 +549,8 @@ namespace Civil3DBasico
                     {
                         // El desnivel con el tronco no cabía dentro del cuerpo: la
                         // punta del tubo sube/baja a la boca (queda con pendiente).
-                        double z = centro.Z + b.OffsetZFt;
+                        // (la boca del brazo, que sigue la pendiente del tubo)
+                        double z = centro.Z + b.OffsetZFt + b.Direccion.Z * b.AlcanceTuboFt;
                         ComandosRedes.Dl(ed, $"\n    · [FITTING-SOLIDO] Tubo Ø{b.DiamFt * 12:F0}\": su punta pasa de " +
                             $"Z {destino.Z:F2} a {z:F2} para entrar en la boca de la pieza.");
                         destino = new Point3d(destino.X, destino.Y, z);
@@ -839,7 +846,7 @@ namespace Civil3DBasico
                     // inicio de la trayectoria (Sweep lo alinea solo). En un codo
                     // reductor, ScaleFactor la escala linealmente a lo largo del
                     // barrido hasta llegar al diámetro del brazo B en pB.
-                    using (var perfil = new Circle(pA, dA, a.DiamFt / 2.0))
+                    using (var perfil = new Circle(pA, dA, RadioCuerpoFt(a.DiamFt)))
                     {
                         var ob = new SweepOptionsBuilder
                         {
@@ -847,7 +854,7 @@ namespace Civil3DBasico
                             BasePoint = pA,
                             Bank = false,
                         };
-                        if (reductor) ob.ScaleFactor = b.DiamFt / a.DiamFt;
+                        if (reductor) ob.ScaleFactor = RadioCuerpoFt(b.DiamFt) / RadioCuerpoFt(a.DiamFt);
                         var opts = ob.ToSweepOptions();
 
                         var cuerpo = new Solid3d();
@@ -860,7 +867,7 @@ namespace Civil3DBasico
                         // defecto que se veía en el arranque del arco.
                         foreach (var (br, punta, dir) in new[] { (a, pA, dA), (b, pB, dB) })
                         {
-                            double rCamp = br.DiamFt / 2.0 + HOLGURA_FT + PARED_FT;
+                            double rCamp = RadioCampanaFt(br.DiamFt);
                             double lCamp = br.DiamFt * LARGO_CAMPANA_D;
                             double monta = br.DiamFt * MONTAJE_CAMPANA_D;
                             Point3d ini = punta - dir * monta;        // arranque solapado
@@ -908,14 +915,13 @@ namespace Civil3DBasico
             // Brazo más delgado a la altura de su propio tubo (ver Aplanar).
             centro = centro + Vector3d.ZAxis * b.OffsetZFt;
 
-            double rTubo = b.DiamFt / 2.0;
             double largoCuerpo = b.LargoCuerpoFt > 1e-9 ? b.LargoCuerpoFt : b.DiamFt * LARGO_BRAZO_D;
             double largoCampana = b.DiamFt * LARGO_CAMPANA_D;
-            double rCampana = rTubo + HOLGURA_FT + PARED_FT;
+            double rCampana = RadioCampanaFt(b.DiamFt);
 
             // Cuerpo: del centro de la juntura hasta donde empieza la campana.
             // El tronco de una Y lo lleva un poco más grueso (EngroseFt).
-            Solid3d cuerpo = Cilindro(rTubo + b.EngroseFt, largoCuerpo,
+            Solid3d cuerpo = Cilindro(RadioCuerpoFt(b.DiamFt) + b.EngroseFt, largoCuerpo,
                                       centro + dir * (largoCuerpo / 2.0), dir);
             if (cuerpo == null) return null;
 

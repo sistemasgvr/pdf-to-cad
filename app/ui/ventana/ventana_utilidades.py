@@ -25,8 +25,27 @@ class UtilidadesMixin:
             self._push(); self.pipes.append({"layer": layer, "pts": self.cur_pts[:], "ab": ab,
                                              "diam": float(PIPE_DIAMETERS_IN[0]), "diam_unit": "in",
                                              "material": DEFAULT_PIPE_MATERIAL})
+        hecha = (self._ext_pipe if self._extending and self._ext_pipe is not None
+                 else len(self.pipes) - 1 if len(self.cur_pts) >= 2 else None)
         self.cur_pts = []; self._extending = False; self._ext_layer = None; self._ext_pipe = None; self._ext_at = None
-        self._refresh_lists(); self._update_ui(); self._redraw()
+        self._refresh_lists()
+        if hecha is not None:
+            self._curvas_al_dibujar(hecha)
+        self._update_ui(); self._redraw()
+
+    def _curvas_al_dibujar(self, i):
+        """Los quiebres de la utilidad recién dibujada, en una red que NO es de presión, pasan a curva de
+        radio mínimo donde no hay buzón/caja (observación 8 de la revisión; `quiebres_curvas.curvas_al_dibujar`)."""
+        from nucleo import quiebres_curvas
+        fpp = self.scale / self.zoom if self.scale and self.zoom else 0.0
+        nuevas, sin_lugar = quiebres_curvas.curvas_al_dibujar(self.pipes, self.structures, fpp, i)
+        if nuevas:
+            self._refresh_lists()
+        if nuevas or sin_lugar:
+            msg = _tr("Quiebres que pasan a curva de radio mínimo: {n}.").format(n=len(nuevas))
+            if sin_lugar:
+                msg += " " + _tr("Sin lugar para la curva (quedan como esquina): {n}.").format(n=len(sin_lugar))
+            self._info(msg)
 
     def terminar_trazo_en_curso(self):
         """Un trazo de «Dibujar utilidad» a medias (2 puntos o más) se TERMINA como con Enter (pedido del usuario

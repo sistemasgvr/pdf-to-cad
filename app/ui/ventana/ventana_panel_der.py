@@ -7,6 +7,31 @@ los menús, atajos y pruebas siguen usando `win.<método>` como antes.
 from ui.ventana.ventana_comun import *  # noqa: F401,F403  (mismos nombres que app_window)
 
 
+class CotaAuto(QtWidgets.QDoubleSpinBox):
+    """Cota en pies donde 0 = «(automática)» (lo mismo que entiende el DXF: RIM/SUMP vacíos).
+    Borrar el texto también vuelve a automática."""
+    def __init__(self):
+        super().__init__()
+        self.setRange(-100000, 100000); self.setDecimals(3)
+        self.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)
+        self.setKeyboardTracking(False)
+
+    def textFromValue(self, v):
+        return _tr("(automática)") if abs(v) < 1e-9 else super().textFromValue(v)
+
+    def valueFromText(self, texto):
+        t = (texto or "").strip()
+        if not t or t == _tr("(automática)"):
+            return 0.0
+        return super().valueFromText(t)
+
+    def validate(self, texto, pos):
+        t = (texto or "").strip()
+        if not t or _tr("(automática)").startswith(t):
+            return QtGui.QValidator.Intermediate if t else QtGui.QValidator.Acceptable, texto, pos
+        return super().validate(texto, pos)
+
+
 class PanelDerechoMixin:
     def _build_right_dock(self):
         # ── DOCK DERECHO: inventario y selección ──
@@ -245,10 +270,15 @@ class PanelDerechoMixin:
         # ── Propiedades del buzón seleccionado (tab Buzones) ───────────────────
         self.gprop_bz = _bind(ResponsiveGroupBox(), "setTitle", "Propiedades del buzón"); fbz = QtWidgets.QFormLayout(self.gprop_bz)
         self.bz_cod = QtWidgets.QLineEdit(); self.bz_cod.editingFinished.connect(self._bz_prop_changed)
-        self.bz_rim = QtWidgets.QDoubleSpinBox(); self.bz_sump = QtWidgets.QDoubleSpinBox()
+        # Cota de terreno (tapa, RIM) y de fondo (SUMP) — recomendación 2 de la revisión (2026-11-13):
+        # reemplazan a «Altura»; cada una por separado, 0 = automática (como antes en el DXF).
+        self.bz_rim = CotaAuto(); self.bz_sump = CotaAuto()
         for sp in (self.bz_rim, self.bz_sump):
-            sp.setRange(-100000, 100000); sp.setDecimals(3); sp.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)
             sp.valueChanged.connect(lambda _v: self._bz_prop_changed())
+        _bind(self.bz_rim, "setToolTip", "Cota de terreno (tapa del buzón), en pies.\n"
+              "(automática) = la rasante de la tubería más el recubrimiento; en Civil 3D, la superficie si la hay.")
+        _bind(self.bz_sump, "setToolTip", "Cota de fondo del buzón, en pies. Más baja que la tubería = buzón de salto.\n"
+              "(automática) = la rasante más baja de las tuberías que llegan.")
         self.bz_family = QtWidgets.QComboBox(); self.bz_family.currentIndexChanged.connect(self._bz_family_changed)
         self.bz_size = QtWidgets.QComboBox(); self.bz_size.currentIndexChanged.connect(self._bz_prop_changed)
         self.bz_height = QtWidgets.QDoubleSpinBox()
@@ -266,6 +296,9 @@ class PanelDerechoMixin:
         self.btn_add_bz_size = self._boton_mas(lambda: self._agregar_tamano("structure"))
         self._bz_size_box = self._con_boton(self.bz_size, self.btn_add_bz_size)
         fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Tamaño:"), self._bz_size_box)
+        fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Cota de terreno (ft):"), self.bz_rim)
+        fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Cota de fondo (ft):"), self.bz_sump)
+        # «Altura» de antes: solo se ve en proyectos que ya la tenían (para verla o borrarla).
         fbz.addRow(_bind(QtWidgets.QLabel(), "setText", "Altura (Pies):"), self.bz_height)
         # SÓLIDO (caja cuadrada reconocida del PDF): sin familia/tamaño de catálogo;
         # largo × ancho (precargados del plano, editables: cambian el dibujo) y

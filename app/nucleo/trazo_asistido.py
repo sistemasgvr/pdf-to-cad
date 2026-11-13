@@ -56,13 +56,28 @@ def sobre(p0, u, t):
     return (p0[0] + u[0] * t, p0[1] + u[1] * t)
 
 
-def imanes(base, absoluto=True):
-    """Rumbos a los que «Asistir» pega: seguir recto y girar 45°, 90°… desde `base`;
-    con `absoluto`, también los ejes y diagonales de la hoja."""
-    out = [(base + 45.0 * k) % 360.0 for k in range(8)]
+# Rastreo polar (recomendación 3 de la revisión, 2026-11-13, «como Civil 3D»): el incremento
+# de los imanes se elige (POLAR_INCREMENTOS); por defecto 45°, lo de siempre.
+POLAR_INC_DEG = 45.0
+POLAR_INCREMENTOS = (5.0, 10.0, 15.0, 22.5, 30.0, 45.0, 90.0)
+
+
+def imanes(base, absoluto=True, paso=POLAR_INC_DEG):
+    """Rumbos a los que «Asistir» pega: seguir recto y girar `paso`, 2·`paso`… desde `base`;
+    con `absoluto`, también los múltiplos de `paso` desde los ejes de la hoja."""
+    n = max(1, int(round(360.0 / paso)))
+    out = [(base + paso * k) % 360.0 for k in range(n)]
     if absoluto:
-        out += [45.0 * k for k in range(8)]
+        out += [(paso * k) % 360.0 for k in range(n)]
     return out
+
+
+def ortogonales(base):
+    """Modo ORTOGONAL (F8, como ORTHOMODE de AutoCAD): solo los ejes de la hoja (0°, 90°,
+    180°, 270°). Si `base` no está en el paso de 0.25° desde la hoja (se empezó sobre una
+    utilidad inclinada), los ejes de esa utilidad, para que la unión siga en el paso."""
+    origen = 0.0 if en_paso(base) else base
+    return [(origen + 90.0 * k) % 360.0 for k in range(4)]
 
 
 def restringir(p0, p, base=0.0, imanes_=(), tol=0.0):

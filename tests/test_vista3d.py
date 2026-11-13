@@ -237,7 +237,7 @@ def test_codo_curvo_con_campanas_y_tubo_recortado():
     assert (R, T) == (pytest.approx(1.0), pytest.approx(1.0))
     # sin pelota: nada de la pieza pasa del radio de la campana alrededor de su eje curvo
     c = pieza[:, :3].mean(axis=0)
-    assert np.abs(pieza[:, 2] - c[2]).max() <= 0.5 + A3.HOLGURA_FT + A3.PARED_FT + 1e-3
+    assert np.abs(pieza[:, 2] - c[2]).max() <= A3.radio_campana(1.0) + 1e-3
     # el tubo NO llega al vértice: muere dentro de la campana (alcance del plugin)
     tubo = esc.opacos[esc.opacos[:, 10] == 1]
     vert = np.array([300 * FT, 0.0]) - np.array(esc.origen[:2])
@@ -257,7 +257,8 @@ def test_tee_con_brazos_y_campanas_y_wye_con_tronco_engrosado():
     assert all(b.largo >= 1.25 - 1e-9 for b in brazos)           # Wye: 1.25·D (o más si chocan)
     tee = [A3.Brazo(dir=np.array(u, float), d=1.0) for u in ((1, 0, 0), (-1, 0, 0), (0, 1, 0))]
     A3.pieza("tee", np.zeros(3), tee, (1, 1, 1, 1), 1)
-    assert [round(b.largo, 2) for b in tee] == [0.75, 0.75, 0.75]
+    # 0.75·D, alargado lo justo para que la campana no toque el cuerpo (con pared) del vecino
+    assert [round(b.largo, 2) for b in tee] == [0.77, 0.77, 0.77]
 
 
 def test_cortar_tubo_en_el_accesorio():
