@@ -117,9 +117,12 @@ def diametro_ft(p):
 
 
 def seccion(p):
-    """(perfil, alto interior ft): «W x H» → rectángulo; si no, círculo del diámetro."""
+    """(perfil, alto interior ft): «W x H» → rectángulo; si no, círculo del diámetro.
+    Presión = SIEMPRE círculo (Civil 3D no tiene tubos de presión rectangulares; el catálogo
+    escribe el nominal de algunas familias como «14 in x 14 in»: salían cajas en la 3D)."""
     nums = re.findall(r"\d+(?:\.\d+)?", str(p.get("pipe_size") or ""))
-    if len(nums) >= 2 and "x" in str(p.get("pipe_size")).lower():
+    if (len(nums) >= 2 and "x" in str(p.get("pipe_size")).lower()
+            and network_kind(p.get("layer") or "") != "pressure"):
         w, h = float(nums[0]) / 12.0, float(nums[1]) / 12.0
         return M.perfil_rect(w, h), h
     d = diametro_ft(p)
@@ -314,16 +317,19 @@ def _estructura(ar, pipes, j, s):
     else:
         cover = next((float(pipes[i].get("cover_min") or 0) for _z, i in soleras
                       if float(pipes[i].get("cover_min") or 0) > 0), PROFUNDIDAD_FT)
-        if s.get("rim") is not None and s.get("sump") is not None:
-            z0, z1 = float(s["sump"]), float(s["rim"])
-        elif soleras:
-            z0 = min(z for z, _i in soleras)
+        # Fondo y terreno, cada uno por su lado (como `ImportarRed`, 2026-11-13): 0/None = automático
+        # (el DXF no los manda), fondo = la solera más baja, terreno = esa solera + recubrimiento.
+        rim, sump = float(s.get("rim") or 0.0), float(s.get("sump") or 0.0)
+        base = min(z for z, _i in soleras) if soleras else None
+        z0 = sump if sump else base
+        z1 = rim if rim else (None if base is None else base + cover)
+        if z0 is not None and z1 is None:
             z1 = z0 + cover
-        else:
-            z0, z1 = None, None
-        if z0 is not None and float(s.get("height_ft") or 0) > 0.01:
+        if z0 is None and z1 is not None:
+            z0 = z1 - cover
+        if z0 is not None and not rim and float(s.get("height_ft") or 0) > 0.01:
             z1 = z0 + float(s["height_ft"])
-        elif z0 is not None and z1 - z0 < 1.0:
+        elif z0 is not None and not rim and z1 - z0 < 1.0:
             z1 = z0 + max(cover, 3.0)
     if z0 is None:
         return "suelto", (x, y, s, ident, capa)

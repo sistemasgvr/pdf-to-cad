@@ -748,6 +748,8 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         for i in range(self.lst_pages.count()):
             self._label_page_item(self.lst_pages.item(i), i)
         self._refresh_pending()
+        if hasattr(self, "_sug_piezas_cambiaron"):
+            self._sug_piezas_cambiaron()  # la tarjeta de la sugerencia: ¿sigue siendo la usada?
 
     def _page_pending(self) -> bool:
         """¿La hoja a la vista en «Área a tomar» falta en la hoja compuesta? Solo

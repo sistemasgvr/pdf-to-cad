@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from PySide6 import QtWidgets
 
+from catalogo import civil_catalog as _cc
 from nucleo import edicion_bloque, model_ops
 from traduccion.i18n import t as _tr
 
@@ -185,7 +186,7 @@ class EdicionBloqueDialog(QtWidgets.QDialog):
                 cb.addItem(_tr("(sin cambios)"), SIN)
                 cb.addItem(defecto, "")
                 for sz in self.tamanos_de(fid):
-                    cb.addItem(sz, sz)
+                    cb.addItem(_cc.etiqueta_tamano(fid, sz), sz)
             elif fid == "":                             # todas sin familia: se elige el diámetro
                 cb.addItem(_tr("(sin cambios)"), SIN)
                 self._diametros_sin_familia(cb, defecto)
@@ -196,7 +197,7 @@ class EdicionBloqueDialog(QtWidgets.QDialog):
         elif fam:
             cb.addItem(defecto, "")
             for sz in self.tamanos_de(fam):
-                cb.addItem(sz, sz)
+                cb.addItem(_cc.etiqueta_tamano(fam, sz), sz)
         else:                                           # familia «(por defecto)»: se elige el diámetro
             self._diametros_sin_familia(cb, defecto)
         cb.setEnabled(cb.count() > 1)

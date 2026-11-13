@@ -29,6 +29,11 @@ LARGO_BRAZO_TEE_D = 0.75
 LARGO_CAMPANA_D = 0.45
 HOLGURA_FT = 0.02
 PARED_FT = 0.04
+# Espesor de pared del CUERPO del accesorio (observación de la revisión, 2026-11-13: «los
+# accesorios requieren más espesor y diámetro que las tuberías»): el cuerpo es más grueso que
+# el tubo y la campana, más que el cuerpo. Radial, en múltiplos del diámetro, con un mínimo.
+ESPESOR_CUERPO_D = 0.06
+ESPESOR_CUERPO_MIN_FT = 0.04
 MONTAJE_CAMPANA_D = 0.10
 CALADO_EN_CAMPANA = 0.75
 SOLAPE_EXTRA_FT = 0.12
@@ -58,8 +63,12 @@ class Brazo:
     extra: dict = field(default_factory=dict)
 
     @property
+    def r_cuerpo(self):
+        return radio_cuerpo(self.d)
+
+    @property
     def r_campana(self):
-        return self.d / 2.0 + HOLGURA_FT + PARED_FT
+        return radio_campana(self.d)
 
     @property
     def alcance(self):
@@ -78,8 +87,18 @@ def es_vertical(u):
     return h < 1e-9 or math.degrees(math.atan2(v, h)) >= PENDIENTE_VERTICAL_DEG
 
 
+def radio_cuerpo(d):
+    """Radio exterior del cuerpo del accesorio: el tubo + su pared (`RadioCuerpoFt`)."""
+    return d / 2.0 + max(ESPESOR_CUERPO_MIN_FT, d * ESPESOR_CUERPO_D)
+
+
+def radio_campana(d):
+    """Radio exterior de la campana: el cuerpo + holgura + pared (`RadioCampanaFt`)."""
+    return radio_cuerpo(d) + HOLGURA_FT + PARED_FT
+
+
 def radio_minimo_viable(d):
-    return d / 2.0 + HOLGURA_FT + PARED_FT + SEPARACION_MIN_FT / 2.0
+    return radio_campana(d) + SEPARACION_MIN_FT / 2.0
 
 
 def curva_codo(d, ang):
@@ -106,12 +125,12 @@ def aplanar(centro, brazos, tipo):
     """Largo base de cada brazo y, en Tee/Wye/cruz, eje Z rígido (`Aplanar`)."""
     factor = LARGO_BRAZO_TEE_D if tipo in ("TEE", "CROSS") else LARGO_BRAZO_D
     rigido = tipo in ("TEE", "WYE", "CROSS")
+    # Cada brazo sigue la PENDIENTE de su tubo (observación de la revisión, 2026-11-13: con brazos
+    # horizontales el tubo que baja llegaba torcido a la campana y no empalmaba). Lo rígido sigue
+    # siendo la ALTURA: todos salen del mismo centro (z_ref + off_z), los brazos no suben ni bajan
+    # para buscar cotas distintas. Igual que `Aplanar` de WyeSolido.cs.
     for b in brazos:
-        if rigido and not es_vertical(b.dir):
-            h = np.array([b.dir[0], b.dir[1], 0.0])
-            b.dir = h / np.linalg.norm(h) if np.linalg.norm(h) > 1e-9 else b.dir / np.linalg.norm(b.dir)
-        else:
-            b.dir = b.dir / np.linalg.norm(b.dir)
+        b.dir = b.dir / np.linalg.norm(b.dir)
         if b.largo <= 1e-9:
             b.largo = b.d * factor
     if not rigido:
@@ -147,7 +166,7 @@ def sacar_campanas(brazos):
             th = _ang(i.dir, j.dir)
             if th > math.pi / 2.0 + 1e-9 or math.sin(th) < math.sin(math.radians(5.0)):
                 continue
-            r_vecino = max(j.d / 2.0 + j.engrose, j.r_campana)
+            r_vecino = max(j.r_cuerpo + j.engrose, j.r_campana)
             s0 = (r_vecino + margen + i.r_campana * math.cos(th)) / math.sin(th)
             requerido = max(requerido, s0 + monta)
         if requerido > i.largo + 1e-6:
@@ -190,7 +209,7 @@ def malla_brazo(centro, b, color, ident):
     """Cuerpo (Ø del tubo, + engrose en el tronco de una Wye) + campana en la punta."""
     c = np.asarray(centro, float) + np.array([0.0, 0.0, b.off_z])
     fin = c + b.dir * b.largo
-    cuerpo = M.barrido(c, fin, M.perfil_circulo(b.d / 2.0 + b.engrose, LADOS), color, ident)
+    cuerpo = M.barrido(c, fin, M.perfil_circulo(b.r_cuerpo + b.engrose, LADOS), color, ident)
     return M.juntar([cuerpo, _campana(fin, b.dir, b, color, ident)])
 
 
@@ -221,7 +240,7 @@ def malla_codo(centro, a, b, color, ident, arco=12):
             arc.append(C + (math.sin((1 - t) * om) * va + math.sin(t * om) * vb) / math.sin(om))
     arc.append(tB)
     camino = [pA] + arc + [pB]
-    cuerpo = M.barrido_camino(camino, M.perfil_circulo(d / 2.0, LADOS), color, ident)
+    cuerpo = M.barrido_camino(camino, M.perfil_circulo(radio_cuerpo(d), LADOS), color, ident)
     return M.juntar([cuerpo, _campana(pA, dA, a, color, ident), _campana(pB, dB, b, color, ident)])
 
 
@@ -259,6 +278,7 @@ def cortar(camino, cortes):
     for (cx, cy), (ux, uy), alc in cortes:
         cx, cy = float(cx), float(cy)
         mejor = None
+        cerca = []                                       # tramos que pasan por el centro (empate)
         for k in range(len(P) - 1):
             ax, ay = xs[k], ys[k]
             dx, dy = xs[k + 1] - ax, ys[k + 1] - ay
@@ -267,9 +287,27 @@ def cortar(camino, cortes):
             dist = math.hypot(ax + dx * t - cx, ay + dy * t - cy)
             if mejor is None or dist < mejor[0]:
                 mejor = (dist, largos[k] + L * t, k, L)
+            cerca.append((dist, largos[k] + L * t, k, L, t))
         _d, s0, k, L = mejor
         tan = (P[k + 1, :2] - P[k, :2]) / L if L > 1e-9 else np.zeros(2)
-        if float(np.dot(tan, (ux, uy))) >= 0:
+        adelante = float(np.dot(tan, (ux, uy))) >= 0
+        # El centro en un VÉRTICE de la utilidad (codo de una sola utilidad que pasa por él): el
+        # brazo puede ser el tramo que llega o el que sale. Se elige el lado cuyo tramo va hacia
+        # el brazo (observación 9 de la revisión, 2026-11-13: con el tramo que llega y el signo de
+        # un giro de 90°, se recortaba dos veces el mismo lado y el otro tubo asomaba por el codo).
+        # Con un solo tramo posible (punta) es lo de siempre.
+        opciones = []
+        for dist, sk, kk, Lk, tk in cerca:
+            if dist > mejor[0] + 1e-6 or Lk < 1e-9:
+                continue
+            tx, ty = (xs[kk + 1] - xs[kk]) / Lk, (ys[kk + 1] - ys[kk]) / Lk
+            if tk < 1.0 - 1e-9:
+                opciones.append((tx * ux + ty * uy, sk, True))
+            if tk > 1e-9:
+                opciones.append((-(tx * ux + ty * uy), sk, False))
+        if len(opciones) > 1:
+            _al, s0, adelante = max(opciones, key=lambda o: o[0])
+        if adelante:
             quitar.append((s0, s0 + alc))
         else:
             quitar.append((s0 - alc, s0))

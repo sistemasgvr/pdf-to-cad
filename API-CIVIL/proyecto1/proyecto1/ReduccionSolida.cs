@@ -86,8 +86,8 @@ namespace Civil3DBasico
             Solid3d cuerpo = null;
             try
             {
-                using (var c0 = new Circle(r0, u, d1 / 2.0))
-                using (var c1 = new Circle(r1, u, d2 / 2.0))
+                using (var c0 = new Circle(r0, u, RadioCuerpoFt(d1)))
+                using (var c1 = new Circle(r1, u, RadioCuerpoFt(d2)))
                 {
                     cuerpo = new Solid3d();
                     cuerpo.CreateLoftedSolid(new Entity[] { c0, c1 }, new Entity[0], null,
@@ -95,7 +95,7 @@ namespace Civil3DBasico
                 }
                 // Campana en la boca chica, montada sobre el cono (como en el codo).
                 double monta = d2 * MONTAJE_CAMPANA_D;
-                var camp = Cilindro(d2 / 2.0 + HOLGURA_FT + PARED_FT, lCamp + monta,
+                var camp = Cilindro(RadioCampanaFt(d2), lCamp + monta,
                                     r1 - u * monta + u * ((lCamp + monta) / 2.0), u);
                 if (camp != null)
                 {

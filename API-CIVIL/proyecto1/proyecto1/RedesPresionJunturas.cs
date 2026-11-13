@@ -794,9 +794,14 @@ namespace Civil3DBasico
                     var brazos = pipesInfo.Select(p =>
                     {
                         Point3d far = p.Port == 0 ? p.pp.EndPoint : p.pp.StartPoint;
+                        Point3d cerca = p.Port == 0 ? p.pp.StartPoint : p.pp.EndPoint;
+                        // El EJE del propio tubo (su pendiente): el brazo de la pieza la
+                        // sigue (WyeSolido.Aplanar). Desde la juntura promedio, la cota de
+                        // los otros tubos torcía la dirección.
+                        Vector3d eje = far - cerca;
                         return new WyeSolido.Brazo
                         {
-                            Direccion = far - j.Ubicacion,
+                            Direccion = eje.Length > 1e-9 ? eje : far - j.Ubicacion,
                             // NominalDiameter viene en pies (ver nota en diamMaxIn).
                             DiamFt = p.pp.NominalDiameter,
                             PipeId = p.PipeId,

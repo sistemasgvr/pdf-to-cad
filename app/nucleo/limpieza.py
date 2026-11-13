@@ -8,7 +8,8 @@ a mano:
     `limpieza_tramos` (quitar el vértice que sobra, o que la curva vecina arranque
     justo en el vértice).
   • puntas casi unidas: el extremo libre de una utilidad a ≤1 ft de otra del mismo
-    tipo y estado se lleva EXACTO a su vértice (o, si no hay, a su línea). El plugin
+    tipo y estado se lleva EXACTO a su vértice (o, si no hay, a su línea). Una punta
+    DENTRO de una tubería más gruesa (a ≤ su radio de su eje) va a ese eje (la Tee). El plugin
     solo junta en una red lo que está a ≤0.5 ft. Nunca de costado contra una línea
     paralela (bancos de líneas juntas).
   • utilidades sobrantes: más cortas que 1 ft, o repetidas (misma geometría).
@@ -42,6 +43,7 @@ UTILIDAD_MIN_FT = 1.0       # utilidad entera más corta: sobra
 SUELTA_MAX_FT = 5.0         # aviso: corta y sin tocar ninguna otra de su tipo
 DUPLICADA_FT = 0.05         # vértice a vértice: la misma utilidad dos veces
 CONTACTO_FT = 0.5           # RedesUnidasPorContacto del plugin
+DENTRO_MARGEN_FT = 0.1      # punta DENTRO de otra tubería (radio + esto): es una unión (Tee)
 
 ARREGLABLES = ("tramo", "punta", "corta", "duplicada")
 TIPOS = ARREGLABLES + ("suelta",)
@@ -217,7 +219,11 @@ def _unir_puntas(pipes, structures, ft, res):
     # geometría del principio; una punta movida en este paso se corre ≤ tol_max, así que se
     # busca a tol_max más de lo que se prueba: nada que pudiera cumplir queda afuera.
     indice = IndiceUtilidades(pipes)
-    radio = _holgura(2.0 * tol_max + tol_unida)
+    # Punta DENTRO de otra tubería más gruesa (observación de la revisión, 2026-11-13: la
+    # domiciliaria que termina en el borde de una principal de 24" o más quedaba a > 1 ft de su
+    # eje y sin Tee): vale hasta el radio de esa tubería + DENTRO_MARGEN_FT.
+    dentro = {j: max(tol_max, (_radio_ft(pipes[j]) + DENTRO_MARGEN_FT) / ft) for j in vivas}
+    radio = _holgura(2.0 * max([tol_max, *dentro.values()]) + tol_unida)
     for k, i in enumerate(vivas):
         _avisar("puntas", k, len(vivas))
         p = pipes[i]
@@ -236,6 +242,7 @@ def _unir_puntas(pipes, structures, ft, res):
                     d = math.dist(q, v)
                     if d <= tol_max and (mejor is None or d < mejor[0]):
                         mejor = (d, (float(v[0]), float(v[1])), j)
+            vecino = pts[1] if e == 0 else pts[-2]
             if mejor is None:
                 for j in otras:
                     for a, b in zip(pipes[j]["pts"], pipes[j]["pts"][1:]):
@@ -243,10 +250,21 @@ def _unir_puntas(pipes, structures, ft, res):
                         d = math.dist(q, c)
                         if d <= tol_max and (mejor is None or d < mejor[0]):
                             mejor = (d, (float(c[0]), float(c[1])), j)
+            if mejor is None:                                # dentro de una tubería gruesa: a su eje
+                for j in otras:
+                    if dentro[j] <= tol_max:
+                        continue
+                    for a, b in zip(pipes[j]["pts"], pipes[j]["pts"][1:]):
+                        c, _t = LT.proyeccion(q, a, b)
+                        if math.dist(q, c) > dentro[j]:
+                            continue
+                        c = _cruce_rayo(vecino, q, a, b) or c   # siguiendo su propia recta, si la cruza
+                        d = math.dist(q, c)
+                        if d <= 3.0 * dentro[j] and (mejor is None or d < mejor[0]):
+                            mejor = (d, (float(c[0]), float(c[1])), j)
             if mejor is None:
                 continue
             d, dest, j = mejor
-            vecino = pts[1] if e == 0 else pts[-2]
             if not _destino_valido(q, vecino, dest, _rumbos_en(pipes[j]["pts"], dest, tol_unida), ft):
                 continue                                     # paralela de al lado: no es una unión
             # El tramo propio no puede quedar diminuto ni darse vuelta.
@@ -260,6 +278,27 @@ def _unir_puntas(pipes, structures, ft, res):
                 model_ops.translate_structure(s, dest[0] - q[0], dest[1] - q[1])
             pts[e] = dest
             res.cambios.append(Cambio("punta", i, dest[0], dest[1], d * ft, True, "punta"))
+
+
+def _radio_ft(p):
+    try:
+        return max(0.0, float(model_ops.diametro(p)[0])) / 24.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _cruce_rayo(vecino, q, a, b):
+    """Punto donde la recta vecino→q (hacia adelante o un poco atrás) corta el tramo a–b, o None."""
+    rx, ry = q[0] - vecino[0], q[1] - vecino[1]
+    sx, sy = b[0] - a[0], b[1] - a[1]
+    den = rx * sy - ry * sx
+    if abs(den) < 1e-12:
+        return None
+    t = ((a[0] - q[0]) * sy - (a[1] - q[1]) * sx) / den        # sobre la recta propia, desde q
+    u = ((a[0] - q[0]) * ry - (a[1] - q[1]) * rx) / den        # sobre el tramo a–b
+    if not 0.0 <= u <= 1.0:
+        return None
+    return (q[0] + rx * t, q[1] + ry * t)
 
 
 # ─────────────────────────── avisos ───────────────────────────

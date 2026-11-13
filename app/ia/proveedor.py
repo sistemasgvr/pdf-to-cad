@@ -6,8 +6,9 @@
     mientras se genera: la ventana lo muestra al momento);
   - `modelos()` → los modelos instalados; `probar()` → (ok, mensaje).
 
-Para Claude: escribir `Anthropic(Proveedor)` con la misma interfaz (Messages API) y sumarlo a `PROVEEDORES`;
-nada más de la app cambia (ver `docs/pendientes_ia.md`).
+Proveedores: `Ollama` (servidor propio) y `Gemini` (`ia/proveedor_gemini`, API de Google con clave). Para Claude:
+escribir `Anthropic(Proveedor)` con la misma interfaz (Messages API) y sumarlo a `PROVEEDORES`; nada más de la app
+cambia (ver `docs/pendientes_ia.md`).
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ from dataclasses import dataclass, field
 
 from traduccion.i18n_core import t
 
-PLANTILLA, OLLAMA, ANTHROPIC = "plantilla", "ollama", "anthropic"
+PLANTILLA, OLLAMA, ANTHROPIC, GEMINI = "plantilla", "ollama", "anthropic", "gemini"
 URL_OLLAMA = "http://100.64.200.58:11434"            # «localollama» en la red Tailscale de la oficina
 MODELO_OLLAMA = "qwen3-vl:8b"
 ESPERA_S = 180                                       # tope por respuesta (el modelo puede estar cargándose)
@@ -44,6 +45,7 @@ class Config:
     modelo: str = MODELO_OLLAMA
     paralelo: int = 2                                # pedidos a la vez al redactar el informe
     temperatura: float = 0.2
+    clave: str = field(default="", repr=False)       # clave de API (Gemini); nunca en reprs ni reportes
 
     @classmethod
     def de(cls, d):
@@ -52,6 +54,11 @@ class Config:
         c.proveedor = (str(d.get("proveedor") or PLANTILLA)).strip().lower()
         c.url = (str(d.get("url") or URL_OLLAMA)).strip().rstrip("/")
         c.modelo = (str(d.get("modelo") or MODELO_OLLAMA)).strip()
+        c.clave = str(d.get("clave") or "").strip()
+        if c.proveedor == GEMINI:                        # servidor fijo de Google; modelo propio
+            from ia.proveedor_gemini import MODELO_GEMINI, URL_GEMINI
+            c.url = URL_GEMINI
+            c.modelo = (str(d.get("modelo") or "")).strip() or MODELO_GEMINI
         try:
             c.paralelo = max(1, min(8, int(d.get("paralelo") or 2)))
         except (TypeError, ValueError):
@@ -192,7 +199,9 @@ def _json_loads(linea):
     return json.loads(linea.decode("utf-8") if isinstance(linea, bytes) else linea)
 
 
-PROVEEDORES = {OLLAMA: Ollama}
+from ia.proveedor_gemini import Gemini   # noqa: E402 (usa las clases de arriba)
+
+PROVEEDORES = {OLLAMA: Ollama, GEMINI: Gemini}
 
 
 def crear(config) -> Proveedor | None:

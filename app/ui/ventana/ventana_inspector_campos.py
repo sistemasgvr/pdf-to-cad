@@ -174,7 +174,12 @@ def refrescar(win):
 
 def _avisos(win, i):
     return [a for a in getattr(win, "_normas_avisos", None) or []
-            if getattr(a, "pipe", None) == i and not getattr(a, "aprobado", False)]
+            if _de_la_utilidad(a, i) and not getattr(a, "aprobado", False)]
+
+
+def _de_la_utilidad(a, i):
+    toca = getattr(a, "toca", None)
+    return toca(i) if toca else getattr(a, "pipe", None) == i
 
 
 def _abandonada(win, on):

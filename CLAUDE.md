@@ -2397,7 +2397,14 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `ico:` con globo (`VistaChat.loadResource`/`event`, `TIPS`), «Pensando… N s» (`RELOJ_MS`), preguntas para seguir;
     contraste ≥4.5:1 en los dos temas (`contraste`, test)—, Esc = Detener, letra A↓/A↑ en QSettings `ia/chat_letra`,
     aviso arriba sin IA configurada) y `ia_config_dialog` (Buscar modelos, Probar; Claude
-    deshabilitado). Informe: `ventana_informe._redactar_con_ia` en `en_hilo` cancelable; servidor caído → lo ya
+    deshabilitado). **Gemini** (2026-11-11, `ia/proveedor_gemini.Gemini`, PURO): API REST v1beta de Google, clave en la
+    cabecera `x-goog-api-key` (nunca en la URL; `Config.clave` sin repr), QSettings `ia/clave_gemini` + `ia/modelo_gemini`
+    (cada proveedor recuerda su modelo; `ia/modelo` sigue siendo el de Ollama). `contenidos` traduce los mensajes de la app
+    (formato Ollama: `images`, `tool_calls`, rol «tool») a los de Gemini; `pedir_con_herramientas` + `civil3d_agente.
+    pedir_agente(config)` (lo usan el chat y el chat «Civil 3D») devuelve las llamadas en formato Ollama con la parte
+    original en `_parte` (los modelos que piensan exigen su `thoughtSignature`). `_pensar`: 2.5 Flash sin pensar, los que
+    piensan reciben `MARGEN_PENSAR` tokens de más. Causas «clave no sirve»/«límite»/«sin conexión» en `reporte_error`.
+    Verificado contra Google 2026-11-11 (2.5 = 404 para cuentas nuevas, 3.7/3.8-flash saturados: `ESPERA_GEMINI_S`=60, `ESPERA_PROBAR_S`=20, un reintento en 503; recomendado `MODELO_GEMINI`=gemini-3.5-flash, primero en la lista): `tests/test_ia_gemini.py`. Informe: `ventana_informe._redactar_con_ia` en `en_hilo` cancelable; servidor caído → lo ya
     redactado + plantilla. Barra: etapa `informe_ia` (`barras_carga.MS_LOTE_IA`). Pruebas con un Ollama SIMULADO
     (`tests/ollama_falso.py`): `tests/test_ia.py`.
     **Alcance del chat** (pedido del usuario 2026-10-28: fútbol, capitales, «hazme un código», «ignora tus reglas»):

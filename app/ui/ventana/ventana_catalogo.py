@@ -221,7 +221,7 @@ class CatalogoMixin:
             self.prop_size.setEnabled(True)
             self.prop_size.addItem(_tr("{d} (Por defecto)").format(
                 d=f'{model_ops.DIAM_DEFECTO_IN:g}"'), "")
-            for sz in sizes: self.prop_size.addItem(sz, sz)
+            for sz in sizes: self.prop_size.addItem(_cc.etiqueta_tamano(fid, sz), sz)
             if current:
                 for i in range(self.prop_size.count()):
                     if self.prop_size.itemData(i) == current:

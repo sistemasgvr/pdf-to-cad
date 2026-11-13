@@ -139,10 +139,14 @@ class TrazoMixin:
                 if p0n is not None and math.hypot(p0n[0] - p0[0], p0n[1] - p0[1]) > DESLIZ_PX / esc:
                     p0n = None
             return T, hit, p0n
-        imanes = TA.imanes(base, TA.en_paso(base))
-        q, ang = TA.restringir(p0, (x, y), base, imanes, IMAN_PX / esc)
-        if raw is not None and tuple(raw) != (x, y) and ang not in imanes:
-            q, ang = TA.restringir(p0, raw, base)       # sin imán: hacia la tinta, en el paso
+        if getattr(self, "_orto", False):               # F8: solo horizontal / vertical
+            q, ang = TA.restringir(p0, (x, y), base, TA.ortogonales(base), math.inf)
+        else:
+            imanes = (TA.imanes(base, TA.en_paso(base), getattr(self, "_polar_inc", TA.POLAR_INC_DEG))
+                      if getattr(self, "_polar", True) else [])   # F10: rastreo polar
+            q, ang = TA.restringir(p0, (x, y), base, imanes, IMAN_PX / esc)
+            if raw is not None and tuple(raw) != (x, y) and ang not in imanes:
+                q, ang = TA.restringir(p0, raw, base)   # sin imán: hacia la tinta, en el paso
         if hit:
             ab = self._tramo_de_hit(hit)
             c = TA.cruce_rayo(p0, TA.unitario(ang), *ab) if ab else None

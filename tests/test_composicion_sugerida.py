@@ -482,3 +482,101 @@ def test_du06_sugiere_el_tramo_entero():
     g = an.grupos[0]
     assert g.nodos == [(0, h) for h in range(2, 16)]               # UD-201 … UD-214
     assert len(g.costuras) == 13 and g.residuo <= 0.01
+
+
+def test_sugerencia_usada_se_amplia_al_agregar_pdf(app, monkeypatch, tmp_path):
+    """Reporte del usuario 2026-11-12: con la sugerencia ya usada, agregar el otro PDF no actualizaba la
+    hoja compuesta. Ahora el juego ampliado entra solo y «Deshacer» vuelve a la hoja de antes de usarla;
+    si el usuario cambió la hoja compuesta a mano, solo se ofrece («Usar»)."""
+    monkeypatch.setenv("PDFCAD_SUGERENCIA", "1")
+    from ui.asistente import composite_dialog
+    mundo = _mundo_mapa()
+    norte, sur = tmp_path / "QS Water_Barrio_North.pdf", tmp_path / "QS Water_Barrio_South.pdf"
+    _mapas([17], [10, 11], 1.0, mundo).save(str(norte))
+    _mapas([16], [10, 11], 0.5, mundo).save(str(sur))
+
+    def abrir():
+        return composite_dialog.CompositeDialog(
+            None, [{"name": norte.name, "data": norte.read_bytes(), "path": str(norte)}], None, {}, 0)
+    dlg = abrir()
+    try:
+        assert _esperar(dlg) is not None
+        antes = [p.to_dict() for p in dlg.comp.pieces]
+        dlg._sug_usar()
+        assert {(p.source, p.page) for p in dlg.comp.pieces} == {(0, 0), (0, 1)}
+        dlg._open_extra_pdf(str(sur))
+        assert _esperar(dlg) is not None
+        assert {(p.source, p.page) for p in dlg.comp.pieces} == {(0, 0), (0, 1), (1, 0), (1, 1)}
+        assert dlg._sug_usada is not None and dlg.btn_sug_usar.isHidden() and "✔" in dlg.lbl_sug.text()
+        assert not dlg.btn_sug_deshacer.isHidden()
+        dlg._sug_deshacer()
+        assert [p.to_dict() for p in dlg.comp.pieces] == antes
+    finally:
+        dlg.close_docs()
+    dlg = abrir()
+    try:
+        assert _esperar(dlg) is not None
+        dlg._sug_usar()
+        dlg.comp.pieces[0].x += 5.0                        # el usuario la movió
+        dlg._open_extra_pdf(str(sur))
+        assert _esperar(dlg) is not None
+        assert {(p.source, p.page) for p in dlg.comp.pieces} == {(0, 0), (0, 1)}
+        assert not dlg.btn_sug_usar.isHidden() and dlg.btn_sug_usar.isEnabled()
+    finally:
+        dlg.close_docs()
+
+
+def test_desmarcar_las_hojas_de_la_sugerencia_la_vuelve_a_ofrecer(app, monkeypatch):
+    """Revisión 2026-11-12: con la sugerencia usada, desmarcar a mano sus hojas dejaba la tarjeta con
+    «✔ en la hoja compuesta» y sin «Usar». Mover una pieza no cuenta como cambiarla."""
+    monkeypatch.setenv("PDFCAD_SUGERENCIA", "1")
+    from ui.asistente import composite_dialog
+    monkeypatch.setattr(composite_dialog.CompositeDialog, "_confirm_remove_page", lambda *a: True)
+    dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": _plano_cad().tobytes()}], None, {}, 0)
+    try:
+        assert _esperar(dlg) is not None
+        dlg._sug_usar()
+        dlg.comp.pieces[0].x += 3.0
+        dlg._on_pieces_changed()
+        assert dlg._sug_usada is not None and "✔" in dlg.lbl_sug.text()
+        dlg._remove_page(3)
+        assert dlg._sug_usada is None and "✔" not in dlg.lbl_sug.text()
+        assert not dlg.btn_sug_usar.isHidden() and dlg.btn_sug_usar.isEnabled()
+        dlg._sug_usar()
+        assert len(dlg.comp.pieces) == 3 and "✔" in dlg.lbl_sug.text()
+    finally:
+        dlg.close_docs()
+
+
+def test_pdf_hermano_se_vuelve_a_proponer_al_quitarlo(app, monkeypatch, tmp_path):
+    """Revisión 2026-11-12: agregar el PDF hermano desde la tarjeta callaba la propuesta para siempre
+    (si luego se quitaba, no volvía) y un «No» la callaba para cualquier otro PDF. Ahora: agregado y
+    quitado → se vuelve a proponer; «No» → solo ESE PDF deja de proponerse. Agregarlo desde la tarjeta
+    amplía la sugerencia usada igual que «Agregar PDF…»."""
+    monkeypatch.setenv("PDFCAD_SUGERENCIA", "1")
+    from PySide6 import QtWidgets
+    from ui.asistente import composite_dialog
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **kw: QtWidgets.QMessageBox.Yes)
+    mundo = _mundo_mapa()
+    norte, sur = tmp_path / "QS Water_Barrio_North.pdf", tmp_path / "QS Water_Barrio_South.pdf"
+    _mapas([17], [10, 11], 1.0, mundo).save(str(norte))
+    _mapas([16], [10, 11], 0.5, mundo).save(str(sur))
+    dlg = composite_dialog.CompositeDialog(
+        None, [{"name": norte.name, "data": norte.read_bytes(), "path": str(norte)}], None, {}, 0)
+    try:
+        assert _esperar(dlg) is not None
+        assert not dlg.sug_hermano.isHidden()
+        dlg._sug_usar()
+        dlg._sug_agregar_hermano()
+        assert _esperar(dlg) is not None
+        assert dlg.sug_hermano.isHidden() and len(dlg.sources) == 2
+        assert {(p.source, p.page) for p in dlg.comp.pieces} == {(0, 0), (0, 1), (1, 0), (1, 1)}
+        dlg.cmb_source.setCurrentIndex(1)
+        dlg._quitar_pdf()
+        assert _esperar(dlg) is not None
+        assert len(dlg.sources) == 1 and not dlg.sug_hermano.isHidden()
+        dlg._sug_rechazar_hermano()
+        dlg._sug_refrescar()
+        assert dlg.sug_hermano.isHidden()
+    finally:
+        dlg.close_docs()

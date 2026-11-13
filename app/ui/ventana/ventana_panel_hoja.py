@@ -58,7 +58,9 @@ class PanelHoja(QtWidgets.QWidget):
         # «Componer PDF imagen/escaneo…» ya no va aquí (2026-11-09): el compositor es uno y las piezas
         # escaneadas traen solas regla, transportador y enderezar (`composite_mixto`). Sigue en el menú.
         for ic, clave, det in (("file-plus-outline", "Agregar utilidad desde otro PDF…", "Se ubica sola por el mapa base"),
-                               ("terrain", "Importar superficies…", "LandXML o GeoTIFF · viajan a Civil 3D")):
+                               ("terrain", "Importar superficies…", "LandXML o GeoTIFF · viajan a Civil 3D"),
+                               ("layers-plus", "Reconocer más capas de esta hoja…",
+                                "Sin perder lo dibujado: lo nuevo entra encima")):
             a = win._acc.get(clave)
             if a is not None:
                 cl.addWidget(R.FilaAccion(ic, clave, det, accion=a))

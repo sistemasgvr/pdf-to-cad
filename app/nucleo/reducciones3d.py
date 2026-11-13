@@ -40,7 +40,7 @@ def reduccion(r0, cerca, u, d1, d2, largo_chico, color, ident):
     if recorte > largo_chico - LARGO_MIN_LIBRE_FT:
         return None
     chico = A3.Brazo(dir=u, d=d2)
-    malla = M.juntar([M.tronco(r0, r1, u, d1 / 2.0, d2 / 2.0, color, ident, A3.LADOS),
+    malla = M.juntar([M.tronco(r0, r1, u, A3.radio_cuerpo(d1), A3.radio_cuerpo(d2), color, ident, A3.LADOS),
                       A3._campana(r1, u, chico, color, ident)])
     return malla, recorte
 
@@ -124,7 +124,7 @@ def rectas(ar, pipes, rectos, base, direcciones, seccion, diametro_ft, z_en_tram
         ar.op.append(malla)
         fin = cerca + chico["u"] * rec_c
         ini = c + grande["u"] * alc_g                  # del lado del grande, si el cono quedó ahí
-        ar.picks.capsula(tuple(ini), tuple(fin), grande["d"] / 2.0 + A3.HOLGURA_FT + A3.PARED_FT, ident)
+        ar.picks.capsula(tuple(ini), tuple(fin), A3.radio_campana(grande["d"]), ident)
         for s, alc in ((grande, alc_g), (chico, rec_c)):
             u_mundo = (s["pxy"][0], -s["pxy"][1])
             cortes.setdefault(s["pipe"], []).append((xy, u_mundo, alc * math.hypot(s["u"][0], s["u"][1])))

@@ -459,3 +459,62 @@ def _quiebres_de(pipes, structures, ip, ft_per_px, tol, nuevas, sin_lugar):
             sin_lugar.append(q)
         elif not any(s is o for o in nuevas):
             nuevas.append(s)
+
+
+def curva_al_desactivar(pipes, structures, s, ft_per_px, tol=None):
+    """Observación 7 de la revisión (2026-11-13): en alcantarillado, al desactivar el buzón de un
+    QUIEBRE la red quedaba con las dos tuberías encimadas en la esquina (Civil 3D pone ahí una
+    «Estructura nula» y no hay codo). Ahora ese quiebre pasa a CURVA de radio mínimo, como los
+    quiebres del plano al importar (`curvas_en_quiebres`).
+
+    Devuelve "curva" (`s` queda como CV de radio automático), "recto" (casi no gira: basta la
+    estructura nula), "no_entra" (la curva mínima no cabe sin recortar ni cambiar otra) o None
+    (no es el quiebre de UNA tubería de gravedad/conduit: punta, unión, T, otra red). Muta `s`
+    solo en "curva"."""
+    tol = model_ops._TOL if tol is None else tol
+    if not ft_per_px or ft_per_px <= 0 or s.get("x") is None or s.get("solid") or s.get("curve"):
+        return None
+    x, y = float(s["x"]), float(s["y"])
+    hits = [(ip, vi) for ip, p in enumerate(pipes) if not p.get("world")
+            for vi, q in enumerate(p.get("pts") or ()) if math.hypot(q[0] - x, q[1] - y) <= tol]
+    if len(hits) != 1:
+        return None                                    # punta compartida, unión de varias: no es un quiebre
+    ip, vi = hits[0]
+    p = pipes[ip]
+    pts = p["pts"]
+    if network_kind(p.get("layer") or "") not in REDES_CON_CURVAS or not (0 < vi < len(pts) - 1):
+        return None
+    if limpieza_tramos.compartido(pipes, ip, pts[vi], limpieza_tramos.COMPARTIDO_FT / ft_per_px):
+        return None                                    # otra utilidad llega ahí (T): no es un codo
+    if _giro_deg(pts[vi - 1], pts[vi], pts[vi + 1]) <= GIRO_MIN_DEG:
+        return "recto"
+    curvas = model_ops.curve_vertex_indices(p, structures, pipes, tol)
+    if not _entra(p, vi, curvas, ft_per_px):
+        return "no_entra"
+    s.update(curve=True, radius_ft=0.0, hidden=False, part="", part_size="")
+    s["cod"] = ""                                      # rebuild_structures le asigna CV-N
+    return "curva"
+
+
+def curvas_al_dibujar(pipes, structures, ft_per_px, i, tol=None):
+    """Observación 8 de la revisión (2026-11-13): una utilidad dibujada A MANO en una red que no es
+    de presión (eléctrico, telecom; gravedad donde el vértice no lleva buzón) quedaba con esquinas
+    vivas y en Civil 3D sin codo. Sus quiebres pasan a curva de radio mínimo con las MISMAS reglas
+    que los quiebres del plano al importar (`curvas_en_quiebres`: solo donde no hay estructura
+    visible y la curva entra sin recortarse ni tocar otra). Agua y gas no (en presión el quiebre
+    es un codo-accesorio). Devuelve (nuevas, sin_lugar) como `curvas_en_quiebres`."""
+    if not (0 <= i < len(pipes)):
+        return [], []
+    p = pipes[i]
+    pts = p.get("pts") or []
+    if p.get("world") or network_kind(p.get("layer") or "") not in REDES_CON_CURVAS or len(pts) < 3:
+        return [], []
+    tenia = "vertex_kinds" in p
+    if not tenia or len(p.get("vertex_kinds") or []) != len(pts):
+        # dibujada a mano: cada vértice interior es un quiebre del trazado
+        p["vertex_kinds"] = ["end"] + ["bend"] * (len(pts) - 2) + ["end"]
+    try:
+        return curvas_en_quiebres(pipes, structures, ft_per_px, indices=[i], tol=tol)
+    finally:
+        if not tenia:
+            p.pop("vertex_kinds", None)

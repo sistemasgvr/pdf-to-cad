@@ -1840,24 +1840,23 @@ namespace Civil3DBasico
 
                     double rim, sump;
                     string structType = match != null ? (match.Part ?? "") : "";  // ← siempre respeta la familia elegida
-                    if (match != null && match.Rim.HasValue && match.Sump.HasValue)
-                    { rim = match.Rim.Value; sump = match.Sump.Value; }
-                    else
-                    {
-                        // Sin buzón explícito del DXF: el sump debe coincidir EXACTO con
-                        // la rasante de la tubería en ese vértice (zInv) — no restarle nada.
-                        // Antes se restaba 0.5' "de sumidero", pero eso desalineaba el
-                        // buzón respecto a la tubería que el usuario definió (se veía como
-                        // que "el buzón recorta y redefine" la rasante 0.5' más abajo).
-                        sump = zInv; rim = zInv + depth;
-                    }
+                    // Cota de FONDO y de TERRENO, cada una por su lado (recomendación 2 de
+                    // la revisión, 2026-11-13: un buzón de salto tiene el fondo más abajo
+                    // que la tubería; el terreno no cambia por eso). Sin dato: el sump
+                    // coincide EXACTO con la rasante de la tubería en ese vértice (zInv) —
+                    // no se le resta nada (antes se restaba 0.5' «de sumidero» y el buzón
+                    // quedaba desalineado con la tubería) — y la tapa va a zInv + recubrimiento.
+                    sump = (match != null && match.Sump.HasValue) ? match.Sump.Value : zInv;
+                    rim = (match != null && match.Rim.HasValue) ? match.Rim.Value : zInv + depth;
+                    bool rimExplicito = match != null && match.Rim.HasValue;
                     // "Altura (Pies)" explícita del usuario (Python): fuerza el Rim para que
                     // Rim − Sump = altura pedida, SIN tocar el Sump (que siempre refleja la
                     // rasante real de la tubería conectada — dato físico, no inventado).
-                    bool alturaExplicita = match != null && match.HeightFt.HasValue && match.HeightFt.Value > 0.01;
+                    // (Proyectos de antes: la cota de terreno, si viene, manda sobre la altura.)
+                    bool alturaExplicita = !rimExplicito && match != null && match.HeightFt.HasValue && match.HeightFt.Value > 0.01;
                     if (alturaExplicita) rim = sump + match.HeightFt.Value;
                     // Garantía: rim ARRIBA (mín. 1' sobre sump) y sump por debajo del invert.
-                    if (!alturaExplicita && rim - sump < 1.0) rim = sump + Math.Max(depth, 3.0);
+                    if (!alturaExplicita && !rimExplicito && rim - sump < 1.0) rim = sump + Math.Max(depth, 3.0);
 
                     string key = $"{Math.Round(v.X, 2)}_{Math.Round(v.Y, 2)}";
                     // Conduit (eléctrico/telecom): la app decide dónde van las CAJAS
