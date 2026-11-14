@@ -35,6 +35,8 @@ def leer(doc, hoja: int, zoom: float, al_avanzar=None) -> Optional[Previa]:
         return None
     if res.get("leyenda") is not None:
         doc.__dict__.setdefault("_pdfcad_leyenda_mapa", {}).setdefault(int(hoja), res["leyenda"])
+    if "sugeridos" in res:                       # `layer_sugeridos.sugerencia_de_hoja` la encuentra
+        doc.__dict__.setdefault("_pdfcad_estilos_sugeridos", {}).setdefault(int(hoja), res["sugeridos"])
     img = fondo_trabajo.en_proceso(doc, hoja, zoom, grises=False, al_avanzar=al_avanzar)
     return Previa(int(hoja), res["layers"], frozenset(res["visibles"]), pdf_layers.encendidas(doc),
                   None if img is None else (img[0], img[2], img[3], img[4]))

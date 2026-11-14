@@ -119,6 +119,13 @@ def _linea_de_lado(lado: str, rect: Rect, segs, tinta_de: Callable,
                    giro_min: float = GIRO_MIN_DEG) -> Optional[Tuple[Pt, Pt]]:
     """La línea que hace de borde en ese lado (coords de la hoja), corrida hacia afuera medio grosor
     + `MARGEN_PT` (la línea del marco queda ENTERA dentro), o None."""
+    r = _linea_y_grosor(lado, rect, segs, tinta_de, giro_min)
+    return None if r is None else r[0]
+
+
+def _linea_y_grosor(lado: str, rect: Rect, segs, tinta_de: Callable,
+                    giro_min: float = GIRO_MIN_DEG) -> Optional[Tuple[Tuple[Pt, Pt], float]]:
+    """`_linea_de_lado` + el grosor de la raya del marco (pt)."""
     x0, y0, x1, y1 = rect
     horiz = lado in ("top", "bottom")
     largo = (x1 - x0) if horiz else (y1 - y0)
@@ -153,7 +160,7 @@ def _linea_de_lado(lado: str, rect: Rect, segs, tinta_de: Callable,
         if vacio(tinta, lado, p_lo, p_hi, w / 2.0 + HOLGURA_PT):
             d = afuera * (w / 2.0 + MARGEN_PT)
             (ua, va), (ub, vb) = (p_lo[0], p_lo[1] + d), (p_hi[0], p_hi[1] + d)
-            return ((ua, va), (ub, vb)) if horiz else ((va, ua), (vb, ub))
+            return (((ua, va), (ub, vb)) if horiz else ((va, ua), (vb, ub))), float(w)
     return None
 
 
@@ -167,10 +174,14 @@ def _cruce(p1: Pt, p2: Pt, q1: Pt, q2: Pt) -> Optional[Pt]:
     return p1[0] + t * d1x, p1[1] + t * d1y
 
 
-def cuadrilatero(page: fitz.Page, rect: Rect, paths=None, segs=None) -> Optional[List[Pt]]:
+def cuadrilatero(page: fitz.Page, rect: Rect, paths=None, segs=None, anchos: Optional[dict] = None,
+                 rectos: bool = False) -> Optional[List[Pt]]:
     """Esquinas (sup-izq, sup-der, inf-der, inf-izq) del área con sus bordes inclinados, o None.
     `segs` = rectas ya leídas (x0, y0, x1, y1, grosor, …) en la hoja visible (la composición
-    sugerida pasa las de los bordes de su ficha); si no, se leen de `paths` o de la hoja."""
+    sugerida pasa las de los bordes de su ficha); si no, se leen de `paths` o de la hoja.
+    `anchos` (dict, salida): grosor de la raya del marco de cada lado hallado. `rectos` = el marco
+    también vale si NINGÚN lado va inclinado (atlas borde con borde, 2026-11-14: hay que saber dónde
+    está la raya del marco para taparla en la costura); entonces se exigen los cuatro lados."""
     if segs is None:
         if paths is None:
             paths = page.get_drawings(extended=True)
@@ -189,19 +200,21 @@ def cuadrilatero(page: fitz.Page, rect: Rect, paths=None, segs=None) -> Optional
         if lado not in franjas:
             franjas[lado] = franja(page, lado, rect, banda)
         return franjas[lado]
-    hallados = {}
+    hallados, gros = {}, {}
     for lado in ("top", "right", "bottom", "left"):
-        ln = _linea_de_lado(lado, rect, segs, tinta_de)
-        if ln is not None:
-            hallados[lado] = ln
-    if not hallados:
+        r = _linea_y_grosor(lado, rect, segs, tinta_de)
+        if r is not None:
+            hallados[lado], gros[lado] = r
+    if not hallados and not rectos:
         return None                       # ningún borde inclinado: el rectángulo de siempre
     # con un borde inclinado, los demás lados del MISMO marco aunque vayan paralelos al lado
     for lado in ("top", "right", "bottom", "left"):
         if lado not in hallados:
-            ln = _linea_de_lado(lado, rect, segs, tinta_de, giro_min=0.0)
-            if ln is not None:
-                hallados[lado] = ln
+            r = _linea_y_grosor(lado, rect, segs, tinta_de, giro_min=0.0)
+            if r is not None:
+                hallados[lado], gros[lado] = r
+    if rectos and len(hallados) < 4:
+        return None
     lineas.update(hallados)
     pts = []
     for a, b in (("left", "top"), ("top", "right"), ("right", "bottom"), ("bottom", "left")):
@@ -210,7 +223,7 @@ def cuadrilatero(page: fitz.Page, rect: Rect, paths=None, segs=None) -> Optional
             return None
         pts.append(p)
     esquinas = ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
-    if all(math.hypot(p[0] - c[0], p[1] - c[1]) < MUEVE_MIN_PT for p, c in zip(pts, esquinas)):
+    if not rectos and all(math.hypot(p[0] - c[0], p[1] - c[1]) < MUEVE_MIN_PT for p, c in zip(pts, esquinas)):
         return None
     # cada esquina a ≤ SALE_MAX_PT del rectángulo. Lo poco que se sale por correr la línea medio
     # grosor hacia afuera se DEJA: llevarla al borde cortaba la propia línea del marco en la esquina,
@@ -218,6 +231,8 @@ def cuadrilatero(page: fitz.Page, rect: Rect, paths=None, segs=None) -> Optional
     t = SALE_MAX_PT
     if not all(x0 - t <= p[0] <= x1 + t and y0 - t <= p[1] <= y1 + t for p in pts):
         return None
+    if anchos is not None:
+        anchos.update(gros)
     return pts
 
 

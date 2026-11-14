@@ -18,7 +18,7 @@ from typing import Sequence
 
 def leer(ruta: str, hoja: int, ons: Sequence = (), estilos_ocultos: Sequence[str] = (),
          progreso=None) -> dict:
-    """{layers, leyenda (o None), visibles (nombres de capa con algo que se ve)}."""
+    """{layers, leyenda (o None), visibles (nombres de capa con algo que se ve)[, sugeridos]}."""
     import fitz
     from hoja import leyenda_mapa, leyenda_trazos, pdf_layers, pdf_styles
     with fitz.open(ruta) as doc:
@@ -32,4 +32,16 @@ def leer(ruta: str, hoja: int, ons: Sequence = (), estilos_ocultos: Sequence[str
                 ley = leyenda_mapa.leer(doc, page)
             pdf_layers.set_hidden(doc, ())                       # todas encendidas: `_all_drawings`
             visibles = leyenda_trazos.capas_visibles(page)
-    return {"layers": layers, "leyenda": ley, "visibles": sorted(visibles)}
+            # sin capas ni leyenda: qué estilos son la red (`estilos_sugeridos`, 2026-11-14)
+            sugeridos, con_sugeridos = None, False
+            if any(L.get("source") == "style" for L in layers) and not (ley is not None and ley.filas):
+                from hoja import estilos_sugeridos
+                con_sugeridos = True
+                try:
+                    sugeridos = estilos_sugeridos.sugerir(page)
+                except Exception:                              # noqa: BLE001 — la ventana lo intenta
+                    con_sugeridos = False
+    out = {"layers": layers, "leyenda": ley, "visibles": sorted(visibles)}
+    if con_sugeridos:
+        out["sugeridos"] = sugeridos
+    return out

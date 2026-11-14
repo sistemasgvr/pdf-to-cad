@@ -3949,6 +3949,11 @@ EN: dict[str, str] = {
         'Diameter (inches):',
     'Diámetro {d} elegido para esta utilidad.':
         'Diameter {d} chosen for this utility.',
+    'Hoja compuesta: {n} estilo(s) que solo cambian de grosor por la escala de su pieza se reconocen junto con el estilo elegido.': "Composite sheet: {n} style(s) that only change thickness because of their piece's scale are recognized together with the chosen style.",
+    'Sin capas ni leyenda: el plano dice que es {u} y sus rótulos de tubería van junto a {n} estilo(s) — ya asignados como líneas de {u}. Revísalos y cambia lo que haga falta.': 'No layers or legend: the plan says it is {u} and its pipe labels run along {n} style(s) — already assigned as {u} lines. Review them and change whatever is needed.',
+    'Sin capas ni leyenda: los rótulos de tubería van junto a {n} estilo(s), pero el plano no dice de qué red es. Asígnales la utilidad abajo.': 'No layers or legend: the pipe labels run along {n} style(s), but the plan does not say which network it is. Assign them the utility below.',
+    'Sin capas ni leyenda: hay rótulos de tubería, pero no van claramente junto a un estilo. Asigna abajo el estilo de la red.': 'No layers or legend: there are pipe labels, but they do not clearly run along one style. Assign the network style below.',
+    'Sin capas, leyenda ni rótulos de tubería: no se puede saber qué estilo es la red. Asígnalo abajo (o Cancelar para dibujar a mano).': 'No layers, legend or pipe labels: it is not possible to tell which style is the network. Assign it below (or Cancel to draw by hand).',
     'Hoja compuesta: {n} estilo(s) de las piezas se reconocen junto con el mismo tipo de tubería de las demás (la leyenda de cada hoja dice que es la misma línea).': 'Composed sheet: {n} style(s) of the pieces are recognized together with the same pipe type of the others (the legend of each sheet says it is the same line).',
     'Costuras de la hoja compuesta: {n} — la tubería sigue de una hoja a la otra (sus puntas quedaban a menos de {d} pt).': 'Seams of the composed sheet: {n} — the pipe continues from one sheet to the next (its ends were less than {d} pt apart).',
     # Informe automático (2026-10-23)

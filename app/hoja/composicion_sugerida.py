@@ -416,6 +416,42 @@ def _cortes_cad(g: Grupo, fichas: Dict[Nodo, Ficha]) -> Dict[Nodo, Rect]:
     return out
 
 
+JUNTOS_MARCO_PT = 6.0          # dos lados de marco a menos de esto (una vez colocadas): costura
+
+
+def lados_por_marco(g: Grupo, fichas: Dict[Nodo, Ficha]) -> Dict[Nodo, set]:
+    """Atlas borde con borde: lados de cada hoja que, YA COLOCADAS, quedan sobre el lado de marco de
+    otra hoja del grupo (las dos se nombran en ese borde y sus lados coinciden). No solo las costuras
+    que unieron el grupo: el grupo es un árbol + ciclos y una hoja también toca a vecinas por las que
+    no se unió (2026-11-14, Southwest Gas: 18 de 54 hojas tapaban su marco y el resto lo dejaba)."""
+    out: Dict[Nodo, set] = {}
+    for c in g.costuras:
+        if c.metodo == "marco":
+            out.setdefault(c.a, set()).add(c.lado)
+            out.setdefault(c.b, set()).add(E.OPUESTO[c.lado])
+    por_celda = {(n[0], fichas[n].celda): n for n in g.nodos if fichas[n].por_bordes and fichas[n].celda}
+
+    def lado_global(n, lado):
+        a, bx, by = g.transf[n]
+        i, j = E._ESQUINAS[lado]
+        q = fichas[n].marco
+        return [(a * q[k][0] + bx, a * q[k][1] + by) for k in (i, j)]
+    for n in g.nodos:
+        fa = fichas[n]
+        if not (fa.por_bordes and fa.marco):
+            continue
+        for celda, d in fa.vecinas.items():
+            m = por_celda.get((n[0], celda))
+            lado = next((k for k, v in E._DIR.items() if v == d), None)
+            if m is None or m == n or lado is None or not fichas[m].marco:
+                continue
+            pa, pb = lado_global(n, lado), lado_global(m, E.OPUESTO[lado])
+            if all(math.hypot(u[0] - v[0], u[1] - v[1]) <= JUNTOS_MARCO_PT for u, v in zip(pa, pb)):
+                out.setdefault(n, set()).add(lado)
+                out.setdefault(m, set()).add(E.OPUESTO[lado])
+    return out
+
+
 def armar(g: Grupo, analisis: Analisis, docs: Sequence[fitz.Document],
           escala_de: Callable[[int, int], float], nombres: Sequence[str] = ()) -> C.Composite:
     """`Composite` de un grupo: piezas recortadas y colocadas como dice el dibujo."""
@@ -442,6 +478,7 @@ def armar(g: Grupo, analisis: Analisis, docs: Sequence[fitz.Document],
     # mapa: las dos piezas se cortan por la MISMA recta y sus líneas ya se tocan; los
     # puentes solo agregarían trazos de largo ~0 (en el plano CAD cruzan la franja blanca)
     comp.bridges = g.tipo == "estaciones"
+    por_marco = lados_por_marco(g, fichas)
     for n in g.nodos:
         f = fichas[n]
         page = docs[n[0]][n[1]]
@@ -452,17 +489,31 @@ def armar(g: Grupo, analisis: Analisis, docs: Sequence[fitz.Document],
         # hoja cuyo marco no es recto con la hoja (2026-10-21): la pieza sigue su borde inclinado,
         # como «Esquinas libres» (fuera queda solo papel en blanco: el reconocimiento no cambia)
         poligono: List[List[float]] = []
-        if f.lineas:
+        if f.lineas or por_marco.get(n):
             # CAD: los vectores de la hoja que `trim_border` ya dejó en caché (también el marco
-            # cerrado en UN elemento «qu»/«re»); mapa: las rectas de los bordes de su ficha
+            # cerrado en UN elemento «qu»/«re»); mapa: las rectas de los bordes de su ficha (si la
+            # ficha no las leyó, las de la hoja)
             segs = (BI._segmentos(C.page_drawings(page), page.rotation_matrix)
-                    if g.tipo == "estaciones" else f.lineas)
-            q = BI.cuadrilatero(page, tuple(C.clip_rect_pt(f.tam, clip)), segs=segs)
+                    if g.tipo == "estaciones" or not f.lineas else f.lineas)
+            anchos: Dict[str, float] = {}
+            rect = tuple(C.clip_rect_pt(f.tam, clip))
+            if por_marco.get(n) and f.vista:
+                # atlas borde con borde: la hoja va ENTERA hasta su marco (el corte de
+                # `costuras_rectas` puede caer dentro de la raya y dejarla a medias fuera de la franja)
+                rect = tuple(float(v) for v in f.vista)
+            q = BI.cuadrilatero(page, rect, segs=segs, anchos=anchos)
+            if not q and por_marco.get(n):
+                # marco recto: igual hace falta saber dónde va su raya para taparla en la costura
+                q = BI.cuadrilatero(page, rect, segs=segs, anchos=anchos, rectos=True)
             if q:
                 poligono = BI.normalizado(q, f.tam)
                 xs, ys = [p[0] for p in q], [p[1] for p in q]
                 clip = _norm((min(xs), min(ys), max(xs), max(ys)), f.tam)
-                covers = {}
+                # el lado que se junta con otra hoja: franja blanca sobre la raya del marco (el lado
+                # va medio grosor + MARGEN por fuera de ella); las dos hojas la tapan, y en la costura
+                # ya no queda la raya de cada marco (reporte 2026-11-14, Southwest Gas)
+                covers = {lado: anchos[lado] + BI.MARGEN_PT + C.COVER_PAD_PT
+                          for lado in por_marco.get(n, ()) if lado in anchos}
         a, bx, by = g.transf[n]
         x0, y0, _x1, _y1 = C.clip_rect_pt(f.tam, clip)
         nombre = nombres[n[0]] if n[0] < len(nombres) else ""

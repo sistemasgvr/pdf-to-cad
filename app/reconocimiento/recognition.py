@@ -1286,6 +1286,18 @@ def recognize_page(
             roles = leyenda_mod.roles_con_leyenda(asig, utility, roles)
             lineas_set, buzones_set, use_roles = set(roles[ROLE_LINEAS]), set(roles[ROLE_BUZONES]), True
             roles_leyenda = bool(lineas_set or buzones_set)
+        # Hoja COMPUESTA sin capas: el mismo estilo de línea sale con otro grosor en cada pieza (su
+        # escala). Los gemelos de un estilo elegido (`pdf_styles.gemelos`) también son líneas y se
+        # reconocen como ESE estilo: si no, la red de las piezas de otro grosor no se reconocía o se
+        # cortaba en cada costura (reporte 2026-11-14, Southwest Gas). Hoja suelta: nada cambia.
+        gemelos_map: Dict[str, str] = {}
+        if (use_roles and any((n or "").startswith(pdf_styles.PREFIX) for n in lineas_set)
+                and len(lectura_mod.inicios_de_piezas(page) or ()) > 1):
+            fam = pdf_styles.familias(Counter(d.get("layer") or "" for d in pdf_styles.drawings(page)))
+            elegidas = {fam[n] for n in lineas_set if n in fam}
+            gemelos_map = {n: r for n, r in fam.items() if r in elegidas and n not in buzones_set}
+            lineas_set = lineas_set | set(gemelos_map)
+            gemelos_map = {n: r for n, r in gemelos_map.items() if n != r}
 
         # Capas que se reconocen por las LETRAS de sus líneas (el nombre no lo dice o
         # las letras lo contradicen): ver `letter_uses`. Los roles manuales mandan.
@@ -1349,12 +1361,16 @@ def recognize_page(
         n_alias: set = set()
         for pth in line_paths:
             ocg = pth.get("layer") or ""
+            ocg = gemelos_map.get(ocg, ocg)
             if alias and ocg in lineas_set:
                 comun = alias.get((piezas_mod.pieza_de(inicios, pth.get("seqno")), ocg))
                 if comun is not None and comun in lineas_set:
                     n_alias.add(ocg)
                     ocg = comun
             by_ocg[ocg].append(pth)
+        if gemelos_map:
+            warnings.append(_tr("Hoja compuesta: {n} estilo(s) que solo cambian de grosor por la escala de su "
+                                "pieza se reconocen junto con el estilo elegido.").format(n=len(gemelos_map)))
         if n_alias:
             warnings.append(_tr("Hoja compuesta: {n} estilo(s) de las piezas se reconocen junto con el mismo tipo "
                                 "de tubería de las demás (la leyenda de cada hoja dice que es la misma línea).").format(

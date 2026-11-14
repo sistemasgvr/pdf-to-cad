@@ -109,6 +109,7 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         self._layers_raw = layers if layers is not None else pdf_layers.page_layers(doc, page_index)
         # capas que el usuario decidió NO tomar por las letras de su línea (panel izquierdo)
         self._letters_off = set(letters_off or ())
+        self._fuentes_texto = legend_sources        # texto de las hojas de origen (`layer_sugeridos`)
         self._init_assignments(roles_by_utility)
         self._layers = self._effective_layers()
         self._pix_item = None
