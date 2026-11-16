@@ -398,3 +398,24 @@ def test_reemplazar_en_proyecto_viejo_quita_lo_reconocido_y_no_lo_dibujado(win):
     win.pipes = [vieja, a_mano]
     win._quitar_reconocidas("AGUA")
     assert win.pipes == [a_mano]
+
+
+@needs_pdf
+def test_ajustar_capas_usa_la_interpretacion_sin_releer_la_hoja(win, monkeypatch):
+    """Reporte 2026-11-16 («esta opción demora bastante»): «Ajustar capas…» leía `page_layers` en la ventana (~14 s
+    en la compuesta de DU06). Con la hoja interpretada usa sus capas: las MISMAS que daría leerla."""
+    from hoja import pdf_layers
+    from ui.asistente import recognition_dialog
+    _listo(win, "DRENAJE")
+    esperadas = [L for L in pdf_layers.without_letters(pdf_layers.page_layers(win.doc, HOJA), win._letters_off)
+                 if L["name"] not in set(win.hidden_ocgs)]
+    win._interpretacion = {"layers": pdf_layers.page_layers(win.doc, HOJA), "firma": None}
+
+    def no_leer(*_a, **_k):
+        raise AssertionError("no debe volver a leer la hoja")
+    monkeypatch.setattr(pdf_layers, "page_layers", no_leer)
+    vistas = []
+    monkeypatch.setattr(recognition_dialog, "choose_layer_roles",
+                        lambda parent, layers, utility=None, current_roles=None: vistas.append(layers) or None)
+    win.ajustar_capas_parte("DRENAJE")
+    assert vistas == [esperadas]

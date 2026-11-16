@@ -1005,14 +1005,24 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         """Elegir a mano los roles de las capas de UNA utilidad (el diálogo de «Ajustar capas…») → True si el
         usuario los puso (False = canceló). Lo usan el asistente y el panel «Reconocer»."""
         from hoja import pdf_layers as _pdf_layers
-        all_layers = _pdf_layers.without_letters(_pdf_layers.page_layers(self.doc, page_idx), self._letters_off)
+        # las capas que ya leyó la interpretación de la hoja (`ventana_interpretar`; las MISMAS que `page_layers`):
+        # leerlas otra vez aquí trababa la ventana ~14 s en la compuesta de DU06 (reporte 2026-11-16)
+        interp = self._interpretacion_vigente() if hasattr(self, "_interpretacion_vigente") else None
+        capas = (interp or {}).get("layers")
+        if capas is None:
+            with _busy_mod.busy(self, _tr("Leyendo las capas de la hoja…")):
+                capas = _pdf_layers.page_layers(self.doc, page_idx)
+        all_layers = _pdf_layers.without_letters(capas, self._letters_off)
         visible = [L for L in all_layers if L["name"] not in set(self.hidden_ocgs)]
         base = dict(self._roles_de_la_hoja(page_idx))
         actual = dict(base.get(utility) or {})
         if actual.get(leyenda_mapa.SUMAR_LEYENDA):
             # roles traídos de otra hoja: lo que se reconoció = lo puesto a mano + la leyenda de ésta
             page = self.doc[page_idx]
-            ley = leyenda_mapa.leer(self.doc, page) if leyenda_mapa.aplica(page) else None
+            if interp is not None and "leyenda" in interp:
+                ley = interp["leyenda"]
+            else:
+                ley = leyenda_mapa.leer(self.doc, page) if leyenda_mapa.aplica(page) else None
             if ley is not None and ley.filas:
                 asig, _amb = leyenda_mapa.asignaciones(
                     ley, {L["name"]: int(L.get("path_count") or 0) for L in all_layers})
