@@ -3521,8 +3521,8 @@ EN: dict[str, str] = {
         "Sheet without original layers: its lines are grouped by style (color and weight) and in «Sheet layers» the network's style is assigned to its utility. If the network is in an image, it needs manual drawing.",
     'Hoja sin capas: elige abajo el estilo de la red y asígnale su utilidad (o Cancelar para dibujar a mano).':
         "Sheet without layers: pick the network's style below and assign its utility (or Cancel to draw by hand).",
-    'Hoja {n} sin capas originales: sus líneas se agrupan por estilo (color y grosor). En «Capas de la hoja» asigna el estilo de la red a su utilidad. Si la red está en una imagen, requiere dibujo manual.':
-        "Sheet {n} without original layers: its lines are grouped by style (color and weight). In «Sheet layers» assign the network's style to its utility. If the network is in an image, it needs manual drawing.",
+    'Hoja {n} sin capas originales: sus líneas se agrupan por estilo (color y grosor). En el editor, panel Reconocer → «Capas y estilos…», asigna el estilo de la red a su utilidad. Si la red está en una imagen, requiere dibujo manual.':
+        "Sheet {n} without original layers: its lines are grouped by style (color and weight). In the editor, Recognize panel → «Layers and styles…», assign the network's style to its utility. If the network is in an image, it needs manual drawing.",
     'La escala no se leyó del plano o puede no ser la real (un PDF impreso reducido). Calíbrala en «Capas de la hoja» con una distancia conocida: los radios y largos dependen de ella.':
         'The scale was not read from the plan or may not be the real one (a PDF printed reduced). Calibrate it in «Sheet layers» with a known distance: radii and lengths depend on it.',
     'Se asignan por su nombre o por tus decisiones en «Capas de la hoja». «Ajustar capas…» permite modificarlas.':
