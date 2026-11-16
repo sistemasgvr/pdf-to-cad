@@ -66,6 +66,11 @@ def es_capa_valvula(ocg: Optional[str]) -> bool:
     return bool(_CAPA.search(short)) and not any(t in short for t in _NO_CAPA)
 
 
+def es_fila_valvula(texto: Optional[str]) -> bool:
+    """¿La fila de la leyenda del mapa dice válvula? (la misma regla de `_de_leyenda`)."""
+    return bool(_FILA.search(texto or ""))
+
+
 def utilidad_de_capa(ocg: Optional[str]) -> str:
     partes = re.split(r"[-_]", rec.standard_short_name(ocg))
     return next((u for s, u in _SISTEMAS if s in partes), "")

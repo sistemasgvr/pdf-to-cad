@@ -181,11 +181,12 @@ you never need to scroll sideways.</p>
 from drawing them. When you open it, the app checks whether it is a CAD plan or a scan; if it is
 not sure, it asks you. A scan (or a traced plan without text or layers) goes through «Compose
 sheet» and then to manual drawing (see «Image or scanned PDF» below).</p>
-<p>The assistant has <b>3 steps</b>. At the top of each screen you will see
-<b>1 Compose sheet › 2 Sheet layers › 3 Preview</b>: the current step is highlighted and earlier
-steps can be clicked to <b>go back</b> without losing your work. At the bottom, across the whole
-width, are the view options (such as <b>Opacity</b>) and the <span class="btn">Cancel</span> and
-<span class="btn">Continue</span> buttons. The <b>Esc</b> key does not close these windows (it only
+<p>Opening the PDF has <b>a single step</b>: <b>Compose sheet</b>. When you accept it you go <b>straight to
+the editor</b> with the sheet in view and can start working right away. Meanwhile the app <b>interprets the
+sheet in the background</b> (layers, legend, line letters, styles, symbols and labels; a small card in the
+lower right corner shows the stage) and fills the <b>Recognize</b> panel on the left rail. <b>Nothing is
+recognized on its own</b>: you choose what to recognize and when, with the ▶ button of each row (see
+«Recognizing from the editor» below). In «Compose sheet» the <b>Esc</b> key does not close the window (it only
 clears a highlight): to leave, use <span class="btn">Cancel</span>.</p>
 <p>When a step takes a few seconds (large sheets, several pieces, many utilities), a <b>card in the
 lower right corner</b> shows what the app is doing, the stage and a progress bar (for example «Building
@@ -197,7 +198,7 @@ in a <b>separate process</b> at low priority: the computer and the window keep r
 when it finishes the memory goes back to the system. While recognizing, progress is shown in a
 card in the corner of the plan, without dimming the window: it shows the utility and the layer being
 read («Water (1 of 2) · layer 3 of 8»), lines are drawn on the sheet as they are found (they are
-provisional: what gets imported is what the preview shows) and you can zoom and pan the plan;
+provisional: when it finishes, what was recognized goes into the editor) and you can zoom and pan the plan;
 everything else is paused until it finishes. <span class="btn">Cancel</span> or <b>Esc</b> stops it
 at once. If a sheet
 needs more memory than is free, the app tells you: compose fewer sheets or recognize fewer
@@ -298,7 +299,7 @@ map names sheets that are in <b>another PDF in the same folder</b> (Phoenix «�
     redrawn sharp; everything else works the same. Building it and reading its layers takes a few
     seconds per sheet. Zooming is smooth at any size: the sharp image is drawn in tiles in the
     background.</li>
-<li><span class="btn">Continue</span> goes to step 2.</li>
+<li><span class="btn">Continue</span> loads the sheet in the editor; interpretation goes on in the background.</li>
 </ol>
 
 <h2>Image or scanned PDF: composing by hand</h2>
@@ -342,7 +343,12 @@ editor to draw by hand or recognize it anyway.</p>
 </ul>
 <p>The ruler and the protractor are aids: they do not appear on the editor sheet or in the DXF.</p>
 
-<h2>2. Sheet layers</h2>
+<h2>2. Layers and styles</h2>
+<p>It is no longer a required step: open it from the <b>Recognize</b> panel with
+<span class="btn">Layers and styles…</span> (or from a row's ⋯ menu, which opens it on that utility). It takes
+the center of the window and shows what «Sheet layers» used to show; with <span class="btn">Apply</span> the
+changes stay on the sheet and the rows they affect say so («Changed · recognize again»). What follows
+describes its parts.</p>
 <ul>
 <li><b>Recognize:</b> check which utilities the app should read (Electrical, Storm drain, Water,
     Sewer, Gas and Telecom). They all come checked; <b>All</b> checks or unchecks them at once.
@@ -489,12 +495,12 @@ editor to draw by hand or recognize it anyway.</p>
 <li><b>Opacity</b> lightens the plan (and switches the background to white or black), just like in
     the editor.</li>
 <li>If the sheet has several pages, <b>◀ Sheet N / M ▶</b> changes sheet without leaving.</li>
-<li>To go back to step 1, click <b>1 Compose sheet</b> in the bar at the top;
-    <span class="btn">Continue</span> recognizes the sheet and opens step 3. If you cancel here, the sheet is loaded in the editor
-    without recognition, so you can draw by hand.</li>
+<li><span class="btn">Apply</span> keeps the changes on the sheet (nothing is recognized on its own: then press ▶ on the row); closing without applying changes nothing.</li>
 </ul>
 
-<h2>3. Recognition preview</h2>
+<h2>3. Preview of a row</h2>
+<p>It is not required either: the <b>eye</b> button of each row in the Recognize panel opens it with what was
+recognized for that part. Use it to review before or after importing, with its <b>To check</b> points.</p>
 <p>In water networks, perpendicular meter branches connect with tees even when they
 meet the edge of a gap in the line pattern: the main stays continuous.
 Recognize a previously processed sheet again to apply this correction.</p>
@@ -532,9 +538,7 @@ Recognize a previously processed sheet again to apply this correction.</p>
     <span class="btn">Adjust layers…</span> is only needed if the plan uses other layer names:
     there you say which are lines and which are vaults (also if you disagree with a line that was
     recognized by its letters: what you choose there rules).</li>
-<li><span class="btn">Continue and import into the editor</span> adds them to the project as
-    pipes; <span class="btn">Cancel</span> leaves the sheet in the editor, without lines (if you
-    already had lines in the editor and came back to compose, it leaves it as it was).</li>
+<li>What it shows goes into the editor with its row's ▶ (or already did, if you opened it afterwards): on top of what is there, in a single Undo step.</li>
 <li><b>Abandoned</b> lines are imported marked <b>(AB)</b>: those on the «-A» layer with «/»
     marks, and any line with double «//» marks.</li>
 <li>Curved <b>bends</b> on the plan are imported with their real radius, including very open
@@ -589,13 +593,34 @@ Recognize a previously processed sheet again to apply this correction.</p>
     poles and proposed structures.</li>
 </ul>
 
-<h2>Recognize more layers without losing your drawing</h2>
-<p>With pipes already imported and the canvas advanced, use <b>Sheet and PDF → Recognize more layers on
-this sheet…</b> (or the Tools menu) to recognize other layers of the same sheet. The wizard starts at
-<b>Sheet layers</b>, with the utilities not yet in the editor checked. On import, what was recognized is
-added <b>on top</b> of what is there: what you drew or edited by hand does not change and lines already
-drawn are not repeated. Ctrl+Z undoes it, and Cancel at any step leaves the editor as it was. For another
-sheet or composition use <b>Compose working sheet…</b>.</p>
+<h2>Recognizing from the editor</h2>
+<p>The <b>Recognize</b> panel (left rail) has one row for each thing the app can read from the sheet:
+<b>Electrical, Storm drain, Water, Sewer, Gas, Telecommunications</b>, <b>Valves</b>, <b>Diameters</b> and
+<b>Plan labels</b>. Each row shows its state: <b>pending</b> (ready to recognize), <b>not available</b> with
+the reason (for example «There are no layers for this utility on the sheet» or «All of its layers are
+hidden»), <b>Recognizing…</b>, <b>Recognized · N</b> or <b>Changed · recognize again</b> if you later changed
+its layers or styles.</p>
+<ul>
+<li><b>▶ Recognize</b> reads that part <b>in the background</b> and imports it <b>on top</b> of what is there:
+    what you drew or edited by hand does not change and lines already drawn are not repeated. Each ▶ is one
+    Undo step (Ctrl+Z). <span class="btn">Cancel</span> or <b>Esc</b> stop it and the editor stays as it
+    was.</li>
+<li><span class="btn">Recognize all</span> runs every available row in order: utilities, valves, diameters and
+    labels.</li>
+<li>A utility already recognized can be recognized again: the app asks whether to <b>replace</b> (it removes
+    only that utility's lines that came from recognition, never the ones drawn by hand) or <b>add</b>.</li>
+<li><b>Valves</b> needs the lines of its network first. <b>Diameters</b> uses the labels and profiles of the
+    utilities already recognized; its row says which are missing and, afterwards, how many pipes were left
+    <b>doubtful</b> or <b>without data</b>. <b>Plan labels</b> brings the labels with a leader; its ⋯ menu
+    offers <b>Read unreadable labels with the AI…</b>.</li>
+<li>Each row's ⋯ opens <b>Layers and styles…</b> on that utility, <b>Adjust layers…</b> and <b>Join
+    segments</b>. The eye opens its preview; <b>N to check</b> gathers the points to review.</li>
+<li>The sheet is read <b>only once</b>: every ▶ reuses that reading, so recognizing by parts gives exactly the
+    same result as recognizing everything at once.</li>
+<li>The panel state is saved in the project. A project from an earlier version opens with what was already
+    imported as «recognized» and the <span class="btn">Interpret the sheet</span> button to read the rest. A
+    scanned sheet has nothing to recognize: you draw it by hand.</li>
+</ul>
 
 <h2>Adding another utility from its own PDF</h2>
 <p>Sometimes each utility comes in its own PDFs (for example the Phoenix maps: two PDFs for water,
@@ -609,11 +634,12 @@ offers to add the other one of the same utility too.</p>
     another order or rotated. The new sheet is built <b>traced</b> on the editor sheet: same area,
     same place, same size.</li>
 <li>As when opening a PDF, <b>Compose sheet</b> opens with the placed sheets already checked: uncheck
-    the ones you do not want or take only an area, and go on with <b>Sheet layers</b> and <b>Preview</b>.
-    Each sheet goes back to its place on its own. The utilities already in the editor are not checked.</li>
-<li>When you import, the editor sheet shows <b>both PDFs together</b> and what was recognized is
-    added to what you already had. What was there <b>does not move or change</b> (lines, manholes,
-    Undo, georeferencing). <span class="btn">Cancel</span> in any step leaves the editor as it was.</li>
+    the ones you do not want or take only an area. Each sheet goes back to its place on its own.</li>
+<li>When you accept, the editor sheet shows <b>both PDFs together</b>, the new sheet is interpreted and its
+    rows appear in the <b>Recognize</b> panel: each ▶ recognizes on the new PDF's sheet and what was
+    recognized is added to what you already had. What was there <b>does not move or change</b> (lines,
+    manholes, Undo, georeferencing). <span class="btn">Cancel</span> in «Compose sheet» leaves the editor as
+    it was.</li>
 <li>If you go back to <b>Compose sheet</b> in this mode, you choose which sheets and areas to use;
     where each sheet goes is set by its base map (moving it by hand does not change where it falls).</li>
 <li>If the PDF does not draw the same base map as the editor sheet (other cartography, another
@@ -636,16 +662,12 @@ manager: one row per layer with its light bulb. Clicking the row turns it on or 
 are off.</p>
 
 <h2>Composing again later</h2>
-<p><b>Sheet and PDF → Compose work sheet…</b> opens step 1 again, on the PDF and sheet you were
-working on, and repeats steps 2 and 3 with the new sheet. Everything is saved in the project
-(.digproj), including the source PDFs.</p>
-<p>If you continue without changing anything (not the composition, the layers or the utilities),
-the preview opens instantly with the previous recognition: it stays in memory while the project
-is open. Any change in those steps is enough for the sheet to be recognized again.</p>
-<p>What you already have in the editor is not lost until you import: <span class="btn">Cancel</span>
-in any of the three steps (or an error while recognizing) leaves the editor <b>exactly as it
-was</b>, with the same sheet, its lines, Undo and unsaved changes. Only
-<span class="btn">Continue and import into the editor</span> replaces what was there.</p>
+<p><b>Sheet and PDF → Compose working sheet…</b> opens «Compose sheet» again, on the PDF and sheet you were
+working on; when you accept a different composition, the new sheet is loaded and interpreted and the
+Recognize panel starts over. Everything is saved in the project (.digproj), including the source PDFs.</p>
+<p>If you accept without changing anything, the editor stays as it was (what was recognized and the panel are
+kept), and a ▶ with no change in the sheet or its layers instantly reuses the previous recognition.
+<span class="btn">Cancel</span> leaves the editor <b>exactly as it was</b>.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
 <b>Tip:</b> if something is not recognized, you can always draw it by hand (next chapter).

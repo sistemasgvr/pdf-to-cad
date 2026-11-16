@@ -389,8 +389,6 @@ EN: dict[str, str] = {
     "Hoja {n} / {total}": "Sheet {n} / {total}",
     "Todas": "All",
     "Otras": "Other",
-    "Reconocimiento cancelado — hoja cargada con las capas elegidas.":
-        "Recognition cancelled — sheet loaded with the chosen layers.",
     "Capa": "Layer",
     "Trazos": "Paths",
     "Rol": "Role",
@@ -428,8 +426,6 @@ EN: dict[str, str] = {
     "Ajustar capas…": "Adjust layers…",
     "Solo si el plot usa otros nombres: indicar qué capas son líneas y bóvedas.":
         "Only if the plot uses other names: say which layers are lines and vaults.",
-    "Cambio de hoja cancelado — se mantiene la hoja {n}.":
-        "Sheet change cancelled — sheet {n} is kept.",
     "Abandonadas (AB): {a}.": "Abandoned (AB): {a}.",
     "Unir tramos en rutas": "Join segments into routes",
     "En cada cruce sigue de frente; el ramal empieza otra ruta. "
@@ -968,8 +964,6 @@ EN: dict[str, str] = {
         "Recognition cancelled — the editor is left as it was.",
     "La hoja compuesta no cambió — el editor queda como estaba.":
         "The composite sheet did not change — the editor is left as it was.",
-    "No hay tramos reconocidos para importar — el editor queda como estaba.":
-        "There are no recognized segments to import — the editor is left as it was.",
     "Organizar hojas":
         "Arrange sheets",
     "Abre un PDF para organizar sus hojas.":
@@ -1007,17 +1001,7 @@ EN: dict[str, str] = {
     "Ocurrió un error al ejecutar la acción.": "An error occurred while running the action.",
     "Cierra este aviso y vuelve a intentar la acción. Si se repite, comparte los detalles del error.":
         "Close this message and try the action again. If it happens again, share the error details.",
-    "Reconocimiento interrumpido": "Recognition interrupted",
-    "No se pudo completar el reconocimiento de las capas.": "The layer recognition could not be completed.",
-    "Puedes volver a intentar esta acción o cancelar para regresar al editor.":
-        "You can try this action again or cancel to return to the editor.",
     "Registro: {p}": "Log: {p}",
-    "Reconocimiento listo, pero no hay imagen de la hoja para la vista previa.":
-        "Recognition finished, but there is no sheet image for the preview.",
-    "Reconocimiento cancelado — editor vacío.":
-        "Recognition cancelled — empty editor.",
-    "Sin cambios en la hoja ni en sus capas: se usa el reconocimiento anterior.":
-        "No changes to the sheet or its layers: the previous recognition is reused.",
     "Codos como esquina + radio (CV): {c}.":
         "Bends as corner + radius (CV): {c}.",
     "Quiebres como curva de radio mínimo: {q}.":
@@ -2138,12 +2122,6 @@ EN: dict[str, str] = {
         "Building the composite sheet…",
     "{n} piezas · vectores, capas y textos intactos":
         "{n} pieces · vectors, layers and text kept intact",
-    "Hoja {n} · leyendo las líneas y estructuras de cada capa":
-        "Sheet {n} · reading the lines and structures of each layer",
-    "Hoja {p} · {u} ({i} de {n})":
-        "Sheet {p} · {u} ({i} of {n})",
-    "Importando al editor…":
-        "Importing into the editor…",
     "Preparando la vista previa…":
         "Preparing the preview…",
     "Dibujando lo reconocido sobre la hoja":
@@ -2172,8 +2150,6 @@ EN: dict[str, str] = {
         "Utility #{n}",
     "{n} rutas ({m} tramos) de {u}":
         "{n} routes ({m} segments) of {u}",
-    "¿Qué utilidad quieres ajustar?":
-        "Which utility do you want to adjust?",
 
     # ── composite_dialog.py (rama dev_santos_v2) ──
     "Hoja {n} · sin capas":
@@ -3712,7 +3688,6 @@ EN: dict[str, str] = {
     'Vista provisional · {p} %': 'Provisional preview · {p}%',
     '{p} %': '{p}%',
     'Preparando la revisión de esta línea…': 'Preparing the review of this line…',
-    'Hoja {p} · {u} ({i} de {n}) · capa {k} de {m}': 'Sheet {p} · {u} ({i} of {n}) · layer {k} of {m}',
     'La hoja necesita más memoria de la que hay libre en el equipo. Prueba con menos hojas en la composición, menos utilidades a la vez o cerrando otros programas.':
         'The sheet needs more memory than this computer has free. Try fewer sheets in the composition, '
         'fewer utilities at a time, or closing other programs.',
@@ -4551,19 +4526,9 @@ EN: dict[str, str] = {
     'Área sugerida:': 'Suggested area:',
     'Otra vista ({i}/{n})': 'Another view ({i}/{n})',
     'Sigue su borde inclinado (esquinas libres).': 'It follows its slanted border (free corners).',
-    # «Reconocer más capas de esta hoja…» (ventana_reconocer_mas)
-    'Reconocer más capas': 'Recognize more layers',
-    'Reconocer más capas de esta hoja…': 'Recognize more layers on this sheet…',
-    'Sin perder lo dibujado: lo nuevo entra encima': 'Without losing the drawing: new lines are added on top',
-    'Abre primero un PDF vectorial con capas.': 'Open a vector PDF with layers first.',
-    'La hoja del editor es un PDF imagen/escaneo: no tiene capas que reconocer.':
-        'The editor sheet is an image/scanned PDF: it has no layers to recognize.',
-    'Se cambió la hoja durante el asistente: lo reconocido no corresponde a la hoja del editor. Para trabajar sobre otra hoja usa «Componer hoja de trabajo…».':
-        'The sheet changed during the wizard: what was recognized does not match the editor sheet. To work on another sheet use “Compose working sheet…”.',
-    'No hay tramos nuevos para importar — el editor queda como estaba.':
-        'No new segments to import — the editor stays as it was.',
+    # lo reconocido que ya está dibujado (ventana_importar_parte)
     'Ya dibujadas en el editor (no se repiten): {n}.': 'Already drawn in the editor (not repeated): {n}.',
-    'Capas agregadas a lo que ya había en el editor': 'Layers added to what was already in the editor',
+    'No se pudo armar la hoja de la utilidad agregada.': 'The sheet of the added utility could not be built.',
     # «Agregar utilidad desde otro PDF…» (ventana_agregar, hoja_calcada)
     'Leyendo el mapa base de las hojas nuevas…': 'Reading the base map of the new sheets…',
     'Buscando dónde cae cada hoja sobre la hoja del editor…': 'Finding where each sheet falls on the editor sheet…',
@@ -4588,13 +4553,10 @@ EN: dict[str, str] = {
     'Agregar utilidad cancelado — el editor queda como estaba.': 'Add utility cancelled — the editor stays as it was.',
     'No se pudo ubicar el PDF sobre la hoja del editor:\n\n{e}': 'The PDF could not be placed on the editor sheet:\n\n{e}',
     'La hoja necesita más memoria de la que hay libre en el equipo.': 'The sheet needs more memory than is free on this computer.',
-    '{n} de {t} hojas de la hoja del editor ubicadas en «{pdf}» por su mapa base.':
-        '{n} of {t} sheets of the editor sheet found in «{pdf}» by their base map.',
     '{n} hoja(s) no coinciden con ninguna hoja del editor (su mapa base no está en la hoja) y no se usan: {lista}.':
         '{n} sheet(s) do not match any sheet of the editor (their base map is not on the sheet) and are not used: {lista}.',
     'Ninguna de las hojas elegidas coincide con la hoja del editor.': 'None of the chosen sheets matches the editor sheet.',
     'No se pudo armar la hoja con las dos utilidades:\n\n{e}': 'The sheet with both utilities could not be built:\n\n{e}',
-    'Utilidad agregada a la hoja del editor': 'Utility added to the editor sheet',
     'Armando la hoja con las dos utilidades…': 'Building the sheet with both utilities…',
     'La hoja combinada no mide lo mismo que la del editor.': 'The combined sheet does not have the same size as the editor sheet.',
     # avance de la importación y de la vista previa (sin trabar la ventana con hojas grandes)
@@ -5849,4 +5811,97 @@ EN: dict[str, str] = {
         'Surface removed: {n} (Ctrl+Z brings it back).',
     'LandXML o GeoTIFF · viajan a Civil 3D':
         'LandXML or GeoTIFF · they go to Civil 3D',
+    'No hay capas de esta utilidad en la hoja.':
+        'There are no layers for this utility on the sheet.',
+    'Todas sus capas están ocultas.':
+        'All of its layers are hidden.',
+    'Asigna al menos un estilo de trazo a esta utilidad.':
+        'Assign at least one stroke style to this utility.',
+    'No se encontraron válvulas en la hoja.':
+        'No valves were found on the sheet.',
+    'No hay rótulos con guía en la hoja.':
+        'There are no labels with a leader on the sheet.',
+    'Reconoce antes al menos una utilidad: {faltan}.':
+        'Recognize at least one utility first: {faltan}.',
+    'Leyendo las capas y la leyenda de la hoja…': 'Reading the layers and legend of the sheet…',
+    'Leyendo las letras de las líneas…': 'Reading the letters of the lines…',
+    'Buscando los símbolos de válvulas…': 'Looking for valve symbols…',
+    'Contando los rótulos del plano…': 'Counting the labels of the plan…',
+    'Leyendo la escala del plano…': 'Reading the scale of the plan…',
+    'Reconoce antes al menos una utilidad.': 'Recognize at least one utility first.',
+    'Reconoce antes las líneas de su red.': 'Recognize the lines of its network first.',
+    'Interpreta la hoja antes de reconocer.': 'Interpret the sheet before recognizing.',
+    'Ya se está reconociendo.': 'It is already being recognized.',
+    'Más opciones': 'More options',
+    'Capas y estilos…': 'Layers and styles…',
+    'Reconocer de nuevo': 'Recognize again',
+    'Sin interpretar': 'Not interpreted',
+    'Reconociendo…': 'Recognizing…',
+    'Reconocida · {n}': 'Recognized · {n}',
+    'Cambió · reconocer de nuevo': 'Changed · recognize again',
+    '{n} por verificar': '{n} to check',
+    'No se pudo reconocer.': 'Could not be recognized.',
+    '1 símbolo': '1 symbol',
+    '{n} símbolos': '{n} symbols',
+    '1 rótulo': '1 label',
+    '{n} rótulos': '{n} labels',
+    'Con las utilidades reconocidas': 'With the recognized utilities',
+    'Aún sin reconocer: {faltan}.': 'Not recognized yet: {faltan}.',
+    '1 dudosa': '1 uncertain',
+    '{n} dudosas': '{n} uncertain',
+    '{n} sin dato': '{n} with no data',
+    '1 estilo': '1 style',
+    '{n} estilos': '{n} styles',
+    'No se puede': 'Not possible',
+    'Reconocida': 'Recognized',
+    'Desactualizada': 'Out of date',
+    'Reconocer todo': 'Recognize all',
+    'Importar': 'Import',
+    'Revisado': 'Reviewed',
+    'No hay nada por verificar en esta fila.': 'There is nothing to verify in this row.',
+    'No hay nada que mostrar de esta parte.': 'There is nothing to show for this part.',
+    'Interpretar la hoja': 'Interpret the sheet',
+    'Hoja escaneada: no hay nada que reconocer.': 'Scanned sheet: there is nothing to recognize.',
+    'La hoja aún no está interpretada.': 'The sheet has not been interpreted yet.',
+    '{k} de {n} reconocidas': '{k} of {n} recognized',
+    'Último: {p} · {n}': 'Last: {p} · {n}',
+    'Más': 'More',
+    'No hay nada que reconocer en la hoja.': 'There is nothing to recognize on the sheet.',
+    '{u} ya está reconocida. ¿Qué hago con lo que ya está en el plano?':
+        '{u} is already recognized. What should I do with what is already on the plan?',
+    'Reemplazar quita las líneas reconocidas de {u}, también los cambios que les hiciste. Lo dibujado a mano no se toca.':
+        'Replace removes the recognized lines of {u}, including the changes you made to them. '
+        'What you drew by hand is not touched.',
+    'Reemplazar lo reconocido': 'Replace what was recognized',
+    'Agregar solo lo que falta': 'Add only what is missing',
+    'Sin cambios: se usa el reconocimiento anterior.': 'No changes: the previous recognition is used.',
+    'Hoja {n} · en segundo plano': 'Sheet {n} · in the background',
+    '{u} · capa {k} de {m}': '{u} · layer {k} of {m}',
+    'No se pudo reconocer {u}: {e}': 'Could not recognize {u}: {e}',
+    'Capas y estilos': 'Layers and styles',
+    'Abre primero un PDF vectorial.': 'Open a vector PDF first.',
+    'La hoja no tiene capas ni estilos de trazo que elegir.': 'The sheet has no layers or line styles to choose.',
+    'Pulsa una línea del PDF para identificar y resaltar su capa. Casilla = mostrar · ▸ = capa por capa':
+        'Click a line of the PDF to identify and highlight its layer. Checkbox = show · ▸ = layer by layer',
+    # flujo de apertura nuevo (ventana_interpretar, Tarea 9 del plan 2026-11-16)
+    'Interpretando la hoja…': 'Interpreting the sheet…',
+    'Capas, letras, leyenda, estilos, símbolos y rótulos · en segundo plano':
+        'Layers, letters, legend, styles, symbols and labels · in the background',
+    'Interpretación cancelada: pulsa «Interpretar la hoja» en el panel Reconocer para volver a leerla.':
+        'Interpretation cancelled: press «Interpret the sheet» in the Recognize panel to read it again.',
+    'La interpretación no devolvió nada.': 'The interpretation returned nothing.',
+    'Hoja interpretada: {n} filas listas para reconocer en el panel Reconocer.':
+        'Sheet interpreted: {n} rows ready to recognize in the Recognize panel.',
+    'No se pudo interpretar la hoja: {e}. Pulsa «Interpretar la hoja» en el panel Reconocer para intentarlo otra vez.':
+        'Could not interpret the sheet: {e}. Press «Interpret the sheet» in the Recognize panel to try again.',
+    'Hoja cargada en el editor. Reconoce cada utilidad desde el panel Reconocer.':
+        'Sheet loaded in the editor. Recognize each utility from the Recognize panel.',
+    '«{pdf}» quedó junto a la hoja del editor. Reconoce su utilidad desde el panel Reconocer.':
+        '«{pdf}» was placed with the editor sheet. Recognize its utility from the Recognize panel.',
+    'Cambiar la escala': 'Change the scale',
+    '¿Cambiar la escala de la hoja? Ya hay utilidades en el plano.':
+        'Change the sheet scale? There are already utilities on the plan.',
+    'Con otra escala cambian los largos y las medidas en pies de lo que ya está dibujado.':
+        'With another scale the lengths and measurements in feet of what is already drawn change.',
+    'Dejar la escala de antes': 'Keep the previous scale',
 }

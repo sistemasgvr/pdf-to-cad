@@ -120,22 +120,21 @@ def test_todo_escaneado_pregunta(app, monkeypatch, respuesta, manual):
         dlg.close_docs()
 
 
-def test_flujo_con_mezcla_va_a_capas(monkeypatch):
+def test_flujo_con_mezcla_va_al_editor_y_se_interpreta(monkeypatch):
+    """Una hoja con piezas vectoriales no va al dibujo a mano: se carga y se INTERPRETA para el panel «Reconocer»
+    (antes iba a «Capas de la hoja»; plan 2026-11-16, Tarea 9)."""
     from ui.ventana import app_window
     comp = C.Composite([C.Piece(0, 0, [0, 0, 1, 1]), C.Piece(1, 0, [0, 0, 1, 1], x=400)])
     monkeypatch.setattr(app_window.composite_dialog, "compose_sheet", lambda *a, **kw: (comp, [], {}))
-    class _Capas(Exception):
-        pass
-
-    def _a_capas(*a, **kw):
-        raise _Capas()
+    interpretadas = []
     win = SimpleNamespace(src_pdfs=[], composite=None, hidden_ocgs_by_source={}, page_idx=0,
-                          _apply_composite=lambda: None, _info=lambda msg: None,
-                          _firma_compuesta=lambda *a: None, _firma_hoja=lambda i: None, doc=None,
-                          _layout_minimapa=_a_capas)       # lo primero que pide el paso «Capas»
-    with pytest.raises(_Capas):
-        Main._wizard_sheet_flow(win, 0)                      # una hoja con piezas vectoriales no se salta Capas
-    assert not getattr(win, "_dirty", False)
+                          canvas=SimpleNamespace(pixmap_item=None), _respaldo=None,
+                          _apply_composite=lambda: None, _info=lambda msg: None, _soltar_pasos=lambda: None,
+                          _refrescar_panel_reconocer=lambda: None,
+                          _interpretar_hoja=lambda: interpretadas.append(1))
+    assert Main._wizard_sheet_flow(win, 0)
+    assert interpretadas == [1] and win._dirty
+    assert not getattr(win, "_reconocer_escaneo", False)
 
 
 def test_panel_hoja_un_solo_componer(qtbot=None):

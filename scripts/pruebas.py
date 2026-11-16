@@ -42,7 +42,7 @@ GRUPOS = {
     "capas": ["test_layer_dialog", "test_layer_legend", "test_layer_standard", "test_leyenda_cruce",
               "test_leyenda_estandar", "test_pdf_layers", "test_organized_layers", "test_organized_recognition",
               "test_recognition_dialog", "test_recognition_summary", "test_recognition_cache",
-              "test_respaldo_editor"],
+              "test_respaldo_editor", "test_interpretar_hoja", "test_importar_parte", "test_reconocer_fila"],
     # reconocimiento de planos CAD (núcleo geométrico, curvas, bóvedas, letras)
     "reconocimiento": ["test_recognition", "test_recognition_geom", "test_recognition_arcs", "test_recognition_ends",
                        "test_recognition_letters", "test_recognition_no_inventar", "test_recognition_text_gaps",

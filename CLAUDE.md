@@ -709,6 +709,22 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     (HEAD → nuevo): agua mismas tuberías + acometidas (South h.4: 151 + 404, 0 a >1 pt de la tinta al importar);
     Water North h.1/4/10 de 0 líneas a 145/143/106 (la leyenda ya se lee); alcantarillado mismas líneas, buzones
     sin línea 33→4, 37→4. Tests: `tests/test_mapas_leyenda.py`.
+  - **Reconocimiento desde el editor** (2026-11-16, plan/spec `docs/superpowers/{plans,specs}/2026-11-16-reconocimiento-desde-el-editor*`): abrir un PDF
+    vectorial = «Componer hoja» → editor (`_wizard_sheet_flow`), SIN «Capas de la hoja» ni vista previa obligatoria. La hoja se
+    INTERPRETA en segundo plano (`ventana_interpretar.InterpretarMixin._interpretar_hoja` → `hoja/interpretar_trabajo:interpretar` en el
+    trabajador `proceso.RETENEDOR` «reconocer», que RETIENE la lectura de la hoja por firma: `reconocimiento/lectura_retenida`; nunca a disco)
+    y llena `Main.reconocer_estado` (`nucleo/reconocer_estado`, PURO: filas utilidades + VALVULAS/DIAMETROS/ROTULOS con estado
+    sin_interpretar|pendiente|bloqueada|reconociendo|reconocida|desactualizada|error). Panel del riel `ui/comun/panel_reconocer` +
+    `ventana_reconocer`; cada ▶ = `ventana_reconocer_cola.reconocer_parte` → `recognition_trabajo.reconocer_parte` (el MISMO código de
+    `reconocer_hoja`; por partes = de una vez, `scripts/rendimiento/partes.py`) e importa ENCIMA (`ventana_importar_parte`: un `_push`, sin
+    repetir lo dibujado, `pipe["reconocida"]`; reemplazar quita solo lo reconocido). «Capas y estilos…» (`ventana_capas_estilos`,
+    `SheetLayersDialog` modo editor) y el 👁 (`ventana_reconocer_vista`) desde el panel. ◀ ▶ y «Agregar utilidad» interpretan (la hoja
+    calcada va en `Main._rec_hoja`; su temporal se borra tras soltar la lectura). Se guarda en el .digproj (`model["reconocer"]`,
+    `hoja/interpretacion_guardada`, solo clases permitidas); proyecto viejo = lo importado «reconocida» + «Interpretar la hoja». Ya no
+    existen `_start_recognition`/`RecognitionWorker` en la ventana ni «Reconocer más capas…» (`nucleo/reconocer_mas` sigue: quitar
+    repetidas). Escaneos: igual que antes. Tests: `test_flujo_abrir_interpretar`, `test_reconocer_*`, `test_importar_parte`,
+    `test_lectura_retenida`, `test_interpretar_hoja`, `test_panel_reconocer`, `test_capas_estilos_editor`. Medido DU06 (2026-11-16): editor
+    usable 1.4 s, 0 diferencias en 7 hojas + compuesta de 14 (`docs/rendimiento/2026-11-16-linea-base-reconocer.md`).
   - **Paneles del asistente sin amontonar** (reporte 2026-11-04, «Capas de la hoja» sin capas: Utilidad y Rol encimados): Qt no cuenta el alto de un texto partido en líneas, así que un panel sin desplazamiento aplasta sus controles aunque la ventana tenga mínimo. El panel de `SheetLayersDialog` y el de `OrganizedLayersDialog` van en `NaturalHeightScroll` y su lista con alto mínimo (`ARBOL_MIN_PX`); en hoja sin capas, «Reconocer» solo lista las utilidades con estilo. `tests/test_asistente_sin_amontonar.py` abre los pasos a tamaños reales con el tema de verdad y falla si dos hermanos de un layout se pisan o un control queda más bajo de lo que necesita: un panel nuevo del asistente se suma ahí.
   - **Copiloto del proyecto, Bloque 1** (2026-11-04, `docs/superpowers/specs/2026-11-04-copiloto-bloque1-design.md`): en el
     Chat del Asistente. `ia/copiloto_intencion` (frase → estado/revision/conflictos, sin modelo; `enviar` pregunta ANTES de

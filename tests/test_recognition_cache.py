@@ -96,34 +96,35 @@ def test_unir_tramos_se_aplica_al_resultado_guardado():
 
 # ───────────────────── en la ventana real (Qt offscreen) ─────────────────────
 
-class _FakeWorker(QtCore.QObject):
-    """Reemplaza a `RecognitionWorker`: cuenta cuántas veces se reconoce."""
-    done = QtCore.Signal(object, str)
-    progress = QtCore.Signal(int, int, str)
-    started = []
+class _FakeTrabajador:
+    """Reemplaza al trabajador «reconocer»: cuenta cuántas veces se reconoce (el ▶ del panel «Reconocer»)."""
 
-    def __init__(self, pdf_path, page_index, **kw):
-        super().__init__()
-        self.page_index = page_index
-        self.kw = kw
+    def __init__(self):
+        self.tareas = []
 
-    def start(self):
-        _FakeWorker.started.append(self)
-        res = rec.RecognitionResult("ELECTRICO", self.page_index, 20 / 72.0, polylines=["j"],
-                                    polylines_joined=["j"], polylines_raw=["r"])
-        self.done.emit([res], "")
+    def enviar(self, t):
+        self.tareas.append(t)
+        res = [rec.RecognitionResult("ELECTRICO", t.args[1], 20 / 72.0, polylines=["j"],
+                                     polylines_joined=["j"], polylines_raw=["r"])]
+        t._dueno = self
+        QtCore.QTimer.singleShot(0, lambda: t._fin(res, ""))
+        return t
+
+    def cancelar(self, t):
+        t._fin(None, "cancelado")
 
 
 @pytest.fixture
 def win(monkeypatch):
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    from ui.comun import theme
+    from ui.comun import theme, proceso
     theme.save_preference = lambda *_a, **_k: None          # no tocar QSettings del usuario
     from ui.ventana import app_window
     monkeypatch.setattr(app_window.Main, "_run_recognition_wizard", lambda self: None)
-    monkeypatch.setattr(app_window, "RecognitionWorker", _FakeWorker)
-    _FakeWorker.started = []
+    falso = _FakeTrabajador()
+    monkeypatch.setattr(proceso, "trabajador", lambda nombre="principal": falso)
     w = app_window.Main()
+    w._falso = falso
     img = QtGui.QImage(40, 30, QtGui.QImage.Format_RGB888); img.fill(QtGui.QColor("white"))
     w.canvas.set_image(img)
     w.src_pdfs = [{"name": "plano.pdf", "data": b"%PDF-1.7 plano"}]
@@ -136,38 +137,50 @@ def win(monkeypatch):
     app.processEvents()
 
 
+def _play(win, app):
+    """▶ de la fila Eléctrico (pendiente) y esperar a que termine."""
+    from nucleo import reconocer_estado as RE
+    e = win._rec_estado()
+    if e.filas["ELECTRICO"].estado not in ("reconocida", "desactualizada"):
+        e.filas["ELECTRICO"].estado = "pendiente"
+    win.reconocer_parte("ELECTRICO")
+    for _ in range(20):
+        app.processEvents()
+        if win._rec_actual is None:
+            break
+    assert win._rec_actual is None and RE.puede(e, "ELECTRICO")[0]
+
+
 def test_sin_cambios_no_reconoce_otra_vez(win, monkeypatch):
-    from ui.ventana import app_window
-    shown = []
-    monkeypatch.setattr(app_window.recognition_dialog, "show_recognition_preview",
-                        lambda parent, qimg, results, **kw: shown.append(list(results)) or
-                        app_window.recognition_dialog.PREVIEW_CANCEL)
+    """Desde el flujo nuevo (plan 2026-11-16, Tarea 9) la caché es por parte (`recognition_cache.clave_parte`, la del
+    ▶ del panel «Reconocer»): un ▶ repetido sin cambios no reconoce otra vez; cualquier cambio sí."""
     app = QtWidgets.QApplication.instance()
+    importados = []
+    monkeypatch.setattr(win, "importar_parte",
+                        lambda parte, res, reemplazar=False, firma=None: importados.append(res) or 0)
 
-    win._start_recognition(0)
-    assert len(_FakeWorker.started) == 1 and len(shown) == 1
-    first = shown[0][0]
+    _play(win, app)
+    assert len(win._falso.tareas) == 1 and len(importados) == 1
+    first = importados[0][0]
 
-    # Volver a componer sin cambiar nada: misma vista previa, sin otro reconocimiento.
-    win._join_routes = False                    # «Unir tramos» como lo dejó el usuario
-    win._start_recognition(0)
-    app.processEvents()
-    assert len(_FakeWorker.started) == 1 and len(shown) == 2
-    assert shown[1][0] is first and first.polylines == ["r"]
+    # Repetir sin cambiar nada: lo mismo, sin otro reconocimiento.
+    _play(win, app)
+    assert len(win._falso.tareas) == 1 and len(importados) == 2
+    assert importados[1][0].polylines == first.polylines
 
     # Un cambio (otra capa oculta) sí reconoce de nuevo.
     win.hidden_ocgs = ["C-ANNO", "C-ELEC-UNGD"]
-    win._start_recognition(0)
-    assert len(_FakeWorker.started) == 2 and shown[2][0] is not first
+    _play(win, app)
+    assert len(win._falso.tareas) == 2
 
     # Otra composición, también.
     win.hidden_ocgs = ["C-ANNO"]
     win.composite = _comp(clip=(0, 0, 0.5, 1))
-    win._start_recognition(0)
-    assert len(_FakeWorker.started) == 3
+    _play(win, app)
+    assert len(win._falso.tareas) == 3
 
     # Cerrar el proyecto olvida lo reconocido.
     monkeypatch.setattr(QtWidgets.QMessageBox, "question",
                         lambda *a, **k: QtWidgets.QMessageBox.Discard)
     win.close_project()
-    assert len(win._recog_cache) == 0
+    assert win._cache_partes is None or len(win._cache_partes) == 0

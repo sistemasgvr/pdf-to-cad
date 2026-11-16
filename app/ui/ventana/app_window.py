@@ -26,7 +26,7 @@ from ui.comun.widgets import InlineEdit, _SegInvSpinBox, _NoWheelFilter
 from ui.comun import busy as _busy_mod
 from ui.comun import en_hilo
 from ui.comun import fondo_pdf, fondo_trabajo
-from ui.comun.workers import PipelineWorker, RecognitionWorker, OrganizedRecognitionWorker
+from ui.comun.workers import PipelineWorker, OrganizedRecognitionWorker
 from ui.ventana import exportar_avance as EA
 from ui.dialogos import dialogs
 from ui.asistente import recognition_dialog
@@ -36,7 +36,6 @@ from ui.asistente import organized_recognition_dialog
 from hoja.organized_layers import selected_sheets
 from hoja.sheet_layout import normalize as normalize_sheet_layout, normalize_rotations
 from hoja.sheet_crops import normalize as normalize_sheet_crops
-from ui.asistente import layer_dialog
 from reconocimiento import recognition as _recognition
 from reconocimiento import recognition_cache
 from ui.ventana import respaldo_editor
@@ -120,7 +119,8 @@ from ui.ventana.ventana_hojas import HojasEditorMixin
 from ui.ventana.ventana_vertices import VerticesMixin
 from ui.ventana.ventana_trazo import TrazoMixin
 from ui.ventana.ventana_agregar import AgregarUtilidadMixin
-from ui.ventana.ventana_reconocer_mas import ReconocerMasMixin
+from ui.ventana.ventana_importar_parte import ImportarParteMixin
+from ui.ventana.ventana_reconocer import ReconocerMixin
 from ui.ventana.ventana_orto import OrtoPolarMixin
 from ui.ventana.ventana_texto_plano import TextoPlanoMixin
 from ui.ventana.ventana_calculo import CalculoPlanoMixin
@@ -142,7 +142,7 @@ from ui.ventana.ventana_pasos import PasosVivosMixin
 
 class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, SinAccesorioMixin, ListaAccesoriosMixin, DibujarAccesoriosMixin, SeleccionAccesorioMixin, PerfilMixin, AccionesIAMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
-           AgregarUtilidadMixin, ReconocerMasMixin, OrtoPolarMixin, TextoPlanoMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, FlujoMixin, SuperficiesMixin, ListaSuperficiesMixin, QtWidgets.QMainWindow):
+           AgregarUtilidadMixin, ImportarParteMixin, ReconocerMixin, OrtoPolarMixin, TextoPlanoMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, FlujoMixin, SuperficiesMixin, ListaSuperficiesMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"
@@ -163,14 +163,9 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         self._legend_cache = {}    # leyenda del PDF ya leída (paso «Capas»), por PDF de origen
         self._recognition_utilities = _recognition.DEFAULT_UTILITIES
         self._join_routes = True   # unir tramos de la misma capa en rutas (desactivable en el preview)
-        self._recog_ready = False  # True cuando el asistente ya reconoció una hoja de este PDF (◀ ▶ vuelven a reconocer)
-        # Reconocimientos ya hechos, por todo lo que los decide (`recognition_cache`):
-        # volver a componer/capas sin cambios abre la vista previa sin reconocer otra vez.
-        self._recog_cache = recognition_cache.RecognitionCache()
         self._src_fingerprints = recognition_cache.SourceFingerprints()
         self.texto_plano = None             # texto del plano (ventana_texto_plano)
         self._texto_plano_pendiente = None
-        self._recog_pending_key = None   # clave del reconocimiento que corre en el hilo
         self.sheet_layout = None  # hoja principal y vecinas del PDF; índices 0-based
         self.sheet_rotations = {}  # giros de vista por posición, múltiplos de 90°
         self.sheet_crops = {}  # ventana no destructiva del plano por posición
@@ -189,8 +184,6 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         self._respaldo = None
         # «Agregar utilidad desde otro PDF…» en curso (ventana_agregar); None = asistente normal
         self._agregando = None
-        # «Reconocer más capas…» en curso (ventana_reconocer_mas); None = asistente normal
-        self._reconociendo_mas = None
         self._origen_desde_fuente = None   # al importar en ese modo: datos de origen solo de las piezas nuevas
         self.pdf_path = None; self.doc = None; self.project_path = None; self.leader_hpx = 40
         # Proyecto sobre hoja en blanco (sin PDF de fondo). `paper` guarda el
@@ -282,15 +275,17 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             self._change_page(self.page_idx + 1)
 
     def _change_page(self, idx):
-        """Cambio de hoja desde el editor (◀ ▶ / nº de página). Si el asistente
-        ya reconoció una hoja de este PDF, la nueva se reconoce con las mismas
-        capas ocultas y roles (mismo PDF = mismas capas) y se muestra la vista
-        previa para importar."""
+        """Cambio de hoja desde el editor (◀ ▶ / nº de página): la hoja nueva se INTERPRETA en segundo plano y el
+        panel «Reconocer» queda en «pendiente» (plan 2026-11-16, Tarea 9). Ya no se reconoce sola ni abre la vista
+        previa: cada utilidad se reconoce con su ▶ (mismas capas ocultas y roles: mismo PDF = mismas capas)."""
         self._load_sheet_busy(idx)
         if self.composite is not None and self.composite.is_single_full_page():
             self.composite.pieces[0].page = idx
-        if self._recog_ready and self.pdf_path:
-            self._start_recognition(idx)
+        if self.composite is not None and self.composite.manual:
+            self._reconocer_escaneo = True                # escaneo: nada que interpretar ni reconocer
+            self._refrescar_panel_reconocer()
+        elif self.pdf_path:
+            self._interpretar_hoja()
 
     # ─────────────────────────── undo/redo ───────────────────────────
     def _snap_state(self):
@@ -311,7 +306,9 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
                                superficies=getattr(self, "superficies", []) or [],
                                # 2026-11-12: «Ubicar el plano» al importar una superficie se deshace con Ctrl+Z
                                georef=self.georef.to_dict() if getattr(self, "georef", None) is not None else None,
-                               bitacora_vigentes=bitacora.vigentes(self.bitacora)),
+                               bitacora_vigentes=bitacora.vigentes(self.bitacora),
+                               # filas del panel «Reconocer»: deshacer un ▶ las deja como estaban
+                               reconocer=self._rec_para_deshacer()),
                           getattr(self, "_ultimo_paso", None))
         self._ultimo_paso = p
         return p
@@ -348,6 +345,8 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             self._valvula_sel = -1
         if "bitacora_vigentes" in s:                   # la lista no se restaura: solo qué quedó deshecho
             bitacora.marcar(self.bitacora, s["bitacora_vigentes"])
+        if "reconocer" in s:
+            self._rec_al_deshacer(s["reconocer"])
         if "duct_banks" in s:
             self.duct_banks = s["duct_banks"]
             if not (0 <= getattr(self, "sel_db", -1) < len(self.duct_banks)):
@@ -409,7 +408,6 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             self._layer_roles_hoja = None
             self._letters_off = set()
             self._recognition_utilities = _recognition.DEFAULT_UTILITIES
-            self._recog_ready = False
             self.sheet_layout = None
             self.sheet_rotations = {}
             self.sheet_crops = {}
@@ -430,6 +428,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             if tmp and tmp != self.__dict__.get("_tmp_pdf") and os.path.isfile(tmp):
                 try: os.remove(tmp)
                 except Exception: pass
+            # (el panel «Reconocer» ya es el de la hoja nueva: se vació al cargarla y se está interpretando)
             self._ia_soltar(); self._cerrar_vista3d()
             return
         # cancelado antes de importar: el editor como estaba (sin la hoja del PDF nuevo)
@@ -485,7 +484,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             self.doc = None
             self.pdf_path = None
             self.project_path = None
-            self._ia_soltar(); self._cerrar_vista3d()
+            self._ia_soltar(); self._cerrar_vista3d(); self._soltar_reconocer()
             self.work_pdf_path = None
             self.src_pdfs = []
             self.composite = None
@@ -494,7 +493,6 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             self.hidden_ocgs_by_source = {}
             self._letters_off = set()
             self._layer_roles = None
-            self._recog_ready = False
             self.sheet_layout = None
             self.sheet_rotations = {}
             self.sheet_crops = {}
@@ -595,131 +593,75 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         finally:
             self._unbusy()
 
-    def _wizard_sheet_flow(self, start_idx, start_step=0, manual=False):
-        """Asistente de PDF vectorial: 1 Componer hoja → 2 Capas de la hoja →
-        3 reconocer (vista previa). Lo usan la apertura del PDF, Ver → Componer
-        hoja y la barra de pasos del preview. `start_step`=1 empieza en «Capas»
-        con la hoja ya compuesta. «◀ Componer hoja» en Capas vuelve al paso 1
-        (pedido del usuario: poder volver atrás en cada paso).
-        Devuelve False si se cancela el compositor. Al cancelar las capas, la
-        hoja queda cargada sin reconocer — o, si se entró desde el editor (hay
-        `_respaldo`), el editor vuelve a como estaba."""
-        step = start_step
+    def _wizard_sheet_flow(self, start_idx, manual=False):
+        """Asistente de PDF: «Componer hoja» → el editor (plan 2026-11-16, «reconocimiento desde el editor»,
+        Tarea 9). Al aceptar el compositor se arma la hoja, se carga en el editor y se INTERPRETA en segundo plano
+        (`_interpretar_hoja`): el panel «Reconocer» se llena solo. Ya no hay paso «Capas de la hoja» ni vista previa
+        obligatoria (todo eso vive en el panel: ▶, 👁 y «Capas y estilos…»). Lo usan la apertura del PDF, Ver →
+        Componer hoja y «Agregar utilidad». Escaneos (`manual`): igual que siempre, al dibujo a mano.
+        Devuelve False si se cancela el compositor (quien llama repone el editor si hay `_respaldo`)."""
         page_idx = start_idx
         while True:
-            if step == 0:
-                agregando = getattr(self, "_agregando", None) is not None
-                res = composite_dialog.compose_sheet(
-                    self, self.src_pdfs, self.composite, self.hidden_ocgs_by_source, current_page=page_idx,
-                    manual=manual, vivo=self._pasos() if hasattr(self, "_pasos") else None,
-                    **({"sugerencia": False} if agregando else {}))
-                if res is None:
-                    return False
-                comp, sources, hidden_by_source = res
-                firma = None if (agregando or comp.manual) else self._firma_compuesta(comp, sources, hidden_by_source)
-                if firma is not None and firma == getattr(self, "_paso_compuesta", None) and self.doc is not None:
-                    # la MISMA hoja compuesta que este asistente ya armó y cargó (se volvió desde
-                    # «Capas» sin cambiarla): no se arma ni se dibuja otra vez (pedido 2026-10-28)
-                    self.src_pdfs = sources
-                    self.composite = comp
-                    step = 1
+            agregando = getattr(self, "_agregando", None) is not None
+            res = composite_dialog.compose_sheet(
+                self, self.src_pdfs, self.composite, self.hidden_ocgs_by_source, current_page=page_idx,
+                manual=manual, vivo=self._pasos() if hasattr(self, "_pasos") else None,
+                **({"sugerencia": False} if agregando else {}))
+            if res is None:
+                return False
+            comp, sources, hidden_by_source = res
+            if agregando:
+                # utilidad agregada: el lugar de cada hoja lo pone su mapa base (ventana_agregar)
+                comp = self._agregando_recolocar(comp, sources)
+                if comp is None:
+                    self.informar(_tr("Agregar utilidad"), _tr(
+                        "Ninguna de las hojas elegidas coincide con la hoja del editor."))
                     continue
-                if agregando:
-                    # utilidad agregada: el lugar de cada hoja lo pone su mapa base (ventana_agregar)
-                    comp = self._agregando_recolocar(comp, sources)
-                    if comp is None:
-                        self.informar(_tr("Agregar utilidad"), _tr(
-                            "Ninguna de las hojas elegidas coincide con la hoja del editor."))
-                        continue
-                elif comp.marco is not None:
-                    # hoja con una utilidad agregada (marco fijo) a la que se le sumaron hojas por
-                    # fuera: vuelve a crecer con sus piezas, como cualquier hoja compuesta
-                    docs = [fitz.open(stream=e["data"], filetype="pdf") for e in sources]
-                    try:
-                        if not composite_mod.cabe_en_marco(comp, lambda p: (
-                                docs[p.source][p.page].rect.width, docs[p.source][p.page].rect.height)):
-                            comp.marco = None
-                    finally:
-                        for d in docs:
-                            d.close()
-                if (comp.manual and getattr(self, "_respaldo", None) is not None
-                        and self._misma_composicion(comp, sources, hidden_by_source)):
-                    # Escaneo: «Continuar» sin cambiar la hoja no borra lo dibujado.
-                    self._reponer_respaldo(_tr("La hoja compuesta no cambió — el editor queda como estaba."))
-                    return True
-                antes = (self.src_pdfs, self.composite, self.hidden_ocgs_by_source)
-                self.src_pdfs = sources
-                self.composite = comp
-                self.hidden_ocgs_by_source = {k: list(v) for k, v in hidden_by_source.items()}
-                self._recog_ready = False
+            elif comp.marco is not None:
+                # hoja con una utilidad agregada (marco fijo) a la que se le sumaron hojas por
+                # fuera: vuelve a crecer con sus piezas, como cualquier hoja compuesta
+                docs = [fitz.open(stream=e["data"], filetype="pdf") for e in sources]
                 try:
-                    self._apply_composite()
-                except Exception as exc:
-                    QtWidgets.QMessageBox.warning(self, _tr("Componer hoja"),
-                        _tr("No se pudo armar la hoja compuesta:\n\n{e}").format(e=exc))
-                    self._volver_a_la_hoja(antes)
-                    return False
-                page_idx = self.page_idx
-                if comp.manual:
-                    if getattr(self, "_respaldo", None) is not None:
-                        self._soltar_respaldo()      # hoja nueva en el editor: la anterior ya no vuelve
-                    self._dirty = True
-                    self._info(_tr("Hoja compuesta importada al editor. Dibuja las utilidades a mano."))
-                    return True
-                self._paso_compuesta = firma
-                self._paso_hoja = self._firma_hoja(page_idx)
-            # Paso «Capas de la hoja»: el usuario decide qué capas OCG ver ANTES
-            # de dibujar. Deja la visibilidad aplicada en self.doc, así _load_page
-            # ya renderiza sin las ocultas.
-            chosen = layer_dialog.choose_sheet_layers(self, self.doc, page_idx,
-                                                      layout=self._layout_minimapa(),
-                                                      recognition_utilities=self._recognition_utilities,
-                                                      # «Reconocer más capas»: la hoja es la del editor
-                                                      can_go_back=bool(self.src_pdfs) and getattr(
-                                                          self, "_reconociendo_mas", None) is None,
-                                                      letters_off=self._letters_off,
-                                                      roles_by_utility=self._roles_de_la_hoja(page_idx),
-                                                      include_roles=True,
-                                                      scale_ft_per_pt=self._scale_editable(),
-                                                      legend_sources=self._legend_sources(),
-                                                      legend_cache=self._legend_cache,
-                                                      en_proceso=fondo_trabajo.conviene(self.composite),
-                                                      vivo=self._pasos())
-            if chosen == layer_dialog.LAYERS_BACK:
-                step = 0
-                continue
+                    if not composite_mod.cabe_en_marco(comp, lambda p: (
+                            docs[p.source][p.page].rect.width, docs[p.source][p.page].rect.height)):
+                        comp.marco = None
+                finally:
+                    for d in docs:
+                        d.close()
             break
-        if chosen is None:
-            if self._reponer_respaldo(_tr("Reconocimiento cancelado — el editor queda como estaba.")):
-                self._soltar_pasos()
-                return True
-            self._cargar_hoja_si_cambio(page_idx)
+        if (not agregando and self.canvas.pixmap_item is not None and self.composite is not None
+                and self._misma_composicion(comp, sources, hidden_by_source)):
+            # «Continuar» sin cambiar la hoja no borra ni rehace lo hecho (escaneo: lo dibujado; vectorial: lo
+            # reconocido, la interpretación y el panel «Reconocer»)
+            msg = _tr("La hoja compuesta no cambió — el editor queda como estaba.")
+            if not self._reponer_respaldo(msg):
+                self._info(msg)
             self._soltar_pasos()
-            self._dirty = True
-            self._info(_tr("Reconocimiento cancelado — hoja cargada con las capas elegidas."))
             return True
-        hidden, page_idx, self._recognition_utilities, letters_off = chosen[:4]
-        self._letters_off = set(letters_off)
-        if self.composite is not None and self.composite.is_single_full_page():
-            self.composite.pieces[0].page = page_idx
-        self.hidden_ocgs = list(hidden)
-        compuesta_al_dia = (getattr(self, "_paso_compuesta", None) is not None and self._paso_compuesta
-                            == self._firma_compuesta(self.composite, self.src_pdfs, self.hidden_ocgs_by_source))
-        self._sync_hidden_to_sources(hidden)
-        if compuesta_al_dia:
-            # la hoja ya armada tiene ahora estas capas apagadas: volver al compositor sin
-            # cambiarla sigue sin rearmarla
-            self._paso_compuesta = self._firma_compuesta(self.composite, self.src_pdfs, self.hidden_ocgs_by_source)
-        # Los roles (qué capas son líneas / bóvedas) se asignan solos por
-        # nombre y se muestran en el preview; «Ajustar capas…» los cambia.
-        self._layer_roles_by_utility = chosen[4] if len(chosen) > 4 else {}
-        self._layer_roles_hoja = self._clave_hoja(page_idx)
-        if len(chosen) > 5 and chosen[5]:
-            self._calibrated_scale(chosen[5])          # «Escala» de «Capas de la hoja»
-        self._cargar_hoja_si_cambio(page_idx)
+        antes = (self.src_pdfs, self.composite, self.hidden_ocgs_by_source)
+        self.src_pdfs = sources
+        self.composite = comp
+        self.hidden_ocgs_by_source = {k: list(v) for k, v in hidden_by_source.items()}
+        try:
+            self._apply_composite()
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(self, _tr("Componer hoja"),
+                _tr("No se pudo armar la hoja compuesta:\n\n{e}").format(e=exc))
+            self._volver_a_la_hoja(antes)
+            return False
+        self._soltar_pasos()                          # el asistente termina aquí
+        if agregando:
+            return self._agregado_compuesto()         # ventana_agregar: la hoja nueva junto a la del editor
+        if getattr(self, "_respaldo", None) is not None:
+            self._soltar_respaldo()                   # hoja nueva en el editor: la anterior ya no vuelve
         self._dirty = True
-        self._recog_ready = True
-        self._start_recognition(page_idx)
+        if comp.manual:
+            self._reconocer_escaneo = True
+            self._refrescar_panel_reconocer()
+            self._info(_tr("Hoja compuesta importada al editor. Dibuja las utilidades a mano."))
+            return True
+        self._info(_tr("Hoja cargada en el editor. Reconoce cada utilidad desde el panel Reconocer."))
+        self._interpretar_hoja()
         return True
 
     def _scale_editable(self):
@@ -856,8 +798,8 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             self.hidden_ocgs_by_source[str(i)] = [n for n in names if n in hidden]
 
     def compose_sheet(self):
-        """Menú Ver → volver al compositor (piezas de varias hojas/PDF) y
-        repetir capas + reconocimiento sobre la hoja compuesta nueva."""
+        """Menú Ver → volver al compositor (piezas de varias hojas/PDF); la hoja compuesta nueva se interpreta y
+        se reconoce desde el panel «Reconocer» (Tarea 9 del plan 2026-11-16)."""
         if not self.doc or not self.src_pdfs:
             self.informar(_tr("Componer hoja de trabajo"),
                 _tr("Abre un PDF para componer su hoja de trabajo."))
@@ -895,14 +837,12 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
     def _soltar_respaldo(self):
         """Hoja nueva en el editor (importar): el respaldo ya no vuelve."""
         self._agregando = None
-        self._reconociendo_mas = None
         r, self._respaldo = self._respaldo, None
         respaldo_editor.soltar(self, r)
 
     def _reponer_respaldo(self, msg):
         """Editor a como estaba al abrir el asistente. False si no había respaldo."""
         self._agregando = None
-        self._reconociendo_mas = None
         r, self._respaldo = self._respaldo, None
         if r is None:
             return False
@@ -944,8 +884,6 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
                    or bool(added_paths))
         if not self._apply_sheet_selection(layout, added_paths, sources, rotations):
             return
-        if any(layout[key] is not None for key in ("top", "left", "right", "bottom")):
-            self._recog_ready = False
         if layout["main"] != self.page_idx:
             self._change_page(layout["main"])
         self._dirty = self._dirty or changed
@@ -970,7 +908,6 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         self.hidden_ocgs = list(self.hidden_ocgs_by_source.get("0", []))
         self._refresh_current_pdf_image()
         self._dirty = True
-        self._recog_ready = False
         self._info(_tr("Capas de las hojas organizadas guardadas."))
         self._start_organized_recognition()
 
@@ -1064,23 +1001,10 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             return [{"name": os.path.basename(self.pdf_path), "path": self.pdf_path}]
         return []
 
-    def _adjust_layer_roles(self, page_idx):
-        """«Ajustar capas…» del preview: elegir a mano qué capas visibles son
-        líneas / bóvedas y volver a reconocer la hoja con esos roles. Cancelar
-        vuelve a la MISMA vista previa (sin cambios, sale de `recognition_cache`)."""
+    def _ajustar_roles_de(self, utility, page_idx) -> bool:
+        """Elegir a mano los roles de las capas de UNA utilidad (el diálogo de «Ajustar capas…») → True si el
+        usuario los puso (False = canceló). Lo usan el asistente y el panel «Reconocer»."""
         from hoja import pdf_layers as _pdf_layers
-        utilities = tuple(self._recognition_utilities)
-        if len(utilities) > 1:
-            labels = [_recognition.utility_label(key) for key in utilities]
-            label, ok = QtWidgets.QInputDialog.getItem(
-                self, _tr("Ajustar capas"),
-                _tr("¿Qué utilidad quieres ajustar?"), labels, 0, False)
-            if not ok:
-                self._start_recognition(page_idx)
-                return
-            utility = utilities[labels.index(label)]
-        else:
-            utility = utilities[0]
         all_layers = _pdf_layers.without_letters(_pdf_layers.page_layers(self.doc, page_idx), self._letters_off)
         visible = [L for L in all_layers if L["name"] not in set(self.hidden_ocgs)]
         base = dict(self._roles_de_la_hoja(page_idx))
@@ -1102,29 +1026,12 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             base[utility] = roles
             self._layer_roles_by_utility = base
             self._layer_roles_hoja = self._clave_hoja(page_idx)
-        self._start_recognition(page_idx)
+        return roles is not None
 
-    def _start_recognition(self, page_idx):
-        """Lanza el reconocimiento de la hoja `page_idx` en segundo plano con las
-        capas ocultas (`self.hidden_ocgs`) y roles separados por utilidad
-        (sin ajuste manual = automático por nombre). Al terminar, `_recognition_done` muestra
-        la vista previa. Lo usan el asistente y el cambio de hoja del editor.
-        Si nada cambió desde un reconocimiento anterior (misma composición, hoja,
-        capas, utilidades…), reutiliza ese resultado: no vuelve a leer el PDF."""
-        key = self._recognition_key(page_idx)
-        cached = self._recog_cache.get(key)
-        if cached is not None:
-            self._end_recognition_busy()
-            self._recog_pending_key = None
-            recognition_cache.set_join_routes(cached, self._join_routes)
-            self._info(_tr("Sin cambios en la hoja ni en sus capas: se usa el reconocimiento anterior."))
-            # como el hilo: la vista previa se abre al volver al bucle de eventos
-            QtCore.QTimer.singleShot(0, lambda: self._recognition_done(cached, ""))
-            return
-        self._recog_pending_key = key
-        utility_text = _recognition.utilities_label(self._recognition_utilities)
-        # Avance en una tarjeta junto al lienzo, sin velo: lo que se va trazando queda a la vista y se
-        # puede acercar y desplazar el plano (`progreso_reconocimiento`, `trazado_progresivo`).
+    def _avance_reconocer(self, texto, detalle="", cancel=None):
+        """Avance en una tarjeta junto al lienzo, sin velo: lo que se va trazando queda a la vista y se
+        puede acercar y desplazar el plano (`progreso_reconocimiento`, `trazado_progresivo`). Lo usa el ▶ del
+        panel «Reconocer» (`ventana_reconocer_cola`)."""
         self._end_recognition_busy()
         from ui.comun.progreso_reconocimiento import ProgresoReconocimiento
         from ui.comun.trazado_progresivo import TrazadoProgresivo
@@ -1132,43 +1039,8 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         if panel is None:
             panel = self._recog_panel = ProgresoReconocimiento(self)
         self._recog_busy = panel
-        self._recog_busy.begin(_tr("Reconociendo {u}…").format(u=utility_text),
-                               _tr("Hoja {n} · leyendo las líneas y estructuras de cada capa").format(
-                                   n=page_idx + 1), cancel=self._cancel_recognition)
+        self._recog_busy.begin(texto, detalle, cancel=cancel)
         self._recog_dibujo = TrazadoProgresivo(self.canvas)
-        self._recog_worker = RecognitionWorker(
-            self.work_pdf_path or self.pdf_path, page_idx, zoom=self.zoom,
-            utilities=self._recognition_utilities,
-            hidden_ocgs=self.hidden_ocgs,
-            roles_by_utility=self._roles_de_la_hoja(page_idx),
-            letters_off=self._letters_off,
-            join_routes=self._join_routes, scale_ft_per_pt=self._scale_override,
-            perfiles_de=self._perfiles_de())
-        worker = self._recog_worker
-        generation = getattr(self, "_recog_generation", 0)
-
-        def connect(signal, handler):                # lo que llega tarde de otra sesión se descarta
-            signal.connect(lambda *args, wk=worker, gen=generation: handler(*args)
-                           if self._recog_worker is wk and getattr(self, "_recog_generation", 0) == gen else None)
-
-        connect(worker.done, self._recognition_done)
-        connect(worker.progress, self._recognition_progress)
-        if hasattr(self._recog_worker, "layer"):         # (los dobles de las pruebas no lo traen)
-            connect(worker.layer, self._recognition_layer)
-            connect(worker.partial, self._recognition_partial)
-            connect(worker.stage, self._recognition_stage)
-        if hasattr(worker, "strokes"):
-            connect(worker.strokes, self._recognition_strokes)
-        self._recog_linea = ""
-        try:
-            self._recog_worker.start()
-        except Exception:
-            import traceback
-            error = traceback.format_exc()
-            # Una excepción al preparar el trabajador también debe volver por
-            # el mismo aviso recuperable; no dejar el velo de carga abierto.
-            self._recog_worker.cancel()
-            self._recognition_failed(error)
 
     def _perfiles_de(self):
         """(pdf, hoja) de origen de cada pieza de la hoja compuesta: el reconocimiento lee ahí los
@@ -1180,15 +1052,6 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             if path and os.path.isfile(path) and (path, pz.page) not in out:
                 out.append((path, pz.page))
         return out
-
-    def _recognition_key(self, page_idx):
-        """Clave de `recognition_cache` con el estado actual del asistente."""
-        document = (self._src_fingerprints(self.src_pdfs) if self.src_pdfs
-                    else ("path", self.work_pdf_path or self.pdf_path))
-        return recognition_cache.recognition_key(
-            document, self.composite, page_idx, hidden_ocgs=self.hidden_ocgs,
-            utilities=self._recognition_utilities, roles_by_utility=self._roles_de_la_hoja(page_idx),
-            letters_off=self._letters_off, scale_ft_per_pt=self._scale_override, zoom=self.zoom)
 
     def _clave_hoja(self, page_idx):
         """La hoja que se reconoce (PDF de origen, composición y nº de hoja): los roles que
@@ -1207,23 +1070,6 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         if not roles or self._layer_roles_hoja == self._clave_hoja(page_idx):
             return roles
         return leyenda_mapa.roles_de_otra_hoja(roles)
-
-    def _recognition_progress(self, i, n, utility):
-        ov = getattr(self, "_recog_busy", None)
-        if ov is not None and n > 1:
-            ov.step(detail=_tr("Hoja {p} · {u} ({i} de {n})").format(
-                p=self._recog_worker.page_index + 1, u=_tr(_recognition.utility_label(utility)),
-                i=i + 1, n=n),
-                done=i, total=n, pump=False, clave="capas")
-
-    def _recognition_layer(self, i, n, utility, k, m):
-        """Avance dentro de una utilidad: «capa k de m» (el reconocimiento va capa por capa)."""
-        ov = getattr(self, "_recog_busy", None)
-        if ov is not None and m:
-            self._recog_linea = _tr("Hoja {p} · {u} ({i} de {n}) · capa {k} de {m}").format(
-                p=self._recog_worker.page_index + 1, u=_tr(_recognition.utility_label(utility)),
-                i=i + 1, n=n, k=k + 1, m=m)
-            ov.step(detail=self._recog_linea, done=i * m + k, total=n * m, pump=False, clave="capas")
 
     def _recognition_stage(self, texto, i, n):
         """Qué está haciendo ahora («Reconstruyendo las líneas de la capa Negro 0.71 pt…»),
@@ -1247,14 +1093,16 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             drawing.agregar(utility, trazos)
 
     def _cancel_recognition(self):
+        """Esc en el lienzo mientras se reconoce (`canvas.keyPressEvent`): cancela el ▶ en curso."""
         ov = getattr(self, "_recog_busy", None)
         if ov is not None:
             ov.mostrar_cancelando()                  # también con Esc, no solo con su botón
-        w = getattr(self, "_recog_worker", None)
-        if w is not None and hasattr(w, "cancel"):
-            w.cancel()
+        if getattr(self, "_rec_actual", None) is not None:
+            self.cancelar_reconocer()
 
     def _end_recognition_busy(self):
+        if getattr(self, "_rec_avance_abierto", False):
+            self._rec_interrumpido()                  # otro reconocimiento toma la tarjeta: el ▶ del panel se cancela
         self._recog_generation = getattr(self, "_recog_generation", 0) + 1
         ov = getattr(self, "_recog_busy", None)
         self._recog_busy = None
@@ -1265,103 +1113,6 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         if drawing is not None:
             drawing.cerrar()
             drawing.deleteLater()
-
-    def _recognition_done(self, results, error):
-        try:
-            self._recognition_result(results, error)
-        except Exception:
-            import traceback
-            self._recognition_failed(traceback.format_exc())
-
-    def _recognition_failed(self, error):
-        """El fallo detiene solo el reconocimiento; el usuario decide si reintentarlo."""
-        from nucleo import diagnostico
-        self._end_recognition_busy()
-        self._recog_pending_key = None
-        path = diagnostico.registrar(error, "Reconocimiento")
-        box = QtWidgets.QMessageBox(self)
-        box.setIcon(QtWidgets.QMessageBox.Warning)
-        box.setWindowTitle(_tr("Reconocimiento interrumpido"))
-        box.setText(_tr("No se pudo completar el reconocimiento de las capas."))
-        box.setInformativeText(_tr("Puedes volver a intentar esta acción o cancelar para regresar al editor.")
-                               + "\n\n" + diagnostico.resumen(error))
-        box.setDetailedText(str(error) + ("\n\n" + _tr("Registro: {p}").format(p=path) if path else ""))
-        box.setStandardButtons(QtWidgets.QMessageBox.Retry | QtWidgets.QMessageBox.Cancel)
-        box.setDefaultButton(QtWidgets.QMessageBox.Cancel)
-        if box.exec() == QtWidgets.QMessageBox.Retry:
-            QtCore.QTimer.singleShot(0, self, lambda: self._start_recognition(self.page_idx))
-        else:
-            self._cancelar_asistente(_tr("Reconocimiento cancelado — el editor queda como estaba."))
-
-    def _recognition_result(self, results, error):
-        self._end_recognition_busy()
-        key, self._recog_pending_key = self._recog_pending_key, None
-        # Cualquier salida sin importar devuelve el editor a como estaba si el
-        # asistente se abrió desde él (Herramientas → Componer hoja; respaldo_editor).
-        cancelled = _tr("Reconocimiento cancelado — el editor queda como estaba.")
-        if error:
-            self._recognition_failed(error)
-            return
-        if results is None:
-            self._cancelar_asistente(cancelled)
-            return
-        if not isinstance(results, (list, tuple)):
-            results = [results]
-        results = [result for result in results if result is not None]
-        if not results:
-            self._cancelar_asistente(cancelled)
-            return
-        self._recog_cache.put(key, results)      # None (resultado reutilizado) no guarda nada
-        item = self.canvas.pixmap_item
-        if item is None or item.pixmap().isNull():
-            self.informar(_tr("Reconocimiento"),
-                _tr("Reconocimiento listo, pero no hay imagen de la hoja para la vista previa."))
-            self._cancelar_asistente(cancelled)
-            return
-        # la hoja del editor (a menos resolución si es enorme, fondo_pdf) y su página, para
-        # que la vista previa la re-dibuje nítida al acercarse
-        extra = {"fondo": {"escala": self.canvas.fondo_escala, "tam": self.canvas.tam_hoja(),
-                           "zoom": self.zoom, "pagina": self._pagina_fondo}}
-        # la misma hoja y el MISMO resultado (volver desde «Capas» sin cambios: caché del reconocimiento)
-        # → la vista previa que ya estaba armada, sin redibujarla (pedido 2026-10-28)
-        clave = (tuple(id(r) for r in results), item.pixmap().cacheKey(), id(self.doc), self.zoom,
-                 self.canvas.fondo_escala, repr(self.canvas.tam_hoja()))
-        action = recognition_dialog.show_recognition_preview(
-            self, lambda: item.pixmap().toImage(), results,
-            page_count=self.doc.page_count if self.doc else None, hojas=self._hojas_px(),
-            vivo=self._pasos(), clave=clave, **extra)
-        self._join_routes = all(bool(getattr(result, "join_routes", True)) for result in results)
-        page_index = results[0].page_index
-        if action in (recognition_dialog.PREVIEW_IMPORT, recognition_dialog.PREVIEW_CANCEL):
-            self._soltar_pasos()                       # el asistente termina: nada que volver a mostrar
-        if action == recognition_dialog.PREVIEW_IMPORT and getattr(self, "_agregando", None) is not None:
-            self._importar_agregando(results)          # sobre la hoja del editor (ventana_agregar)
-        elif action == recognition_dialog.PREVIEW_IMPORT and getattr(self, "_reconociendo_mas", None) is not None:
-            self._importar_mas(results)                # encima de lo dibujado (ventana_reconocer_mas)
-        elif action == recognition_dialog.PREVIEW_IMPORT:
-            with _busy_mod.busy(self, _tr("Importando al editor…")):
-                imported = self._import_recognized_pipes(results)
-            if imported:
-                self._soltar_respaldo()
-            else:
-                self._cancelar_asistente(
-                    _tr("No hay tramos reconocidos para importar — el editor queda como estaba."))
-        elif action == recognition_dialog.PREVIEW_CHANGE_SHEET:
-            # Flujo pedido: lista de hojas → capas → preview de la hoja nueva.
-            if not self._wizard_sheet_flow(page_index):
-                self._cancelar_asistente(
-                    _tr("Composición cancelada — el editor queda como estaba."),
-                    _tr("Cambio de hoja cancelado — se mantiene la hoja {n}.").format(n=page_index + 1))
-        elif action == recognition_dialog.PREVIEW_SHEET_LAYERS:
-            # Paso «2 Capas de la hoja» de la cabecera: volver (y desde ahí, si quiere, al 1).
-            if not self._wizard_sheet_flow(page_index, start_step=1):
-                self._cancelar_asistente(
-                    _tr("Composición cancelada — el editor queda como estaba."),
-                    _tr("Cambio de hoja cancelado — se mantiene la hoja {n}.").format(n=page_index + 1))
-        elif action == recognition_dialog.PREVIEW_ADJUST_LAYERS:
-            self._adjust_layer_roles(page_index)
-        else:
-            self._cancelar_asistente(cancelled, _tr("Reconocimiento cancelado — editor vacío."))
 
     def _xdata_origin(self, page_index: int):
         """Función (puntos del lienzo) → «PDF · Hoja N» de donde salió el objeto,
@@ -1422,7 +1173,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             utility = getattr(result, "utility", None) or "ELECTRICO"
             pipes = rec.pipes_from_recognition(result, layer=utility, zoom=self.zoom,
                                                origin=self._xdata_origin(result.page_index))
-            pipes = self._sin_repetidas(pipes)        # «Reconocer más capas»: lo ya dibujado no se repite
+            pipes = self._sin_repetidas(pipes)        # ▶ encima de lo dibujado: lo ya dibujado no se repite
             vaults = list(getattr(result, "vault_pts", None) or [])
             snapped, skipped = rec.inject_vault_vertices(pipes, vaults)
             result.vaults_snapped = snapped
@@ -1603,6 +1354,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         self._overlay = []; self._close_editor(); self._dirty = False; self._extending = False
         self.georef = georef_mod.Georef()          # cada página/PDF nuevo empieza sin georreferencia
         self._undo.clear(); self._redo.clear()
+        self._soltar_reconocer()                # otra hoja: el ▶ en curso y sus resultados no valen (ventana_reconocer_cola)
         self.set_mode("idle"); self._refresh_lists(); self._redraw(); self._update_geo_status()
 
     # ─────────────────────────── proyecto ───────────────────────────
@@ -1790,7 +1542,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
                 self.src_pdfs = []
             self.project_path = path
             self._anotar_reciente(path)              # 2.0.0: «Recientes» (no las copias de recuperación)
-            self._ia_soltar(); self._cerrar_vista3d()
+            self._ia_soltar(); self._cerrar_vista3d(); self._soltar_reconocer()
             self.sheet_external_pdfs = external_pdfs
             self.sheet_sources = data.get("sheet_sources") or (
                 [{"name": model.get("pdf_name") or "PDF principal",
@@ -1836,6 +1588,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             if data.get("pdf_fondo_negro") is not None:
                 self.canvas.set_pdf_bg(QtGui.QColor(0, 0, 0) if data["pdf_fondo_negro"] else QtGui.QColor(255, 255, 255))
             self.anotaciones = data.get("anotaciones", []) or []            # rótulos del plano (ventana_anotaciones)
+            self._reconocer_de_proyecto(data.get("reconocer"))              # panel «Reconocer» (ventana_interpretar)
             self.valvulas = data.get("valvulas", []) or []                  # válvulas (ventana_valvulas)
             self.superficies = data.get("superficies", []) or []            # superficies (ventana_superficies)
             self._superficies_datos = {n.split("/")[1].split(".")[0]: arch[n] for n in arch
@@ -1994,7 +1747,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         self._cleanup_tmp_pdf()
         self.canvas.scene().clear(); self.canvas.pixmap_item = None; self.canvas.pdf_bg_item = None
         self.pdf_path = None; self.doc = None; self.project_path = None; self.gray = None; self._update_title()
-        self._ia_soltar(); self._cerrar_vista3d()
+        self._ia_soltar(); self._cerrar_vista3d(); self._soltar_reconocer()
         self.blank_canvas = False; self.paper = None
         self.sheet_layout = None
         self.sheet_rotations = {}
@@ -2012,7 +1765,6 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         self._perfil_rec = self._perfil_anclas = None
         self._conf_registro = None
         self.ref_centerlines = []; self._cl_pts = []
-        self._recog_cache.clear()
         self.cur_pts = []; self._erase_pts = []; self._overlay = []; self._close_editor()
         self.sel_pipe = self.sel_leader = self.sel_region = self.sel_text = self.sel_cl = self.sel_db = -1
         self._undo.clear(); self._redo.clear(); self._dirty = False

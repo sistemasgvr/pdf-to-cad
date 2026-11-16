@@ -316,8 +316,10 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
     """
 
     def __init__(self, parent, qimg: QtGui.QImage, result, utility_layer="ELECTRICO",
-                 page_count: int | None = None, fondo: dict | None = None, hojas=None):
+                 page_count: int | None = None, fondo: dict | None = None, hojas=None,
+                 editor: bool = False):
         super().__init__(parent)
+        self._editor = bool(editor)       # desde el panel «Reconocer»: sin pasos ni «Atrás», botón «Importar»
         self._hojas = list(hojas or [])
         self.setWindowTitle(_tr("Vista previa del reconocimiento"))
         self.setWindowFlags(
@@ -347,7 +349,11 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
         self.steps.stepClicked.connect(
             lambda i: self._finish(PREVIEW_CHANGE_SHEET if i == 0 else PREVIEW_SHEET_LAYERS))
         self.btn_sheet = self.steps.buttons[0]       # «1 Componer hoja»
-        root.addWidget(wizard_header(self.steps))
+        if not self._editor:
+            root.addWidget(wizard_header(self.steps))
+        else:
+            self.steps.setParent(self)
+            self.steps.hide()
         t = _theme.tokens()
         # 2.0.0 (prototipo «faltante»): paneles sin borde, separados por su fondo
         panel_qss = (f"QFrame#previewPanel {{ background:{t.surface}; border:none; border-radius:10px; }}")
@@ -489,7 +495,7 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
         self.btn_cancel = QtWidgets.QPushButton(_tr("Cancelar"))
         self.btn_cancel.setProperty("secondary", True)
         self.btn_cancel.clicked.connect(self.reject)
-        self.btn_ok = QtWidgets.QPushButton(_tr("Continuar e importar al editor"))
+        self.btn_ok = QtWidgets.QPushButton(_tr("Importar") if self._editor else _tr("Continuar e importar al editor"))
         self.btn_ok.clicked.connect(lambda: self._finish(PREVIEW_IMPORT))
         self.btn_ok.setToolTip(
             _tr("Al continuar, estas líneas se importan al editor como {u} "
@@ -504,10 +510,14 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
         self.btn_atras.setProperty("secondary", True)
         self.btn_atras.setAutoDefault(False)
         self.btn_atras.clicked.connect(lambda: self._finish(PREVIEW_SHEET_LAYERS))
+        if self._editor:
+            self.btn_atras.setParent(self)
+            self.btn_atras.hide()
         self.btn_cancel.setProperty("kind", "ghost")
         root.addWidget(wizard_footer([self.opacity, self.seg_tramos, self.chk_routes],
                                      _tr("Rueda = zoom · botón central = desplazar"),
-                                     [self.btn_cancel, self.btn_atras, self.btn_ok]))
+                                     [self.btn_cancel, self.btn_ok] if self._editor
+                                     else [self.btn_cancel, self.btn_atras, self.btn_ok]))
         self.btn_ok.setDefault(True)
         self.btn_ok.setEnabled(n_draw > 0)
 
@@ -817,7 +827,7 @@ class RecognitionPreviewDialog(NoEscapeClose, QtWidgets.QDialog):
 
 def show_recognition_preview(parent, qimg, result, utility_layer="ELECTRICO",
                              page_count: int | None = None, fondo: dict | None = None, hojas=None,
-                             vivo: dict | None = None, clave=None) -> str:
+                             vivo: dict | None = None, clave=None, editor: bool = False) -> str:
     """Muestra el preview. Devuelve la acción elegida: PREVIEW_IMPORT,
     PREVIEW_CANCEL, PREVIEW_CHANGE_SHEET o PREVIEW_ADJUST_LAYERS. `qimg` puede ser una función
     que la da (solo se llama si hay que armar el diálogo). `vivo` + `clave` (`ventana_pasos`):
@@ -831,7 +841,7 @@ def show_recognition_preview(parent, qimg, result, utility_layer="ELECTRICO",
         with busy(parent, _tr("Preparando la vista previa…"),
                   _tr("Dibujando lo reconocido sobre la hoja")):
             dlg = RecognitionPreviewDialog(parent, qimg() if callable(qimg) else qimg, result, utility_layer,
-                                           page_count=page_count, fondo=fondo, hojas=hojas)
+                                           page_count=page_count, fondo=fondo, hojas=hojas, editor=editor)
         dlg._clave_vivo = clave
     dlg.action = PREVIEW_CANCEL
     accion = dlg.action if dlg.exec() == QtWidgets.QDialog.Accepted else PREVIEW_CANCEL

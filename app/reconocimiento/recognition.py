@@ -1041,6 +1041,26 @@ def transformador_mupdf(m):
     return girar
 
 
+def px_de_hoja(page, zoom: float, visual_crop=None):
+    """`px(punto)` de `recognize_page`: punto de la hoja (pt, sin girar) → px de la vista (girada, × zoom, desde
+    el recorte visual; sin recorte, la hoja entera). Memorizado por punto. Lo usa también la parte «ROTULOS» de
+    `recognition_trabajo.reconocer_parte`."""
+    if visual_crop is None:
+        visual_crop = crop_page_rect(page, None)
+    girar = transformador_mupdf(page.rotation_matrix)
+    crop_x, crop_y = visual_crop.x0 * zoom, visual_crop.y0 * zoom
+    px_cache: dict = {}
+
+    def px(point):
+        key = (point[0], point[1])
+        got = px_cache.get(key)
+        if got is None:
+            x, y = girar(point[0], point[1])
+            got = px_cache[key] = (x * zoom - crop_x, y * zoom - crop_y)
+        return got
+    return px
+
+
 def _region_hit(bb, regions) -> bool:
     if bb is None or not regions:
         return False
@@ -1339,17 +1359,7 @@ def recognize_page(
         # la matriz de giro de la hoja UNA vez y cada punto una vez: pedirla a PyMuPDF en
         # cada punto costaba 20 s en un mapa SIG de 180 trazos (`_through_dirs` convierte
         # todas las polilíneas por cada punta). Misma cuenta, mismo resultado.
-        girar = transformador_mupdf(page.rotation_matrix)
-        crop_x, crop_y = visual_crop.x0 * zoom, visual_crop.y0 * zoom
-        px_cache: dict = {}
-
-        def px(point):
-            key = (point[0], point[1])
-            got = px_cache.get(key)
-            if got is None:
-                x, y = girar(point[0], point[1])
-                got = px_cache[key] = (x * zoom - crop_x, y * zoom - crop_y)
-            return got
+        px = px_de_hoja(page, zoom, visual_crop)
         al_polilinea = (lambda pl: al_trazo([px(p) for p in pl.pts])) if al_trazo is not None else None
         by_ocg: dict[str, List[dict]] = defaultdict(list)
         # Hoja COMPUESTA de mapas: la misma línea de la leyenda con otro estilo en cada pieza
@@ -3063,7 +3073,8 @@ def pipes_from_recognition(result: RecognitionResult, layer: str = UTILITY_HINT,
     from nucleo.model import PIPE_DIAMETERS_IN, DEFAULT_PIPE_MATERIAL
 
     out = []
-    for pl in result.drawable:
+    parte = str(getattr(result, "utility", None) or layer)
+    for idx, pl in enumerate(result.drawable):
         pts = [(float(x), float(y)) for x, y in pl.pts_pdf]
         if len(pts) < 2:
             continue
@@ -3080,6 +3091,10 @@ def pipes_from_recognition(result: RecognitionResult, layer: str = UTILITY_HINT,
             "material": DEFAULT_PIPE_MATERIAL,
             "vertex_kinds": list(pl.kinds) if len(pl.kinds) == len(pts) else [],
             "origen": "reconocido",
+            # de qué parte del panel «Reconocer» salió y cuál de sus polilíneas es (`result.drawable[idx]`): para
+            # reemplazar solo lo reconocido y aplicar después los diámetros (`ventana_importar_parte`). No va al DXF.
+            "reconocida": parte,
+            "reconocida_idx": idx,
             # acometida de un mapa sin capas: en gravedad/conductos sus nodos son nulos
             # (`nucleo.acometidas`)
             **({"acometida": True} if acometidas_mapa.es_capa(getattr(pl, "layer_ocg", "") or "") else {}),

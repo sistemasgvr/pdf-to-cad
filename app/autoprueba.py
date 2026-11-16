@@ -24,8 +24,12 @@ import time
 # Los que se cargan por nombre (texto): PyInstaller no los ve si no van en `hiddenimports`.
 MODULOS_POR_NOMBRE = (
     "hoja.area_sugerida", "hoja.capas_trabajo", "hoja.composicion_trabajo", "hoja.composite_trabajo",
-    "hoja.hoja_calcada", "hoja.indice_texto", "hoja.leyenda_trabajo", "hoja.planos_trabajo", "nucleo.modelo3d",
-    "reconocimiento.recognition_trabajo", "ui.comun.fondo_trabajo", "ui.ventana.calculo_fondo",
+    "hoja.hoja_calcada", "hoja.indice_texto", "hoja.interpretar_trabajo", "hoja.leyenda_trabajo",
+    "hoja.planos_trabajo", "nucleo.modelo3d",
+    # clases de la interpretación guardada en el .digproj (`hoja.interpretacion_guardada.CLASES`)
+    "hoja.estilos_sugeridos", "hoja.leyenda_mapa",
+    "reconocimiento.lectura_retenida", "reconocimiento.recognition_trabajo", "ui.comun.fondo_trabajo",
+    "ui.ventana.calculo_fondo",
 )
 # Lo que la ventana necesita para abrir y lo pesado de cada flujo (importarlos detecta un paquete que no viajó).
 MODULOS_APP = (

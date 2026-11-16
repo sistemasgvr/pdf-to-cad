@@ -11,6 +11,10 @@ compuesta no trabe la ventana ni deje la RAM ocupada) o, sin proceso, en el hilo
   · ("trazos", i, n, utilidad, lote) durante la reconstrucción, como vista provisional,
   · ("hecha", i, n, utilidad, trazos) al terminarla: sustituye la vista provisional
     con los puntos (px) de las líneas ya ajustadas de esa utilidad.
+
+`reconocer_parte` (plan 2026-11-16, «reconocimiento desde el editor») hace UNA parte — una utilidad (con i=0, n=1
+en esos avisos), las válvulas, los diámetros o los rótulos — con el mismo código, sobre la lectura de la hoja que
+queda retenida en el trabajador «reconocer» (`lectura_retenida`).
 """
 from __future__ import annotations
 
@@ -53,16 +57,29 @@ class FlujoTrazos:
 
 def _leer_valvulas(page, zoom, hidden, roles_by_utility, results):
     """Complemento: una falla aquí nunca tumba el reconocimiento de las líneas."""
+    salida = _valvulas_de(page, zoom, hidden, roles_by_utility, results)
+    if salida is not None:
+        poner_valvulas(results, salida)
+
+
+def _valvulas_de(page, zoom, hidden, roles_by_utility, results):
+    """{"valvulas", "avisos"} de la hoja junto a las líneas de `results` (que no se tocan); None si falló."""
     from reconocimiento import recognition_valvulas as RV
     try:
         valvulas = RV.completar(RV.leer_hoja(page, zoom, hidden or (), roles_by_utility), results, zoom)
         RV.ramales(page, valvulas, results, zoom, hidden or ())
     except Exception:                                  # noqa: BLE001
-        return
+        return None
+    return {"valvulas": valvulas, "avisos": RV.avisos(valvulas)}
+
+
+def poner_valvulas(results, salida) -> None:
+    """Lo que `reconocer_hoja` hace con las válvulas leídas: cada resultado las lleva y el primero suma sus avisos
+    (también para la parte «VALVULAS» de `reconocer_parte`)."""
     for r in results:
-        r.valvulas = valvulas
+        r.valvulas = salida["valvulas"]
     if results:
-        results[0].warnings = list(results[0].warnings) + RV.avisos(valvulas)
+        results[0].warnings = list(results[0].warnings) + list(salida["avisos"])
 
 
 @contextlib.contextmanager
@@ -98,33 +115,50 @@ def reconocer_hoja(pdf_path, page_index, zoom=1.0, utilities=("ELECTRICO",), hid
         if any(not (roles_by_utility.get(u) or layer_roles) for u in utilities):
             letters = rec.page_letters(doc[page_index])
         for i, utility in enumerate(utilities):
-            avisar("utilidad", i, len(utilities), utility)
-            flujo = FlujoTrazos(lambda batch, i=i, u=utility: avisar("trazos", i, len(utilities), u, batch))
-            roles = roles_by_utility.get(utility) or layer_roles or None
-            mine = letters
-            if letters is not None:
-                # una capa que el usuario asignó a mano («Ajustar capas…») a OTRA
-                # utilidad no se toma aquí por sus letras: manda su elección
-                claimed = {name for u, r in roles_by_utility.items() if u != utility
-                           for name in [*(r.get(rec.ROLE_LINEAS) or ()), *(r.get(rec.ROLE_BUZONES) or ())]}
-                mine = {k: v for k, v in letters.items()
-                        if k not in claimed and k not in letters_off}
-            res = rec.recognize_page(
-                pdf_path, page_index=page_index,
-                utility=utility, zoom=zoom, doc=doc,
-                hidden_ocgs=list(hidden_ocgs or ()), layer_roles=roles,
-                join_routes=join_routes,
-                scale_ft_per_pt=scale_ft_per_pt, letters=mine,
-                al_trazo=flujo.agregar if progreso is not None else None,
-                avance=lambda k, m, i=i, u=utility: avisar("capa", i, len(utilities), u, k, m))
-            flujo.vaciar()
-            results.append(res)
-            avisar("hecha", i, len(utilities), utility,
-                   [[(float(x), float(y)) for x, y in pl.pts_pdf] for pl in res.drawable])
+            results.append(_reconocer_utilidad(
+                doc, pdf_path, page_index, utility, i, len(utilities), letters, zoom=zoom,
+                hidden_ocgs=hidden_ocgs, layer_roles=layer_roles, roles_by_utility=roles_by_utility,
+                letters_off=letters_off, join_routes=join_routes, scale_ft_per_pt=scale_ft_per_pt,
+                avisar=avisar, en_vivo=progreso is not None))
         _leer_valvulas(doc[page_index], zoom, hidden_ocgs, roles_by_utility, results)
-    # los perfiles de los laterales dicen el diámetro de las tuberías que los cruzan: con TODAS las
-    # utilidades (si van en procesos aparte, lo hace `RecognitionWorker` al juntarlas). En una hoja
-    # compuesta, los perfiles de sus hojas de origen (`perfiles_de`: [(pdf, hoja)])
+    _aplicar_diametros(results, zoom, perfiles_de, avisar)
+    return results
+
+
+def _reconocer_utilidad(doc, pdf_path, page_index, utility, i, n, letters, *, zoom, hidden_ocgs, layer_roles,
+                        roles_by_utility, letters_off, join_routes, scale_ft_per_pt, avisar, en_vivo):
+    """Una utilidad (el cuerpo del bucle de `reconocer_hoja`, también la parte de una utilidad de
+    `reconocer_parte`): `letters` = `page_letters` de la hoja o None si ninguna utilidad las usa."""
+    from reconocimiento import recognition as rec
+    avisar("utilidad", i, n, utility)
+    flujo = FlujoTrazos(lambda batch: avisar("trazos", i, n, utility, batch))
+    roles = roles_by_utility.get(utility) or layer_roles or None
+    mine = letters
+    if letters is not None:
+        # una capa que el usuario asignó a mano («Ajustar capas…») a OTRA
+        # utilidad no se toma aquí por sus letras: manda su elección
+        claimed = {name for u, r in roles_by_utility.items() if u != utility
+                   for name in [*(r.get(rec.ROLE_LINEAS) or ()), *(r.get(rec.ROLE_BUZONES) or ())]}
+        mine = {k: v for k, v in letters.items()
+                if k not in claimed and k not in letters_off}
+    res = rec.recognize_page(
+        pdf_path, page_index=page_index,
+        utility=utility, zoom=zoom, doc=doc,
+        hidden_ocgs=list(hidden_ocgs or ()), layer_roles=roles,
+        join_routes=join_routes,
+        scale_ft_per_pt=scale_ft_per_pt, letters=mine,
+        al_trazo=flujo.agregar if en_vivo else None,
+        avance=lambda k, m: avisar("capa", i, n, utility, k, m))
+    flujo.vaciar()
+    avisar("hecha", i, n, utility,
+           [[(float(x), float(y)) for x, y in pl.pts_pdf] for pl in res.drawable])
+    return res
+
+
+def _aplicar_diametros(results, zoom, perfiles_de, avisar):
+    """Los perfiles de los laterales dicen el diámetro de las tuberías que los cruzan: con TODAS las
+    utilidades (si van en procesos aparte, lo hace `RecognitionWorker` al juntarlas). En una hoja
+    compuesta, los perfiles de sus hojas de origen (`perfiles_de`: [(pdf, hoja)])."""
     from reconocimiento import recognition_grosor_cruces
     if perfiles_de and results:
         from dataclasses import replace
@@ -139,4 +173,85 @@ def reconocer_hoja(pdf_path, page_index, zoom=1.0, utilities=("ELECTRICO",), hid
             for r in results:
                 r.perfiles = list(r.perfiles or []) + extra
     recognition_grosor_cruces.aplicar(results)
-    return results
+
+
+# ── por PARTES (plan 2026-11-16, «reconocimiento desde el editor») ─────────────────────────────────────
+VALVULAS, DIAMETROS, ROTULOS = "VALVULAS", "DIAMETROS", "ROTULOS"
+
+
+def reconocer_parte(ruta, hoja, parte, firma, *, zoom=1.0, hidden_ocgs=(), roles_by_utility=None, letters_off=(),
+                    join_routes=True, scale_ft_per_pt=None, perfiles_de=(), resultados_previos=None,
+                    layer_roles=None, progreso: Optional[Callable] = None):
+    """UNA parte del reconocimiento de la hoja (un ▶ del panel «Reconocer»), sobre la lectura RETENIDA de la hoja
+    (`lectura_retenida`, por `firma`) y con el MISMO código de `reconocer_hoja`:
+
+      · una utilidad → `[RecognitionResult]` (el cuerpo de su bucle; mismas letras, mismos roles);
+      · "VALVULAS" → {"valvulas", "avisos"} junto a las líneas de `resultados_previos` (que no cambian; quien
+        importa las pone con `poner_valvulas`, como `reconocer_hoja`);
+      · "DIAMETROS" → los perfiles de los laterales sobre `resultados_previos` (los devuelve, ya aplicados);
+      · "ROTULOS" → {"anotaciones"}: los rótulos del plano que hoy toma la importación (los del primer resultado
+        que los trae; sin ninguno, los mismos leídos aquí).
+
+    Utilidades + VALVULAS + DIAMETROS en ese orden = `reconocer_hoja` con todas (`tests/test_lectura_retenida.py`)."""
+    from reconocimiento import lectura_retenida
+    from reconocimiento import recognition as rec
+    hoja = int(hoja)
+    parte = str(parte).strip().upper()
+    roles_by_utility = {str(k): dict(v or {}) for k, v in (roles_by_utility or {}).items()}
+    layer_roles = dict(layer_roles or {})
+    avisar = progreso or (lambda *a: None)
+    previos = list(resultados_previos or [])
+    doc = lectura_retenida.abrir(ruta, firma)
+    lectura_retenida.reponer(doc)                    # como un `fitz.open` recién hecho, igual que `reconocer_hoja`
+    if parte == VALVULAS:
+        with _valvulas_adelantadas(doc, hoja):
+            salida = _valvulas_de(doc[hoja], zoom, hidden_ocgs, roles_by_utility, previos)
+        return salida if salida is not None else {"valvulas": [], "avisos": []}
+    if parte == DIAMETROS:
+        _aplicar_diametros(previos, zoom, perfiles_de, avisar)
+        return previos
+    if parte == ROTULOS:
+        hechos = next((list(r.anotaciones) for r in previos if getattr(r, "anotaciones", None)), None)
+        if hechos is None:
+            hechos = _rotulos_de_hoja(doc[hoja], zoom, hidden_ocgs, roles_by_utility, layer_roles)
+        return {"anotaciones": hechos}
+    if parte not in rec.SUPPORTED_UTILITIES:
+        raise ValueError(f"parte desconocida: {parte}")
+    letters = None
+    if not (roles_by_utility.get(parte) or layer_roles):
+        letters = rec.page_letters(doc[hoja])
+    return [_reconocer_utilidad(
+        doc, str(ruta), hoja, parte, 0, 1, letters, zoom=zoom, hidden_ocgs=hidden_ocgs, layer_roles=layer_roles,
+        roles_by_utility=roles_by_utility, letters_off=set(letters_off or ()), join_routes=join_routes,
+        scale_ft_per_pt=scale_ft_per_pt, avisar=avisar, en_vivo=progreso is not None)]
+
+
+def _rotulos_de_hoja(page, zoom, hidden_ocgs, roles_by_utility, layer_roles) -> list:
+    """Los rótulos del plano sin reconocer ninguna utilidad: las MISMAS llamadas de `recognize_page` (misma
+    transformación sin recorte, mismas vistas de perfil, mismas capas ocultas). Con capas: los multileaders
+    (`recognition_anotaciones.leer_hoja`); mapa con leyenda: sus rótulos (`recognition_grosor_mapa`); sin capas ni
+    leyenda, con estilos asignados a mano: `recognition_grosor_registros`. Complemento: nunca tumba."""
+    from hoja import leyenda_mapa, pdf_styles
+    from reconocimiento import recognition as rec
+    from reconocimiento import recognition_anotaciones as A
+    try:
+        px = rec.px_de_hoja(page, zoom)
+        con_capas = any((p.get("layer") or "") and not p["layer"].startswith(pdf_styles.PREFIX)
+                        for p in pdf_styles.drawings(page) if p.get("type") not in ("clip", "group"))
+        if con_capas:
+            perfiles = []
+            for x0, y0, x1, y1 in rec.profile_view_regions(page, None):
+                cs = [px((x0, y0)), px((x1, y0)), px((x1, y1)), px((x0, y1))]
+                perfiles.append((min(c[0] for c in cs), min(c[1] for c in cs),
+                                 max(c[0] for c in cs), max(c[1] for c in cs)))
+            return A.leer_hoja(page, px, zoom, set(hidden_ocgs or ()), perfiles)
+        from reconocimiento import recognition_grosor_mapa as GM, recognition_grosor_registros as GR
+        if leyenda_mapa.aplica(page):
+            return A.de_mapa(GM.a_px(GM.rotulos(page), px, zoom))
+        estilos = {n for r in [*roles_by_utility.values(), layer_roles] for n in (r.get(rec.ROLE_LINEAS) or ())
+                   if str(n).startswith(pdf_styles.PREFIX)}
+        if estilos:
+            return A.de_mapa(GM.a_px(GR.rotulos(page), px, zoom))
+    except Exception:                                  # noqa: BLE001 (complemento, como en `recognize_page`)
+        pass
+    return []

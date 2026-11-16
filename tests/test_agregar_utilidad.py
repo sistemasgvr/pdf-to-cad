@@ -277,7 +277,6 @@ def win(app, monkeypatch):
     theme.save_preference = lambda *_a, **_k: None
     from ui.ventana import app_window
     monkeypatch.setattr(app_window.Main, "_run_recognition_wizard", lambda self: None)
-    monkeypatch.setattr(app_window, "RecognitionWorker", _Reconocer)
     for name in ("information", "warning", "critical"):
         monkeypatch.setattr(QtWidgets.QMessageBox, name, lambda *a, **k: None)
     monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.No)
@@ -316,29 +315,68 @@ def _editor_con_agua(win, agua):
 _px_esperado = [None]
 
 
+class _Trabajador:
+    """Reemplaza al trabajador «reconocer» (▶ del panel): devuelve `_Reconocer.lineas` en la hoja pedida."""
+
+    def __init__(self, vio, win):
+        self.vio, self.win, self.tareas = vio, win, []
+
+    def enviar(self, t):
+        from PySide6 import QtCore
+        self.tareas.append(t)
+        ruta, hoja = t.args[0], int(t.args[1])
+        with fitz.open(ruta) as doc:                       # la hoja que se reconoce
+            self.vio["tam"] = (doc[hoja].rect.width, doc[hoja].rect.height)
+            self.vio["rojo"] = _color(doc, self.win.zoom, _px_esperado[0])
+        pls = [rec.RecognizedPolyline("Estilo Rojo 2.5 pt", "ALCANTARILLADO", list(pts), "sewer_ungd",
+                                      kinds=["end"] + ["bend"] * (len(pts) - 2) + ["end"])
+               for pts in _Reconocer.lineas]
+        res = [rec.RecognitionResult("ALCANTARILLADO", hoja, 1 / AGUA["escala"], polylines=pls,
+                                     polylines_joined=pls, polylines_raw=pls)]
+        t._dueno = self
+        QtCore.QTimer.singleShot(0, lambda: t._fin(res, ""))
+        return t
+
+    def cancelar(self, t):
+        t._fin(None, "cancelado")
+
+
 def _stubs(monkeypatch, win, cloaca, vista_previa):
+    """«Agregar utilidad» con el flujo desde el editor (plan 2026-11-16, Tarea 9): «Componer hoja» acepta las
+    hojas ubicadas, la hoja calcada queda «interpretada» (fila ALCANTARILLADO pendiente; la interpretación tiene sus
+    pruebas en `test_flujo_abrir_interpretar`) y, con `vista_previa` == "import", el usuario pulsa su ▶."""
+    from ui.comun import proceso
     from ui.ventana import app_window
     vio = {}
     monkeypatch.setattr(QtWidgets.QFileDialog, "getOpenFileNames", lambda *a, **k: ([cloaca], ""))
+    falso = _Trabajador(vio, win)
+    real = proceso.trabajador
+    monkeypatch.setattr(proceso, "trabajador",
+                        lambda nombre="principal": falso if nombre == proceso.RETENEDOR else real(nombre))
 
-    def capas(parent, doc, page_idx, **kw):
-        # la hoja que se va a reconocer: la del alcantarillado, calcada (mismo tamaño y lugar)
-        vio["tam"] = (doc[page_idx].rect.width, doc[page_idx].rect.height)
-        vio["rojo"] = _color(doc, win.zoom, _px_esperado[0])
-        vio["utilidades"] = kw.get("recognition_utilities")
-        return ([], page_idx, ("ALCANTARILLADO",), set())
+    def interpretar():
+        e = win._rec_estado()
+        e.filas["ALCANTARILLADO"].estado = "pendiente"
+        e.filas["ALCANTARILLADO"].motivo = None
+        if vista_previa != "import":
+            return
+        win.reconocer_parte("ALCANTARILLADO")
+        app = QtWidgets.QApplication.instance()
+        for _ in range(200):
+            if win._rec_actual is None:
+                break
+            app.processEvents()
+        assert win._rec_actual is None
+    monkeypatch.setattr(win, "_interpretar_hoja", interpretar)
 
-    def preview(parent, qimg, results, **kw):
-        vio["pipes_en_vista_previa"] = len(win.pipes)
-        return vista_previa
-
-    monkeypatch.setattr(app_window.layer_dialog, "choose_sheet_layers", capas)
-    monkeypatch.setattr(app_window.recognition_dialog, "show_recognition_preview", preview)
     def componer(parent, sources, comp, hidden, **kw):
         # «Componer hoja» (2026-10-26: siempre, como al abrir un PDF): acepta las hojas ubicadas
         vio["componer"] = [(p.source, p.page) for p in comp.pieces]
+        if vista_previa == "componer":
+            return None
         return comp, sources, hidden
     monkeypatch.setattr(app_window.composite_dialog, "compose_sheet", componer)
+    vio["trabajador"] = falso
     return vio
 
 
@@ -356,8 +394,7 @@ def test_agregar_utilidad_queda_sobre_la_hoja_del_editor(win, pdfs, monkeypatch)
     assert vio["tam"] == pytest.approx(antes["hoja"])
     r, _g, b = vio["rojo"]
     assert r > 150 and b < 120
-    assert "AGUA" not in vio["utilidades"] and "ALCANTARILLADO" in vio["utilidades"]
-    assert vio["pipes_en_vista_previa"] == 0               # (el editor se repone al importar)
+    assert [t.args[0] for t in vio["trabajador"].tareas] == [win._rec_hoja["ruta"]]   # la hoja calcada
     # el editor: lo de antes intacto + lo nuevo encima, en la hoja con las dos utilidades
     assert win.pipes[0] == antes["pipes"][0]
     assert [p["layer"] for p in win.pipes] == ["AGUA", "ALCANTARILLADO"]
@@ -377,8 +414,7 @@ def test_agregar_utilidad_queda_sobre_la_hoja_del_editor(win, pdfs, monkeypatch)
     assert [p["layer"] for p in win.pipes] == ["AGUA"]
 
 
-@pytest.mark.parametrize("salida", ["cancel", "capas"])
-def test_cancelar_deja_el_editor_como_estaba(win, pdfs, monkeypatch, salida):
+def test_cancelar_deja_el_editor_como_estaba(win, pdfs, monkeypatch):
     agua, cloaca = pdfs
     _editor_con_agua(win, agua)
     pm = win.canvas.pixmap_item.pixmap()
@@ -387,10 +423,7 @@ def test_cancelar_deja_el_editor_como_estaba(win, pdfs, monkeypatch, salida):
     tubo = [_px(win, 0, *TUBO["cloaca"][0]), _px(win, 0, *TUBO["cloaca"][1])]
     _px_esperado[0] = tubo[0]
     _Reconocer.lineas = [tubo]
-    _stubs(monkeypatch, win, cloaca, "cancel")
-    if salida == "capas":
-        from ui.ventana import app_window
-        monkeypatch.setattr(app_window.layer_dialog, "choose_sheet_layers", lambda *a, **k: None)
+    _stubs(monkeypatch, win, cloaca, "componer")         # Cancelar en «Componer hoja»
     win.agregar_utilidad()
     assert win.pipes == antes["pipes"] and win.doc is antes["doc"]
     assert win.composite.to_dict() == antes["comp"]

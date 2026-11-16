@@ -84,6 +84,9 @@ def build_model_dict(win):
     if canvas is not None:   # opacidad del PDF y fondo detrás (blanco/negro): se reponen al abrir
         model["pdf_opacidad"] = round(float(getattr(canvas, "pdf_opacity", 1.0)), 3)
         model["pdf_fondo_negro"] = bool(canvas.pdf_bg_color.value() < 128)
+    rec = reconocer_a_dict(win)                  # panel «Reconocer»: filas + interpretación liviana
+    if rec is not None:
+        model["reconocer"] = rec
     escala = float(getattr(canvas, "fondo_escala", 1.0) or 1.0)
     if escala < 1.0:
         model["fondo_escala"] = escala
@@ -170,7 +173,62 @@ def parse_model(model):
         pdf_opacidad=model.get("pdf_opacidad"),          # None = proyecto viejo: no se toca
         pdf_fondo_negro=model.get("pdf_fondo_negro"),
         anotaciones=_anotaciones(model.get("anotaciones")),   # retrocompat: sin rótulos reconocidos
+        reconocer=reconocer_de_model(model, pipes),            # retrocompat: sin panel «Reconocer»
     )
+
+
+def reconocer_a_dict(win):
+    """Estado de las filas del panel «Reconocer» (`reconocer_estado.a_dict`) + la interpretación de la hoja SIN la
+    lectura cruda ni las letras (`hoja.interpretacion_guardada`) + los roles elegidos. None si no hay panel.
+    La interpretación codificada se recuerda por objeto (`_content_sig` arma este dict a menudo)."""
+    from nucleo import reconocer_estado as RE
+    from hoja import interpretacion_guardada as IG
+    estado = getattr(win, "reconocer_estado", None)
+    if estado is None:
+        return None
+    interp = getattr(win, "_interpretacion", None)
+    roles = getattr(win, "_layer_roles_by_utility", None) or {}
+    memo = win.__dict__.get("_interp_guardada") if hasattr(win, "__dict__") else None
+    if memo is not None and memo[0] is interp:
+        cod = memo[1]
+    else:
+        cod = _codificar_o_nada(IG, None if interp is None else
+                                {k: v for k, v in interp.items() if k not in IG.SIN_GUARDAR})
+        try:
+            win._interp_guardada = (interp, cod)
+        except AttributeError:
+            pass
+    out = {"version": IG.VERSION, "estado": RE.a_dict(estado), "interpretacion": cod,
+           "roles": _codificar_o_nada(IG, roles, {})}
+    ov = getattr(win, "_rec_hoja", None)
+    if ov:                                       # «Agregar utilidad»: la hoja que se reconoce es la del PDF nuevo
+        out["hoja_agregada"] = {k: ov.get(k) for k in ("hoja", "firma", "desde", "grupo")}
+    return out
+
+
+def _codificar_o_nada(IG, valor, si_falla=None):
+    """Un dato que la interpretación guardada no sabe escribir no impide guardar el proyecto: queda sin él (al
+    reabrir, «Interpretar la hoja» la vuelve a leer)."""
+    try:
+        return IG.codificar(valor)
+    except (ValueError, TypeError):
+        return si_falla
+
+
+def reconocer_de_model(model, pipes):
+    """{estado, interpretacion, roles} al abrir. Proyecto viejo (sin el bloque): nada interpretado y lo ya importado
+    «reconocida» (`reconocer_estado.de_proyecto_viejo`); interpretación y roles None."""
+    from nucleo import reconocer_estado as RE
+    from hoja import interpretacion_guardada as IG
+    rec = (model or {}).get("reconocer")
+    if not isinstance(rec, dict):
+        return {"estado": RE.de_proyecto_viejo(pipes), "interpretacion": None, "roles": None}
+    try:
+        interp, roles = IG.de_ligera(rec)
+    except Exception:                            # noqa: BLE001 — sin interpretación: «Interpretar la hoja»
+        interp, roles = None, None
+    return {"estado": RE.al_abrir(RE.de_dict(rec.get("estado"))), "interpretacion": interp,
+            "roles": roles if isinstance(roles, dict) else {}, "hoja_agregada": rec.get("hoja_agregada")}
 
 
 def _anotaciones(lista):

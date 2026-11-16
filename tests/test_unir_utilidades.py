@@ -36,6 +36,24 @@ def test_orientaciones_por_el_inicio(b_pts):
     assert pl.pipe["name"] == "BASE"                     # los datos de la base mandan
 
 
+def test_marcas_de_reconocida_solo_si_todas_las_piezas_lo_son():
+    """Unir una reconocida con una dibujada a mano: la unida ya no es «reconocida» (reemplazar la borraría entera)."""
+    rec = dict(reconocida="AGUA", reconocida_idx=3, reconocida_firma="f1")
+    pl = U.planificar([_p([(0, 0), (100, 0)], **rec), _p([(100, 0), (200, 0)])], [0, 1], 0, FT)
+    assert pl.ok and not any(k in pl.pipe for k in rec)
+    pl = U.planificar([_p([(0, 0), (100, 0)]), _p([(100, 0), (200, 0)], **rec)], [0, 1], 0, FT)
+    assert pl.ok and not any(k in pl.pipe for k in rec)
+    # dos piezas de la MISMA lectura: sigue siendo reconocida, pero ya no es UNA polilínea (sin índice)
+    pl = U.planificar([_p([(0, 0), (100, 0)], **rec), _p([(100, 0), (200, 0)], **dict(rec, reconocida_idx=4))],
+                      [0, 1], 0, FT)
+    assert pl.ok and pl.pipe["reconocida"] == "AGUA" and pl.pipe["reconocida_firma"] == "f1"
+    assert "reconocida_idx" not in pl.pipe
+    # otra lectura: no
+    pl = U.planificar([_p([(0, 0), (100, 0)], **rec), _p([(100, 0), (200, 0)], **dict(rec, reconocida_firma="f2"))],
+                      [0, 1], 0, FT)
+    assert pl.ok and "reconocida" not in pl.pipe
+
+
 def test_cotas_de_cada_tramo_se_conservan():
     a = _p([(0, 0), (50, 0), (100, 0)], inv_start=10.0, inv_end=9.0)
     b = _p([(200, 0), (150, 10), (100, 0)], inv_start=7.0, inv_end=8.5)   # al revés: sale 8.5

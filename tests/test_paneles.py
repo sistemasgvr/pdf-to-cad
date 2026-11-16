@@ -202,7 +202,19 @@ def test_nada_se_corta_al_ancho_minimo(win, app, lang):
     for i in range(win.toolbox.count()):
         win.toolbox.setCurrentIndex(i); app.processEvents()
         problemas += [f"izq «{win.toolbox.itemText(i)}»: {m}" for m in _cortados(sl)]
-    # las demás páginas del riel (Hoja y PDF, Inventario, Revisión), a la vista
+    # las demás páginas del riel (Hoja y PDF, Inventario, Revisión, Reconocer), a la vista; «Reconocer» con
+    # filas de todos los estados y motivos (sin interpretar solo mostraría el botón «Interpretar la hoja»)
+    from nucleo import reconocer_estado as RE
+    capas = [{"name": n, "short": n, "path_count": 5, "on": True, "source": "ocg"}
+             for n in ("C-ELEC-UNGD-E", "C-STRM-UGND-E", "C-WATR-UNGD-E")]
+    est = RE.de_interpretacion(RE.nuevo(), {"layers": capas, "simbolos": [{}], "rotulos_n": 0}, "h",
+                               hidden=("C-WATR-UNGD-E",))
+    est.filas["ELECTRICO"].estado, est.filas["ELECTRICO"].hechos = "reconocida", 12
+    est.filas["ELECTRICO"].verificar = [{}] * 3
+    est.filas["DRENAJE"].estado = "desactualizada"
+    win.reconocer_estado = est
+    win._reconocer_ultimo = ("ELECTRICO", 12)
+    win._refrescar_panel_reconocer()
     stack = win.paneles_riel
     for k in range(stack.count()):
         stack.setCurrentIndex(k); app.processEvents()

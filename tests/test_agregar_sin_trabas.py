@@ -264,7 +264,6 @@ def test_agregar_utilidad_con_proceso_da_lo_mismo_que_sin_el(app, tmp_path, monk
     agua = TA._pdf(tmp_path / "QS Water_Prueba.pdf", TA.AGUA, [0, 1], TA.TUBO["agua"])
     cloaca = TA._pdf(tmp_path / "QS Sewer_Prueba.pdf", TA.CLOACA, [1, 0], TA.TUBO["cloaca"], girar=(0,))
     monkeypatch.setattr(app_window.Main, "_run_recognition_wizard", lambda self: None)
-    monkeypatch.setattr(app_window, "RecognitionWorker", TA._Reconocer)
     for name in ("information", "warning", "critical"):
         monkeypatch.setattr(QtWidgets.QMessageBox, name, lambda *a, **k: None)
     monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.No)

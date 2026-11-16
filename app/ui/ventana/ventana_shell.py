@@ -2,7 +2,7 @@
 
     barra superior · marca (menú Archivo) · proyecto · hoja ◀ ▶ · buscar o ejecutar (Ctrl+K) · deshacer ·
                      Capas · Asistente · tema · Exportar ▾ (versión e idioma de Civil 3D)
-    riel           · Dibujar · Hoja y PDF · Inventario · Revisión | Normativas · Tabla · Vista 3D · Duct Bank |
+    riel           · Dibujar · Hoja y PDF · Inventario · Revisión · Reconocer | Normativas · Tabla · Vista 3D · Duct Bank |
                      Ayuda · Ajustes
     panel del riel · el dock izquierdo de siempre (`_ldock`, se oculta solo) con una página por botón
     centro         · el plano y, dentro de la ventana, Normativas, Tabla de datos y Duct Bank
@@ -19,13 +19,14 @@ from ui.ventana import ventana_shell_paneles as PN
 # (icono, texto, página del panel | None, qué hace)
 RIEL = [("vector-polyline", "Dibujar", 0, None), ("file-pdf-box", "Hoja y PDF", 1, None),
         ("format-list-bulleted", "Inventario", 2, None), ("alert-outline", "Revisión", 3, None),
+        ("auto-fix", "Reconocer", 4, None),
         None,
         ("playlist-check", "Normativas de diseño", None, "open_normativas"),
         ("table-large", "Tabla de datos", None, "abrir_tabla_datos"),
         ("cube-outline", "Vista 3D", None, "abrir_vista3d"),
         ("chart-bell-curve-cumulative", "Perfil longitudinal", None, "abrir_perfil"),
         ("vector-square", "Diseñador de Duct Bank", None, "_open_duct_bank_designer")]
-PAGINAS = ["Dibujar", "Hoja y PDF", "Inventario", "Revisión"]
+PAGINAS = ["Dibujar", "Hoja y PDF", "Inventario", "Revisión", "Reconocer"]
 
 
 # ───────────────────────── barra superior ─────────────────────────
@@ -126,6 +127,8 @@ class ShellMixin:
         from ui.ventana import ventana_inventario
         self.paneles_riel.addWidget(ventana_inventario.panel_inventario(self))
         self.paneles_riel.addWidget(PN.panel_revision(self))
+        from ui.ventana import ventana_reconocer
+        self.paneles_riel.addWidget(ventana_reconocer.panel_reconocer(self))
         self._ldock.setWidget(self.paneles_riel)
         # derecha: propiedades de siempre o el Asistente
         from ui.ventana import ventana_asistente
