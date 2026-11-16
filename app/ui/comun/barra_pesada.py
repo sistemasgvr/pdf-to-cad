@@ -49,7 +49,7 @@ class AvancePesado(QtCore.QObject):
 
     # ── capa ──
     def abrir(self, texto):
-        self.ov.begin(texto, cursor=self.cursor, foto=True)
+        self.ov.begin(texto, cursor=self.cursor, foto=True, modelo=True)
         self.abierta = True
         self._t.start()
         return self

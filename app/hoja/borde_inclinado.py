@@ -74,9 +74,42 @@ def _segmentos(paths, m) -> List[Tuple[float, float, float, float, float]]:
     return out
 
 
+def _hoja_leida(page: fitz.Page) -> Optional[dict]:
+    """Lo que ya se preparó de ESTA hoja para dibujar sus franjas: {"dl": lista de dibujo, "franjas": {…}}.
+    `page.get_pixmap(clip=)` vuelve a interpretar la hoja ENTERA en cada llamada (es
+    `get_displaylist()` + `dl.get_pixmap()`): con cuatro lados, cuatro veces, y otra vez cuatro al armar
+    (Southwest Gas, 54 hojas: 32 de los 50 s de la composición sugerida, 2026-11-15). La lista se arma
+    una vez y cada franja se dibuja de ella: los MISMOS píxeles. Solo la última hoja (se recorren de a
+    una): no crece con el PDF. None = sin dónde guardarla (se dibuja como siempre)."""
+    doc = page.parent
+    try:
+        capas = tuple(bool(c.get("on")) for c in doc.layer_ui_configs())
+    except Exception:
+        capas = ()
+    clave = (page.number, page.rotation, capas)
+    try:
+        hecho = doc.__dict__.get("_pdfcad_franjas")
+        if hecho is None or hecho["clave"] != clave:
+            hecho = doc.__dict__["_pdfcad_franjas"] = {"clave": clave, "dl": None, "franjas": {}}
+        return hecho
+    except Exception:
+        return None
+
+
 def franja(page: fitz.Page, lado: str, rect: Rect, banda: float):
     """Píxeles con tinta (u a lo largo del lado, v a través; pt de la hoja visible) de la franja
-    del área pegada a ese lado, de ancho `banda` + 1 pt: se dibuja UNA vez por lado."""
+    del área pegada a ese lado, de ancho `banda` + 1 pt: se dibuja UNA vez por lado (y por hoja:
+    `_hoja_leida`)."""
+    hecho = _hoja_leida(page)
+    if hecho is None:
+        return _franja(page, lado, rect, banda, None)
+    clave = (lado, tuple(float(v) for v in rect), float(banda))
+    if clave not in hecho["franjas"]:
+        hecho["franjas"][clave] = _franja(page, lado, rect, banda, hecho)
+    return hecho["franjas"][clave]
+
+
+def _franja(page: fitz.Page, lado: str, rect: Rect, banda: float, hecho: Optional[dict]):
     import numpy as np
     x0, y0, x1, y1 = rect
     horiz = lado in ("top", "bottom")
@@ -87,14 +120,21 @@ def franja(page: fitz.Page, lado: str, rect: Rect, banda: float):
     caja = fitz.Rect(x0, lo_v, x1, hi_v) if horiz else fitz.Rect(lo_v, y0, hi_v, y1)
     vacio_ = (np.zeros(0), np.zeros(0))
     try:
-        pix = page.get_pixmap(matrix=fitz.Matrix(ZOOM, ZOOM), clip=caja * page.derotation_matrix,
-                              alpha=False)
+        if hecho is None:
+            pix = page.get_pixmap(matrix=fitz.Matrix(ZOOM, ZOOM), clip=caja * page.derotation_matrix,
+                                  alpha=False)
+        else:                               # lo mismo que hace `page.get_pixmap`, con la lista ya armada
+            if hecho["dl"] is None:
+                hecho["dl"] = page.get_displaylist(annots=True)
+            pix = hecho["dl"].get_pixmap(matrix=fitz.Matrix(ZOOM, ZOOM), colorspace=fitz.csRGB, alpha=False,
+                                         clip=caja * page.derotation_matrix)
     except Exception:
         return None
     if pix.width == 0 or pix.height == 0:
         return vacio_
     img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
-    ys, xs = np.nonzero(img[:, :, :3].min(axis=2) < OSCURO)
+    # (algún canal por debajo de OSCURO = el mínimo de los tres por debajo; así, sin armar el mínimo)
+    ys, xs = np.nonzero((img[:, :, 0] < OSCURO) | (img[:, :, 1] < OSCURO) | (img[:, :, 2] < OSCURO))
     px = caja.x0 + (xs + 0.5) / ZOOM                  # centro del píxel, hoja visible
     py = caja.y0 + (ys + 0.5) / ZOOM
     return (px, py) if horiz else (py, px)
@@ -234,6 +274,22 @@ def cuadrilatero(page: fitz.Page, rect: Rect, paths=None, segs=None, anchos: Opt
     if anchos is not None:
         anchos.update(gros)
     return pts
+
+
+def marco_calculado(page: fitz.Page, rect: Rect, segs) -> dict:
+    """Todo lo que la composición sugerida le pide al marco de una hoja, de una vez (mientras sus franjas
+    están dibujadas): {"rect", "q", "anchos", "q_recto", "anchos_recto"} = `cuadrilatero(page, rect,
+    segs=segs, anchos=…)` y, si no hay borde inclinado, lo mismo con `rectos=True`. La ficha lo guarda y
+    `composicion_sugerida.armar` lo usa en vez de dibujar las cuatro franjas otra vez (2026-11-15)."""
+    anchos: dict = {}
+    q = cuadrilatero(page, rect, segs=segs, anchos=anchos)
+    out = {"rect": tuple(float(v) for v in rect), "q": q, "anchos": dict(anchos),
+           "q_recto": None, "anchos_recto": {}}
+    if not q:
+        anchos = {}
+        out["q_recto"] = cuadrilatero(page, rect, segs=segs, anchos=anchos, rectos=True)
+        out["anchos_recto"] = dict(anchos)
+    return out
 
 
 def normalizado(pts: Sequence[Pt], tam: Tuple[float, float]) -> List[List[float]]:

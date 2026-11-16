@@ -191,7 +191,16 @@ class DibujoMixin:
             if viva:
                 self._guardar_capa_lineas(capa_prev, sc)
             revivida = self._revivir_capa_lineas(clave_capa, sc)
-        for it in self._overlay:
+        guardadas |= self._valvulas_que_siguen(sc)      # (ventana_valvulas: las ya dibujadas, si nada cambió)
+        # Las marcas de las capas NO están en la escena: con el grupo vigente su bloque (decenas de miles) se
+        # salta entero; antes se le preguntaba la escena a cada una en cada clic.
+        bloque = getattr(self, "_overlay_marcas", None)
+        self._overlay_marcas = None
+        viejo = self._overlay
+        if (bloque is not None and self._marcas_vigentes and bloque[0] < bloque[1] <= len(viejo)
+                and viejo[bloque[0]] is bloque[2] and viejo[bloque[1] - 1] is bloque[3]):
+            viejo = viejo[:bloque[0]] + viejo[bloque[1]:]
+        for it in viejo:
             if id(it) in guardadas:
                 continue
             try:
@@ -202,7 +211,11 @@ class DibujoMixin:
         # capas, una por Z (`ui/comun/capa_marcas`); con decenas de miles el lienzo se trababa.
         from ui.comun.capa_marcas import GrupoMarcas
         if self._marcas_vigentes:
-            self._overlay += list(previo.capas.values()) + previo.todas()
+            self._overlay += list(previo.capas.values())
+            marcas = previo.todas()
+            if marcas and getattr(self, "_tandas", None) is None:   # (a medias de una carga se revisan todas)
+                self._overlay_marcas = (len(self._overlay), len(self._overlay) + len(marcas), marcas[0], marcas[-1])
+            self._overlay += marcas
         else:
             self._marcas = GrupoMarcas(sc, self.canvas.transform().m11(), self._overlay, previo=previo)
             # provisional (calculo_fondo): este grupo queda SIN marcas; sin firma, el redibujo con los

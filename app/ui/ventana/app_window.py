@@ -1214,7 +1214,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             ov.step(detail=_tr("Hoja {p} · {u} ({i} de {n})").format(
                 p=self._recog_worker.page_index + 1, u=_tr(_recognition.utility_label(utility)),
                 i=i + 1, n=n),
-                done=i, total=n, pump=False)
+                done=i, total=n, pump=False, clave="capas")
 
     def _recognition_layer(self, i, n, utility, k, m):
         """Avance dentro de una utilidad: «capa k de m» (el reconocimiento va capa por capa)."""
@@ -1223,7 +1223,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             self._recog_linea = _tr("Hoja {p} · {u} ({i} de {n}) · capa {k} de {m}").format(
                 p=self._recog_worker.page_index + 1, u=_tr(_recognition.utility_label(utility)),
                 i=i + 1, n=n, k=k + 1, m=m)
-            ov.step(detail=self._recog_linea, done=i * m + k, total=n * m, pump=False)
+            ov.step(detail=self._recog_linea, done=i * m + k, total=n * m, pump=False, clave="capas")
 
     def _recognition_stage(self, texto, i, n):
         """Qué está haciendo ahora («Reconstruyendo las líneas de la capa Negro 0.71 pt…»),
@@ -1231,7 +1231,9 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         ov = getattr(self, "_recog_busy", None)
         if ov is not None:
             linea = getattr(self, "_recog_linea", "")
-            ov.step(detail=(linea + "\n" if linea else "") + _busy_mod.detalle_de(texto, i, n), pump=False)
+            # (dentro de una capa la etapa sigue siendo «capas»: su cuenta es la de capas hechas)
+            ov.step(detail=(linea + "\n" if linea else "") + _busy_mod.detalle_de(texto, i, n), pump=False,
+                    **({"clave": "capas"} if linea else {"done": i if n else None, "total": n or None}))
 
     def _recognition_partial(self, utility, trazos):
         """Lo ya ajustado de una utilidad reemplaza sus líneas provisionales, sin duplicarlas."""
@@ -2356,6 +2358,8 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
 def main():
     # La Vista 3D usa QOpenGLWidget: Qt pide esto ANTES de crear la app.
     QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
+    from ui.comun import vigia_carga
+    vigia_carga.sin_fantasma()          # Windows no cambia la ventana por «(No responde)» mientras carga
     app = QtWidgets.QApplication(sys.argv)
     from ui.comun import errores
     errores.instalar(app)

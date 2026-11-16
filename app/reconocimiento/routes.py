@@ -292,49 +292,163 @@ def join_emitted(lines, scale: float = 1.0) -> list:
     Devuelve las rutas absorbidas (quien llama las quita de su lista)."""
     live = [pl for pl in lines if len(pl.pts_pdf) >= 2]
     gone = []
+    tol, min_len = NODE_TOL_PT * scale, EMIT_HEADING_MIN_PT * scale
+    pasos = _Pasos(live, tol)
+    pares = _Pares(live, tol, min_len, pasos)
     while True:
-        best = _best_emitted_pair(live, NODE_TOL_PT * scale, EMIT_HEADING_MIN_PT * scale)
+        best = pares.mejor()
         if best is None:
             return gone
         _d, i, si, j, sj = best
-        _absorb(live[i], si, live[j], sj)
+        a, b = live[i], live[j]
+        nodo = a.pts_pdf[0] if si == 0 else a.pts_pdf[-1]
+        _absorb(a, si, b, sj)
+        pasos.quitar(b)
+        pasos.poner(a)                                # (ahora llega hasta donde llegaba la otra)
         gone.append(live.pop(j))
+        pares.tras_unir(a, b, nodo)
 
 
-def _best_emitted_pair(live, tol, min_len):
+class _Pasos:
+    """Las rutas por celdas de su caja, para «¿otra línea pasa por este nodo?» (`_passes`). En una hoja
+    compuesta de 54 mapas (14 mil rutas) cada nodo candidato probaba TODAS las rutas en cada vuelta: 91
+    millones de pruebas, 5 de los 12 minutos del reconocimiento (2026-11-15). `en(q)` = las rutas cuya
+    caja, agrandada 2·tol, contiene q: toda ruta con un tramo a ≤ tol de q está (la prueba exacta la
+    sigue haciendo `_passes`, y es un «alguna»: el orden no importa)."""
+
+    def __init__(self, live, tol: float):
+        self.margen = 2.0 * tol
+        self.celda = max(64.0 * tol, 1e-6)
+        self.celdas: Dict[Tuple[int, int], list] = {}
+        self.vivas: Dict[int, tuple] = {}
+        for pl in live:
+            self.poner(pl)
+
+    def poner(self, pl) -> None:
+        xs = [p[0] for p in pl.pts_pdf]
+        ys = [p[1] for p in pl.pts_pdf]
+        m, c = self.margen, self.celda
+        x0, y0, x1, y1 = min(xs) - m, min(ys) - m, max(xs) + m, max(ys) + m
+        self.vivas[id(pl)] = (pl, x0, y0, x1, y1)
+        for cx in range(int(x0 // c), int(x1 // c) + 1):
+            for cy in range(int(y0 // c), int(y1 // c) + 1):
+                self.celdas.setdefault((cx, cy), []).append(id(pl))
+
+    def quitar(self, pl) -> None:
+        self.vivas.pop(id(pl), None)
+
+    def en(self, q: Pt) -> list:
+        c = self.celda
+        out, vistas = [], set()
+        for k in self.celdas.get((int(q[0] // c), int(q[1] // c)), ()):
+            v = self.vivas.get(k)
+            if v is not None and k not in vistas and v[1] <= q[0] <= v[3] and v[2] <= q[1] <= v[4]:
+                vistas.add(k)
+                out.append(v[0])
+        return out
+
+
+def _extremos(live, tol):
+    """Los extremos (línea, lado, punto) y su rejilla de celdas 4·tol."""
     ends = [(i, s, pl.pts_pdf[0] if s == 0 else pl.pts_pdf[-1])
             for i, pl in enumerate(live) for s in (0, 1)]
     cell = max(tol, 1e-6) * 4
     grid: Dict[Tuple[int, int], List[int]] = {}
     for n, (_i, _s, p) in enumerate(ends):
         grid.setdefault((int(p[0] // cell), int(p[1] // cell)), []).append(n)
+    return ends, grid, cell
+
+
+def _par_en(live, ends, grid, cell, n, tol, min_len, pasos):
+    """El par que une el nodo del extremo `n` (solo si `n` es el primero de su nodo): (giro, i, si, j, sj) o None."""
+    i, si, p = ends[n]
+    kx, ky = int(p[0] // cell), int(p[1] // cell)
+    # grado del nodo: TODOS los extremos de la capa (también los de otro estado AB)
+    near = sorted(m for dx in (-1, 0, 1) for dy in (-1, 0, 1) for m in grid.get((kx + dx, ky + dy), ())
+                  if math.dist(ends[m][2], p) <= tol and live[ends[m][0]].layer_ocg == live[i].layer_ocg)
+    if len(near) != 2 or near[0] != n:
+        return None                                   # nodo de grado ≠ 2 (o ya visto)
+    j, sj, q = ends[near[1]]
+    if i == j or not _same_net(live[i], live[j]):
+        return None                                   # lazo, u otro estado (AB): no es la misma utilidad
+    far_i = live[i].pts_pdf[-1 if si == 0 else 0]
+    far_j = live[j].pts_pdf[-1 if sj == 0 else 0]
+    if math.dist(far_i, far_j) <= tol:
+        return None                                   # cerraría un lazo (contorno de un tubo): no es trayectoria
+    ka = live[i].kinds[0 if si == 0 else -1]
+    kb = live[j].kinds[0 if sj == 0 else -1]
+    if "cut" in (ka, kb):
+        return None
+    if any(_passes(o, p, tol) for o in (live if pasos is None else pasos.en(p))
+           if o.layer_ocg == live[i].layer_ocg):
+        return None                                   # otra línea pasa por el nodo: es una T
+    d = _defl(_local_heading(live[i].pts_pdf, si == 0, min_len),
+              _local_heading(live[j].pts_pdf, sj == 0, min_len))
+    theta = THETA_JUNCTION_DEG if "tee" in (ka, kb) else THETA_DEG2_DEG
+    return (d, i, si, j, sj) if d <= theta else None
+
+
+def _best_emitted_pair(live, tol, min_len, pasos=None):
+    """El mejor par de TODA la capa (menor giro; empate: menor i, luego j). Es lo que `_Pares` mantiene sin
+    volver a mirar todos los nodos en cada unión (las pruebas comparan uno con otro)."""
+    ends, grid, cell = _extremos(live, tol)
     best = None
-    for n, (i, si, p) in enumerate(ends):
-        kx, ky = int(p[0] // cell), int(p[1] // cell)
-        # grado del nodo: TODOS los extremos de la capa (también los de otro estado AB)
-        near = sorted(m for dx in (-1, 0, 1) for dy in (-1, 0, 1) for m in grid.get((kx + dx, ky + dy), ())
-                      if math.dist(ends[m][2], p) <= tol and live[ends[m][0]].layer_ocg == live[i].layer_ocg)
-        if len(near) != 2 or near[0] != n:
-            continue                                  # nodo de grado ≠ 2 (o ya visto)
-        j, sj, q = ends[near[1]]
-        if i == j or not _same_net(live[i], live[j]):
-            continue                                  # lazo, u otro estado (AB): no es la misma utilidad
-        far_i = live[i].pts_pdf[-1 if si == 0 else 0]
-        far_j = live[j].pts_pdf[-1 if sj == 0 else 0]
-        if math.dist(far_i, far_j) <= tol:
-            continue                                  # cerraría un lazo (contorno de un tubo): no es trayectoria
-        ka = live[i].kinds[0 if si == 0 else -1]
-        kb = live[j].kinds[0 if sj == 0 else -1]
-        if "cut" in (ka, kb):
-            continue
-        if any(_passes(o, p, tol) for o in live if o.layer_ocg == live[i].layer_ocg):
-            continue                                  # otra línea pasa por el nodo: es una T
-        d = _defl(_local_heading(live[i].pts_pdf, si == 0, min_len),
-                  _local_heading(live[j].pts_pdf, sj == 0, min_len))
-        theta = THETA_JUNCTION_DEG if "tee" in (ka, kb) else THETA_DEG2_DEG
-        if d <= theta and (best is None or (d, i, j) < (best[0], best[1], best[3])):
-            best = (d, i, si, j, sj)
+    for n in range(len(ends)):
+        par = _par_en(live, ends, grid, cell, n, tol, min_len, pasos)
+        if par is not None and (best is None or (par[0], par[1], par[3]) < (best[0], best[1], best[3])):
+            best = par
     return best
+
+
+class _Pares:
+    """Los pares que se pueden unir, sin volver a mirar toda la capa tras cada unión (2026-11-15: en la compuesta
+    de Southwest, 14 mil rutas, `_best_emitted_pair` miraba los 28 mil extremos 56 veces).
+
+    Lo que decide un nodo (`_par_en`) depende solo de los extremos a ≤ tol, de las dos líneas que llegan (sus
+    puntas, su rumbo, si cerrarían un lazo) y de las líneas que pasan por él. Unir `b` a `a` solo cambia eso
+    cerca del NODO de la unión y de las dos PUNTAS de `a` (la otra punta de `b` es ahora de `a`): ahí se vuelve a
+    mirar, con margen (`RADIO` × tol), y lo demás queda como estaba. El elegido es el MISMO: menor giro y, en
+    empate, menor índice ACTUAL de las dos líneas (quitar una línea corre los índices de las siguientes sin
+    cambiar su orden)."""
+    RADIO = 3.0
+
+    def __init__(self, live, tol, min_len, pasos):
+        self.live, self.tol, self.min_len, self.pasos = live, tol, min_len, pasos
+        ends, grid, cell = _extremos(live, tol)
+        self.pares: Dict[Tuple[int, int], tuple] = {}            # (id línea, lado) del primer extremo → par
+        for n in range(len(ends)):
+            self._mirar(ends, grid, cell, n)
+
+    def _mirar(self, ends, grid, cell, n) -> None:
+        par = _par_en(self.live, ends, grid, cell, n, self.tol, self.min_len, self.pasos)
+        if par is not None:
+            d, i, si, j, sj = par
+            self.pares[(id(self.live[i]), si)] = (d, self.live[i], si, self.live[j], sj, ends[n][2])
+
+    def mejor(self):
+        if not self.pares:
+            return None
+        indice = {id(pl): k for k, pl in enumerate(self.live)}
+        d, a, sa, b, sb, _p = min(self.pares.values(), key=lambda v: (v[0], indice[id(v[1])], indice[id(v[3])]))
+        return d, indice[id(a)], sa, indice[id(b)], sb
+
+    def tras_unir(self, a, b, nodo) -> None:
+        lugares = [nodo, a.pts_pdf[0], a.pts_pdf[-1]]
+        r = self.RADIO * self.tol
+        self.pares = {k: v for k, v in self.pares.items()
+                      if v[1] is not a and v[1] is not b and v[3] is not a and v[3] is not b
+                      and not any(math.dist(v[5], q) <= r for q in lugares)}
+        ends, grid, cell = _extremos(self.live, self.tol)
+        vistos = set()
+        for q in lugares:
+            kx0, ky0 = int((q[0] - r) // cell), int((q[1] - r) // cell)
+            kx1, ky1 = int((q[0] + r) // cell), int((q[1] + r) // cell)
+            for kx in range(kx0, kx1 + 1):
+                for ky in range(ky0, ky1 + 1):
+                    for n in grid.get((kx, ky), ()):
+                        if n not in vistos and math.dist(ends[n][2], q) <= r:
+                            vistos.add(n)
+                            self._mirar(ends, grid, cell, n)
 
 
 def _same_net(a, b) -> bool:

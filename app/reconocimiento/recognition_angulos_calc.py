@@ -220,7 +220,9 @@ def normales_de_borde(q, bordes, tol: float) -> List[np.ndarray]:
     """Normales (unitarias) de los bordes que pasan por q (≤ tol px): el lado de un polígono
     o la normal radial de un círculo. En una esquina, las dos."""
     out = []
-    for borde in bordes or ():
+    bordes = bordes or ()
+    for nb in _bordes_cerca(bordes, q, tol):
+        borde = bordes[nb]
         if not borde:
             continue
         kind, g = borde
@@ -242,6 +244,36 @@ def normales_de_borde(q, bordes, tol: float) -> List[np.ndarray]:
                 if n is not None:
                     out.append(n)
     return out
+
+
+_CAJAS_BORDES: list = [(None, None)]        # (bordes, cajas) de la última lista: se pregunta una vez por punta
+
+
+def _bordes_cerca(bordes, q, tol: float) -> List[int]:
+    """Los índices (en orden) de los bordes cuya caja, agrandada tol + holgura, contiene q: los únicos que pueden
+    dar una normal (lado a ≤ tol con su pie dentro, o anillo a ≤ tol del radio). En la hoja compuesta de Southwest
+    hay un borde por recorte de cada pieza y cada punta los recorría todos con numpy (~8 s, 2026-11-15)."""
+    if not bordes:
+        return []
+    de, c = _CAJAS_BORDES[0]                    # (el par junto: otro hilo puede cambiarlo entre medio)
+    if de is not bordes or len(c) != len(bordes):
+        cajas = []
+        for borde in bordes:
+            if not borde:
+                cajas.append((math.inf, math.inf, -math.inf, -math.inf))
+            elif borde[0] == "circle":
+                cx, cy, r = borde[1]
+                cajas.append((cx - abs(r), cy - abs(r), cx + abs(r), cy + abs(r)))
+            else:
+                xs = [float(p[0]) for p in borde[1]] or [math.inf]
+                ys = [float(p[1]) for p in borde[1]] or [math.inf]
+                cajas.append((min(xs), min(ys), max(xs), max(ys)))
+        c = np.array(cajas, float).reshape(-1, 4)
+        _CAJAS_BORDES[0] = (bordes, c)
+    # holgura: el pie del lado se acepta hasta 1e-9 de largo fuera de su tramo
+    m = tol + 1e-6 * (1.0 + np.maximum(c[:, 2] - c[:, 0], c[:, 3] - c[:, 1]))
+    ok = (c[:, 0] - m <= q[0]) & (q[0] <= c[:, 2] + m) & (c[:, 1] - m <= q[1]) & (q[1] <= c[:, 3] + m)
+    return np.flatnonzero(ok).tolist()
 
 
 def lateral(P: np.ndarray, Q: np.ndarray) -> np.ndarray:

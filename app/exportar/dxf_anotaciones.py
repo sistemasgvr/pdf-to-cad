@@ -82,6 +82,16 @@ def _explicita(win, doc, msp, a, p0, rot, alto):
     return m
 
 
+
+def _indice(pipes):
+    """`cerca` de las utilidades que se exportan, para `anotaciones.senala` (None si no se puede armar: todas)."""
+    try:
+        from nucleo.indice_plano import IndiceUtilidades
+        return IndiceUtilidades(pipes).cerca
+    except (ValueError, OverflowError, TypeError):
+        return None
+
+
 def exportar(win, doc, msp) -> int:
     """Escribe los rótulos de `win.anotaciones`; devuelve cuántos."""
     from nucleo import anotaciones as AN
@@ -93,6 +103,7 @@ def exportar(win, doc, msp) -> int:
         doc.appids.add("PDFCAD")
     ensure_layer(doc, CAPA)
     n = 0
+    cerca = _indice(win.pipes)
     for a in lista:
         try:
             p0, rot, alto = _marco(win, a)
@@ -110,6 +121,6 @@ def exportar(win, doc, msp) -> int:
             ent = msp.add_mtext(_contenido(a), dxfattribs={"layer": CAPA, "char_height": alto})
             ent.set_location(p0, rotation=rot, attachment_point=1)
         ent.dxf.layer = CAPA
-        ent.set_xdata("PDFCAD", _xdata(a, AN.senala(a, win.pipes)))
+        ent.set_xdata("PDFCAD", _xdata(a, AN.senala(a, win.pipes, cerca=cerca)))
         n += 1
     return n

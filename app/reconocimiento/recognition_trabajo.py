@@ -14,6 +14,7 @@ compuesta no trabe la ventana ni deje la RAM ocupada) o, sin proceso, en el hilo
 """
 from __future__ import annotations
 
+import contextlib
 from typing import Callable, Optional
 import time
 
@@ -64,6 +65,19 @@ def _leer_valvulas(page, zoom, hidden, roles_by_utility, results):
         results[0].warnings = list(results[0].warnings) + RV.avisos(valvulas)
 
 
+@contextlib.contextmanager
+def _valvulas_adelantadas(doc, page_index):
+    """Las válvulas de una leyenda en imagen se dibujan en otros procesos MIENTRAS se reconocen las líneas
+    (`recognition_valvulas.adelantar`, 2026-11-15: ~20 s de la compuesta de Southwest); al salir se suelta lo que
+    nadie recogió. Dentro de `pdf_styles.lectura_unica`."""
+    from reconocimiento import recognition_valvulas as RV, recognition_valvulas_tinta
+    RV.adelantar(doc[page_index])
+    try:
+        yield
+    finally:
+        recognition_valvulas_tinta.soltar(doc)
+
+
 def reconocer_hoja(pdf_path, page_index, zoom=1.0, utilities=("ELECTRICO",), hidden_ocgs=(),
                    layer_roles=None, roles_by_utility=None, join_routes=True, scale_ft_per_pt=None,
                    letters_off=(), progreso: Optional[Callable] = None, perfiles_de=()):
@@ -79,7 +93,7 @@ def reconocer_hoja(pdf_path, page_index, zoom=1.0, utilities=("ELECTRICO",), hid
     # utilidades (`recognition.page_letters`, ~0.5–1 s por hoja); y los vectores de la hoja
     # se leen UNA vez para las letras y todas las utilidades (`pdf_styles.lectura_unica`)
     from hoja import pdf_styles
-    with fitz.open(pdf_path) as doc, pdf_styles.lectura_unica(doc):
+    with fitz.open(pdf_path) as doc, pdf_styles.lectura_unica(doc), _valvulas_adelantadas(doc, page_index):
         letters = None
         if any(not (roles_by_utility.get(u) or layer_roles) for u in utilities):
             letters = rec.page_letters(doc[page_index])

@@ -501,10 +501,17 @@ def armar(g: Grupo, analisis: Analisis, docs: Sequence[fitz.Document],
                 # atlas borde con borde: la hoja va ENTERA hasta su marco (el corte de
                 # `costuras_rectas` puede caer dentro de la raya y dejarla a medias fuera de la franja)
                 rect = tuple(float(v) for v in f.vista)
-            q = BI.cuadrilatero(page, rect, segs=segs, anchos=anchos)
-            if not q and por_marco.get(n):
-                # marco recto: igual hace falta saber dónde va su raya para taparla en la costura
-                q = BI.cuadrilatero(page, rect, segs=segs, anchos=anchos, rectos=True)
+            calc = getattr(f, "marco_calc", None)
+            if calc and segs is f.lineas and calc["rect"] == tuple(float(v) for v in rect):
+                # el MISMO cálculo que hizo la ficha con este recuadro y estas rectas: se usa tal cual
+                q, anchos = calc["q"], dict(calc["anchos"])
+                if not q and por_marco.get(n):
+                    q, anchos = calc["q_recto"], dict(calc["anchos_recto"])
+            else:
+                q = BI.cuadrilatero(page, rect, segs=segs, anchos=anchos)
+                if not q and por_marco.get(n):
+                    # marco recto: igual hace falta saber dónde va su raya para taparla en la costura
+                    q = BI.cuadrilatero(page, rect, segs=segs, anchos=anchos, rectos=True)
             if q:
                 poligono = BI.normalizado(q, f.tam)
                 xs, ys = [p[0] for p in q], [p[1] for p in q]

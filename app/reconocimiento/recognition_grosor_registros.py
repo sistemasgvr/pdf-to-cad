@@ -78,15 +78,44 @@ def _extremos(c) -> Tuple[float, float, float]:
     return u - largo / 2.0, u + largo / 2.0, centro[0] * d[1] - centro[1] * d[0]
 
 
-def _vecinas(c, otras: List, usadas: set, sentido: int) -> List:
+class _Orden:
+    """Las piezas de un rumbo ya ordenadas hacia cada lado, para no ordenarlas ni recorrerlas enteras por cada
+    rótulo (hoja compuesta de 54 mapas: 35 mil rótulos × todas las piezas, 2 minutos; 2026-11-15). El MISMO orden
+    que `sorted(otras, key=a·sentido)` (estable) y el mismo recorrido, saltando solo lo que no puede dar nada."""
+
+    def __init__(self, otras: List):
+        self.lados = {}
+        for sentido in (1, -1):
+            lista = sorted(otras, key=lambda x: x[1] * sentido)
+            self.lados[sentido] = (lista, [x[1] * sentido for x in lista])
+        largos = [x[2] - x[1] for x in otras]
+        self.largo_min = min(largos, default=0.0)
+        self.largo_max = max(largos, default=0.0)
+
+
+def _vecinas(c, otras: List, usadas: set, sentido: int, orden: Optional[_Orden] = None) -> List:
     """Las piezas seguidas de `c` hacia un lado, de la más cercana a la más lejana."""
     u0, u1, v = _extremos(c)
     borde, out = (u1 if sentido > 0 else u0), []
-    for o, a, b, w in sorted(otras, key=lambda x: x[1] * sentido):
+    if orden is None:
+        lista, desde = sorted(otras, key=lambda x: x[1] * sentido), 0
+    else:
+        lista, claves = orden.lados[sentido]
+        # hacia adelante se saltan las que empiezan antes que `c` (a < u0); hacia atrás, las que terminan
+        # después (b > u1), y b ≥ a + el largo menor: las primeras de la lista seguro no entran
+        desde = (bisect.bisect_left(claves, u0) if sentido > 0
+                 else bisect.bisect_left(claves, -(u1 - orden.largo_min)))
+    tope = HUECO_LETRAS * c.tam
+    for n in range(desde, len(lista)):
+        o, a, b, w = lista[n]
+        if orden is not None:
+            # de aquí en adelante todas quedan aún más lejos del borde: ninguna puede sumarse
+            if (a - borde > tope) if sentido > 0 else (borde - a - orden.largo_max > tope):
+                break
         if id(o) in usadas or abs(w - v) > LINEA_LETRAS * c.tam or (a < u0 if sentido > 0 else b > u1):
             continue
         hueco = (a - borde) if sentido > 0 else (borde - b)
-        if hueco > HUECO_LETRAS * c.tam:
+        if hueco > tope:
             break
         if not RX_PIEZA.match(o.texto):
             break
@@ -120,11 +149,12 @@ def de_corridas(corridas, inicios=()) -> List[G.RotuloMapa]:
     for grupo in por_rumbo.values():
         otras = [(c, *_extremos(c)) for c in grupo if RX_PIEZA.match(c.texto)]
         usadas: set = set()
+        orden = _Orden(otras)
         for c in grupo:
             if not RX_DIAM.match(c.texto.upper()):
                 continue
-            antes = _vecinas(c, otras, usadas, -1)
-            despues = _vecinas(c, otras, usadas, 1)
+            antes = _vecinas(c, otras, usadas, -1, orden)
+            despues = _vecinas(c, otras, usadas, 1, orden)
             seq = c.glifos[0].seqno if c.glifos else -1
             r = _rotulo(c, antes, despues, bisect.bisect_right(inicios, seq) if inicios else 0)
             if r is not None:
@@ -169,14 +199,30 @@ def por_largo(lineas, rots, es_acometida, pendientes=()) -> int:
         return 0
     ocupados = {id(r) for rs in suyos.values() for r in rs}
     libres = [r for r in rots if id(r) not in ocupados and _pies(r)]
+    # los pies de cada rótulo libre UNA vez y ordenados: cada línea mira solo los que caben en su tolerancia,
+    # en el orden de siempre (antes, la expresión regular de cada rótulo por cada línea: 39 millones)
+    pies = [_pies(r) for r in libres]
+    por_pies = sorted(range(len(libres)), key=lambda n: pies[n])
+    pies_ord = [pies[n] for n in por_pies]
     pedidos: Dict[int, List[Tuple[float, int]]] = {}
     for k, pl in enumerate(lineas):
         if (pl.grosor or {}).get("estado") != "sin_dato" or id(pl) in pendientes:
             continue
         medido = _largo(pl) * k_pies
         cand = []
-        for r in libres:
-            if abs(_pies(r) - medido) > max(LARGO_TOL_FT, LARGO_TOL * medido):
+        xs, ys = [p[0] for p in pl.pts_pdf], [p[1] for p in pl.pts_pdf]
+        cx0, cy0, cx1, cy1 = min(xs), min(ys), max(xs), max(ys)        # caja de la línea
+        tol = max(LARGO_TOL_FT, LARGO_TOL * medido)
+        i0 = bisect.bisect_left(pies_ord, medido - tol - 1.0)       # (holgura: el filtro exacto sigue abajo)
+        i1 = bisect.bisect_right(pies_ord, medido + tol + 1.0)
+        for n in sorted(por_pies[i0:i1]):
+            r = libres[n]
+            if abs(pies[n] - medido) > tol:
+                continue
+            # más lejos de la CAJA de la línea que el tope = más lejos de la línea: no hace falta medirla
+            fx = max(cx0 - r.centro[0], 0.0, r.centro[0] - cx1)
+            fy = max(cy0 - r.centro[1], 0.0, r.centro[1] - cy1)
+            if math.hypot(fx, fy) > LARGO_LETRAS * r.tam + 1e-6:
                 continue
             d = min(G.P._dist_seg(r.centro, a, b) for a, b in zip(pl.pts_pdf, pl.pts_pdf[1:]))
             if d <= LARGO_LETRAS * r.tam:

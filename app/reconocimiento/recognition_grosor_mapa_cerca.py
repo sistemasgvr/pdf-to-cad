@@ -14,6 +14,7 @@ cómo queda respecto de ESTA línea (mismas medidas que `recognition_grosor_mapa
 """
 from __future__ import annotations
 
+import math
 from typing import Callable, List, Optional, Sequence
 
 from reconocimiento import recognition_grosor_mapa as G
@@ -67,6 +68,7 @@ def poner_cerca(lineas: Sequence, rots: Sequence[G.RotuloMapa], es_acometida: Ca
     if not objetivo:
         return 0
     pts = [pl.pts_pdf for pl in lineas]
+    cajas = [(min(q[0] for q in p), min(q[1] for q in p), max(q[0] for q in p), max(q[1] for q in p)) for p in pts]
     tap = [bool(es_acometida(pl)) for pl in lineas]
     lim_de = [min(CERCA_PT * zoom, CERCA_LETRAS * r.tam) for r in rots]
     indice = indice_mod.IndiceTramos([list(zip(p, p[1:])) for p in pts], max(lim_de, default=0.0))
@@ -75,10 +77,17 @@ def poner_cerca(lineas: Sequence, rots: Sequence[G.RotuloMapa], es_acometida: Ca
     de_linea = {k: [] for k in objetivo}
     for r, lim in zip(rots, lim_de):
         hits = {}
-        for k in sorted({k for k, _j in indice.cerca(r.centro)}):
+        de_k = G.tramos_por_linea(indice.cerca(r.centro))
+        for k in sorted(de_k):
             if (not tap[k] and r.acometida) or (tap[k] and r.pulg > tope_plano and not r.acometida):
                 continue
-            got = G._cerca(r, pts[k])
+            # el índice va con el alcance del rótulo MÁS lejano; si la caja de la línea ya queda más allá del
+            # alcance de ESTE rótulo, la línea también (y se descartaría abajo): no se mide
+            x0, y0, x1, y1 = cajas[k]
+            if math.hypot(max(x0 - r.centro[0], 0.0, r.centro[0] - x1),
+                          max(y0 - r.centro[1], 0.0, r.centro[1] - y1)) > lim + 1e-6:
+                continue
+            got = G._cerca(r, pts[k], de_k[k])        # (lim ≤ alcance del índice)
             if got is not None and got[0] <= lim:
                 hits[k] = got
         for k in hits:

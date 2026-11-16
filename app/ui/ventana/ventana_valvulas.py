@@ -31,6 +31,11 @@ def nombre_tipo(tipo):
     return _tr("Válvula de compuerta · en el plano: {t}").format(t=_tr(t))
 
 
+# Encima de todo lo de Z_MARK + 2 (rótulos de tramo, flechas del flujo), que se dibuja antes: como los ítems de las
+# válvulas se QUEDAN en la escena entre redibujos, el orden de llegada ya no las deja arriba.
+Z_VALV = Z_MARK + 2.001
+
+
 class ValvulasMixin:
     # ── datos ────────────────────────────────────────────────────────────
     def _ft_px_valv(self):
@@ -45,7 +50,39 @@ class ValvulasMixin:
         vs = getattr(self, "valvulas", None) or []
         if not vs or not ft:
             return [V.Lugar(motivo=_tr("Falta la escala de la hoja.")) for _ in vs]
-        return V.ubicar_todas(self.pipes, self.structures, vs, ft, cerca=self._cerca_valv)
+        # Mismo modelo y mismas válvulas = mismos lugares (2026-11-14: se ubicaban TODAS en cada redibujo —elegir
+        # una línea, Esc, una capa— y otra vez para la lista de accesorios; con mil válvulas, un minuto por clic).
+        from nucleo import memo_modelo
+        from traduccion import i18n_core
+        m = getattr(self, "_memo_redibujo", None)
+        base = m.firma if (m is not None and getattr(self, "_en_redibujo", False)) else None
+        if base is None:                                # fuera de un redibujo el modelo pudo cambiar: su huella
+            base = memo_modelo.firma(self.pipes, self.structures)
+        clave = (base, memo_modelo.firma(vs), ft, getattr(i18n_core, "_current_lang", None))
+        previo = getattr(self, "_valv_memo", None)
+        if base is not None and clave[1] is not None and previo is not None and previo[0] == clave:
+            return list(previo[1])
+        lugares = V.ubicar_todas(self.pipes, self.structures, vs, ft, cerca=self._cerca_valv_al_dia())
+        if base is not None and clave[1] is not None:
+            self._valv_memo = (clave, lugares)
+        return list(lugares)
+
+    def _cerca_valv_al_dia(self):
+        """`cerca(x, y, r)` para ubicar TODAS las válvulas: el índice de utilidades se valida UNA vez (no en cada
+        llamada: `_utilidades_cerca` compara la geometría de todas las utilidades cada vez, ~10 ms con 16 mil).
+        Mismas candidatas, en el mismo orden."""
+        if not self.pipes:
+            return lambda _x, _y, _r: []
+        from nucleo.indice_plano import IndiceUtilidades, _firma
+        cache = getattr(self, "_cache_raton", None)
+        if cache is None:
+            cache = self._cache_raton = {}
+        ix = cache.get("indice")
+        if ix is None or not ix.vigente(self.pipes):
+            firma = _firma(self.pipes)
+            ix = IndiceUtilidades(self.pipes, firma)
+            cache["indice"], cache["firma"] = ix, firma
+        return ix.cerca
 
     def _valvulas_perfil(self):
         """Las válvulas que van a Civil 3D, como dicts, para el perfil longitudinal (`perfil_datos.armar`)."""
@@ -114,7 +151,10 @@ class ValvulasMixin:
         nuevas = next((list(r.valvulas) for r in results if getattr(r, "valvulas", None)), [])
         zoom = float(self.zoom or 1.0)
         self._poner_ramales(nuevas, zoom)
-        nuevas = [V.pegar(dict(V.nueva(v["x"], v["y"]), **v), self.pipes, V.tol_pt(v) * zoom, self._cerca_valv)
+        # (pegarlas no cambia las tuberías: el índice se valida UNA vez, no por válvula —2026-11-15, Southwest:
+        # 1 570 válvulas × comparar la geometría de 14 mil utilidades = 32 s al importar—; mismas candidatas)
+        cerca = self._cerca_valv_al_dia()
+        nuevas = [V.pegar(dict(V.nueva(v["x"], v["y"]), **v), self.pipes, V.tol_pt(v) * zoom, cerca)
                   for v in nuevas]
         antes = len(self.valvulas)
         self.valvulas = V.juntar(self.valvulas, nuevas)
@@ -185,8 +225,40 @@ class ValvulasMixin:
             d=f"{lug.diam_in:g}"))
 
     # ── dibujo ───────────────────────────────────────────────────────────
+    def _valvulas_que_siguen(self, sc):
+        """Al empezar un redibujo: los ítems de las válvulas que NO hay que rehacer (mismo modelo, mismas válvulas,
+        mismos colores y siguen en la escena). Con mil válvulas, cada clic quitaba y creaba dos mil ítems."""
+        self._valv_reuso = None
+        self._valv_clave = None
+        hecho = getattr(self, "_valv_dibujadas", None)
+        vs = getattr(self, "valvulas", None) or []
+        if not vs or not self._ft_px_valv():
+            return set()
+        from nucleo import memo_modelo
+        clave = (getattr(getattr(self, "_memo_redibujo", None), "firma", None), memo_modelo.firma(vs),
+                 self._ft_px_valv(), self._colores_utilidades())
+        self._valv_clave = clave
+        if not hecho:
+            return set()
+        try:
+            vivo = clave[0] is not None and hecho[0] == clave and all(it.scene() is sc for it in hecho[2])
+        except RuntimeError:                            # (vaciar la escena los borra en C++)
+            vivo = False
+        if not vivo:
+            return set()
+        self._valv_reuso = hecho
+        return {id(it) for it in hecho[2]}
+
     def _draw_valvulas(self):
         vs = getattr(self, "valvulas", None) or []
+        hecho = getattr(self, "_valv_reuso", None)
+        self._valv_reuso = None
+        if hecho is not None and vs:                    # las mismas de antes, ya en la escena
+            _clave, self._valv_lugares, self._valv_items, self._valv_vistas = hecho
+            self._overlay += self._valv_items
+            self._sync_capa_valvulas()
+            return
+        self._valv_dibujadas = None
         self._valv_lugares = []
         self._valv_items = []
         self._valv_vistas = []                          # (índice, sus ítems)
@@ -203,18 +275,21 @@ class ValvulasMixin:
                 if not lug.exporta:
                     globo += "\n" + lug.motivo
                 its = valvula_item.agregar(sc, lug.x, lug.y, lug.ux, lug.uy, lug.largo_ft / ft, lug.brida_ft / ft,
-                                           color, True, Z_MARK + 2, globo,
+                                           color, True, Z_VALV, globo,
                                            hueca=v.get("certeza") == V.POR_CONFIRMAR or not lug.exporta)
             else:
                 # Sin tubería: encima de SU símbolo, con su tamaño y su rumbo (el lado largo); a mano, un moño de 20 px.
                 w, h = float(v.get("sim_w") or 20.0), float(v.get("sim_h") or 14.0)
                 ux, uy = (0.0, 1.0) if h > w else (1.0, 0.0)
                 its = valvula_item.agregar(sc, float(v.get("x_pdf", v["x"])), float(v.get("y_pdf", v["y"])), ux, uy,
-                                           max(w, h), min(w, h), QtGui.QColor(230, 40, 40), False, Z_MARK + 2,
+                                           max(w, h), min(w, h), QtGui.QColor(230, 40, 40), False, Z_VALV,
                                            _tr("Válvula por revisar: {m}").format(m=lug.motivo))
             self._overlay += its
             self._valv_items += its
             self._valv_vistas.append((k, its))
+        clave = getattr(self, "_valv_clave", None)
+        if clave is not None and clave[0] is not None and clave[1] is not None:
+            self._valv_dibujadas = (clave, lugares, self._valv_items, self._valv_vistas)
         self._sync_capa_valvulas()
 
     def _sync_capa_valvulas(self):

@@ -15,6 +15,7 @@ siguiente número libre. Sin registro (o vacío) se numera en orden de lectura, 
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from traduccion.i18n_core import N_
@@ -59,15 +60,23 @@ MISMO_PX = 1.5          # el mismo conflicto visto por varios pares de tramos (c
 
 def _sin_repetidos(items):
     """Un cruce en un VÉRTICE lo ven varios pares de tramos de las mismas dos utilidades: es UN
-    conflicto (antes salían C-10…C-13 en el mismo punto)."""
+    conflicto (antes salían C-10…C-13 en el mismo punto). «¿Ya está?» mira solo los de las celdas vecinas de
+    `MISMO_PX` (uno a ≤ `MISMO_PX` está a lo sumo una celda más allá): con 26 mil cruces de una hoja compuesta era
+    todos contra todos, 3.5 s en cada redibujo (2026-11-15)."""
     out = []
+    celdas = {}
     for c in items:
         clave = (c["clave"], frozenset(i for i in c.get("pipes") or [] if i is not None))
-        if any((o["clave"], frozenset(i for i in o.get("pipes") or [] if i is not None)) == clave
-               and (float(o["x"]) - float(c["x"])) ** 2 + (float(o["y"]) - float(c["y"])) ** 2 <= MISMO_PX ** 2
-               for o in out):
+        x, y = float(c["x"]), float(c["y"])
+        if not (math.isfinite(x) and math.isfinite(y)):      # (nunca está a ≤ MISMO_PX de otro)
+            out.append(c)
+            continue
+        cx, cy = math.floor(x / MISMO_PX), math.floor(y / MISMO_PX)
+        if any(k == clave and (ox - x) ** 2 + (oy - y) ** 2 <= MISMO_PX ** 2
+               for dx in (-1, 0, 1) for dy in (-1, 0, 1) for k, ox, oy in celdas.get((cx + dx, cy + dy), ())):
             continue
         out.append(c)
+        celdas.setdefault((cx, cy), []).append((clave, x, y))
     return out
 
 
@@ -131,9 +140,20 @@ def numerar_fijo(items, registro):
     usados = set()
     nuevos = []
     out = []
+    # (los del registro por celdas de SIGUE_PX: uno a ≤ SIGUE_PX está a lo sumo una celda más allá; los
+    # candidatos son un conjunto y gana el de menor (distancia, número): el orden de búsqueda no importa)
+    celdas = {}
+    for e in libres:
+        if math.isfinite(e["x"]) and math.isfinite(e["y"]):
+            celdas.setdefault((math.floor(e["x"] / SIGUE_PX), math.floor(e["y"] / SIGUE_PX)), []).append(e)
     for c in numerar(items):                                  # en orden de lectura: los nuevos, también
         pipes = frozenset(c.pipes)
-        cand = [e for e in libres if id(e) not in usados and e["clave"] == c.clave and e["pipes"] == pipes
+        if math.isfinite(c.x) and math.isfinite(c.y):
+            kx, ky = math.floor(c.x / SIGUE_PX), math.floor(c.y / SIGUE_PX)
+            cerca = [e for dx in (-1, 0, 1) for dy in (-1, 0, 1) for e in celdas.get((kx + dx, ky + dy), ())]
+        else:
+            cerca = []
+        cand = [e for e in cerca if id(e) not in usados and e["clave"] == c.clave and e["pipes"] == pipes
                 and (e["x"] - c.x) ** 2 + (e["y"] - c.y) ** 2 <= SIGUE_PX ** 2]
         if not cand:
             nuevos.append(c)
@@ -157,14 +177,32 @@ def numerar_fijo(items, registro):
 
 def agrupar(conflictos, tol):
     """Los conflictos en el MISMO lugar (≤ tol px) juntos, para una sola etiqueta «C-10 · C-13»
-    (si no, una tapa a la otra). Devuelve [[Conflicto, …]] en el orden de numeración."""
+    (si no, una tapa a la otra). Devuelve [[Conflicto, …]] en el orden de numeración. Cada uno va al PRIMER grupo
+    cuyo primero está a ≤ tol: se buscan en las celdas vecinas (de lado tol) y gana el de menor índice."""
     grupos = []
+    if not tol or tol <= 0 or not math.isfinite(tol):
+        for c in conflictos or []:
+            g = next((g for g in grupos if (g[0].x - c.x) ** 2 + (g[0].y - c.y) ** 2 <= tol * tol), None)
+            if g is None:
+                grupos.append([c])
+            else:
+                g.append(c)
+        return grupos
+    celdas = {}                                       # (un primero sin coordenada finita no recibe a nadie)
     for c in conflictos or []:
-        g = next((g for g in grupos if (g[0].x - c.x) ** 2 + (g[0].y - c.y) ** 2 <= tol * tol), None)
-        if g is None:
-            grupos.append([c])
+        if math.isfinite(c.x) and math.isfinite(c.y):
+            kx, ky = math.floor(c.x / tol), math.floor(c.y / tol)
+            dentro = [k for dx in (-1, 0, 1) for dy in (-1, 0, 1) for k in celdas.get((kx + dx, ky + dy), ())
+                      if (grupos[k][0].x - c.x) ** 2 + (grupos[k][0].y - c.y) ** 2 <= tol * tol]
         else:
-            g.append(c)
+            kx = ky = None
+            dentro = []
+        if dentro:
+            grupos[min(dentro)].append(c)
+        else:
+            if kx is not None:
+                celdas.setdefault((kx, ky), []).append(len(grupos))
+            grupos.append([c])
     return grupos
 
 

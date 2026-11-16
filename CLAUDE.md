@@ -2986,6 +2986,40 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     `_marcas_al_dia()` la termina ya (capturas del informe). Medido AGUA 2: pausa máx 3.7 → ~0.8 s (el redibujo
     sin marcas ~0.6 s y el primer repintado de todas ~0.6 s), carga ~3 s atendiendo al usuario; mismas marcas en el
     mismo orden y misma imagen (`tests/test_marcas_por_tandas.py`, con el umbral bajado).
+    **Editor sin esperas con miles de válvulas** (reporte 2026-11-14, «selecciono una línea y tarda mucho»; AGUA 2 + 2 000
+    válvulas: 88 s por redibujo): `_lugares_valvulas` ubicaba TODAS en cada redibujo (y otra vez para la lista de accesorios), con
+    `_utilidades_cerca` revalidando la geometría de todas las utilidades en cada llamada. Ahora memo por (firma del modelo, firma
+    de las válvulas, ft, idioma), índice validado una vez (`_cerca_valv_al_dia`) y `valvulas.Ubicadas` (las ya ubicadas por celdas,
+    mismo orden); sus ítems se quedan en la escena (`_valvulas_que_siguen`, `Z_VALV`). Además: `_pick` = UN redibujo
+    (`_redibujo_diferido`), `_filtrar_inventario_si_cambio`, flujo indicado y `_capas_utilidad` por `_memo`, y el bloque de marcas
+    vigentes se salta al limpiar (`_overlay_marcas`). OJO: algo nuevo que cambie dónde va una válvula se suma a esa clave.
+    Pendiente medido: pintar 2 000 válvulas a vista entera ~0.25 s por cuadro (un ítem Python por válvula) y los buzones se
+    recrean en cada redibujo (~40 µs cada uno). Tests: `tests/test_editor_sin_esperas.py`.
+    **Hojas compuestas grandes sin trabajo repetido** (pedido 2026-11-15, Southwest Gas 54 hojas; todo IDÉNTICO con
+    `scripts/rendimiento/*.py --comparar`): composición sugerida 15.3 → 7.2 s (`borde_inclinado._hoja_leida`: las franjas del
+    marco se dibujan de UNA lista de dibujo por hoja = lo que hace `page.get_pixmap`; `marco_calculado` → `Ficha.marco_calc`,
+    que `composicion_sugerida.armar` usa si el recuadro y las rectas son los de la ficha); reconocer la compuesta ~6 min →
+    ~104 s (`routes._Pasos`: «¿otra línea pasa por el nodo?» por celdas; `recognition_grosor_registros._Orden` + pies
+    ordenados + descarte por caja; `poner_cerca` descarta por la caja de la línea); «Capas» ~20 → 12 s (símbolos de fuente una
+    vez por hoja, `pdf_styles.memo`). 2.ª vuelta (mismo día, A/B ~184 → ~143 s): «¿se ve la válvula?» = el MISMO dibujo de su recuadro
+    repartido en procesos (`recognition_valvulas_tinta.se_ven`; dibujar un recuadro mayor y recortarlo da OTROS píxeles),
+    `routes._Pares` (tras cada unión solo se miran los nodos de cerca), `IndiceTramos._repartir` (numpy, mismas cuentas)
+    y `recognition_angulos_calc._bordes_cerca`. 3.ª vuelta (A/B ~139 → ~124 s): esos dibujos de las válvulas salen al
+    EMPEZAR (`recognition_valvulas.adelantar`, `recognition_trabajo._valvulas_adelantadas`; `tinta.soltar` al salir)
+    y `recognition_grosor_mapa._cerca(tramos=)` mide solo los tramos que da el índice. OJO: lo que cambie el estado
+    de las capas del documento DURANTE el reconocimiento invalidaría las válvulas adelantadas. Importar (medidor
+    `scripts/rendimiento/importar.py`): 33 → 3.6 s (`_guardar_valvulas` con `_cerca_valv_al_dia()`, `valvulas.juntar`
+    por celdas) y el redibujo final 5 → 1.5 s (`conflictos._sin_repetidos`/`numerar_fijo`/`agrupar` por celdas).
+    Exportar lo dibujado 1 394 → 23 s, DXF idéntico (`dxf_export._export_valvulas` con `_cerca_valv_al_dia`,
+    `anotaciones.senala(cerca=)`). OJO:
+    `reconocer.py` no pasa la escala y `detect_scale` le suma ~18 s en la compuesta (la app sí la pasa). Tests:
+    `tests/test_flujo_sin_esperas.py`. **Repartir en procesos DENTRO del trabajador** (revisión 2026-11-16): el
+    trabajador de `proceso.py` es «daemon» y multiprocessing no le deja tener hijos: un `ProcessPoolExecutor` ahí
+    fallaba y quien lo pedía seguía de a uno sin avisar (las válvulas de arriba y, desde 2026-10-14, las fichas de
+    `composicion_trabajo._fichas_en_paralelo`: los medidores corren fuera del trabajador y no lo veían). OJO: todo
+    grupo de procesos se crea y se encarga dentro de `with proceso_hijo.con_hijos():` y con
+    `initializer=proceso_hijo.morir_con_el_padre` (cancelar mata al trabajador: sin eso sus procesos quedaban
+    vivos con su memoria). Test: `tests/test_proceso.py::test_el_trabajador_reparte_en_un_grupo…`.
     **Utilidades en UNA capa (2026-10-18)**: `ui/comun/capa_lineas.CapaLineas` (un ítem a `Z_MARK`, en el lugar
     del orden donde iban los segmentos) pinta cada utilidad con `drawLines` y su pluma cosmética
     (`Main._pluma_utilidad`), en orden; solo las que tocan lo que hay que repintar (cajas en numpy, recorte del
@@ -3557,6 +3591,9 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     con lo viejo hasta reiniciar; los diálogos que se abren después usan lo nuevo.
 - Pruebas: `pytest`  (desde la raíz). Por grupos y en paralelo (cada archivo en su proceso):
   `python scripts/pruebas.py mapas capas` (sin argumentos lista los grupos; `todo` = todas)
+- Rendimiento (quitar esperas): `docs/rendimiento/GUIA.md` = método, patrones y tareas medidas; medidores en
+  `scripts/rendimiento/` (`editor.py`, `reconocer.py`, `componer.py`, con `--perfil`, `--foto`, `--comparar`).
+  Redirigir su salida a un archivo (con una tubería `editor.py` se cuelga) y uno a la vez.
 - Compilar plugin + exe + instalador: `build_all.bat` (pregunta la versión)
 - Quitar el plugin del autoload de C3D (testing): `uninstall_plugin.bat`
 - Compilar solo el plugin C#: `dotnet build -c Release` en

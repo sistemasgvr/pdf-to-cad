@@ -177,10 +177,15 @@ class ClicsMixin:
         if best >= 0 and ctrl:
             self._toggle_pipe_selection(best); return True
         if best >= 0:
-            self._no_center = True; self._show_tab(TAB_PIPE); self.pipe_list.clearSelection(); self.pipe_list.setCurrentRow(best)
+            # UN redibujo por clic (2026-11-14): quitar la selección, elegir la fila y el aviso de «selección
+            # cambiada» redibujaban cada uno (dos o tres redibujos completos por cada línea elegida).
+            self._no_center = True; self._show_tab(TAB_PIPE)
+            with self._redibujo_diferido():
+                self.pipe_list.clearSelection(); self.pipe_list.setCurrentRow(best)
             self._no_center = False
             if habia:                                   # misma utilidad: quitar el vértice elegido
-                self._update_ui(); self._redraw()
+                self._update_ui()
+            self._redraw()
             self._scroll_pipe_list_to(best)
             return True
         return False

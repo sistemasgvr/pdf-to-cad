@@ -13,6 +13,7 @@ Ver `proceso.py`. El hijo:
 """
 from __future__ import annotations
 
+import contextlib
 import importlib
 import os
 import queue
@@ -164,6 +165,67 @@ def _padre_vivo() -> bool:
         return padre is None or padre.is_alive()
     except Exception:
         return True
+
+
+@contextlib.contextmanager
+def con_hijos():
+    """Para lanzar un grupo de procesos (`ProcessPoolExecutor`) TAMBIÉN desde el trabajador: es un proceso
+    «daemon» (muere con la ventana) y a esos multiprocessing no les deja tener hijos («daemonic processes are not
+    allowed to have children»): el reparto fallaba y quien lo pedía seguía de a uno, sin avisar (2026-11-16: ni
+    las fichas de la composición sugerida ni los glifos de las válvulas se repartían dentro de la app). Mientras
+    dura el bloque el proceso no cuenta como «daemon»; dentro van la creación del grupo y TODOS sus `submit` (los
+    procesos nacen al encargar). Los del grupo llevan `initializer=morir_con_el_padre`."""
+    import multiprocessing as mp
+    cfg = getattr(mp.current_process(), "_config", None)
+    era = isinstance(cfg, dict) and bool(cfg.get("daemon"))
+    if era:
+        cfg["daemon"] = False
+    try:
+        yield
+    finally:
+        if era:
+            cfg["daemon"] = True
+
+
+def morir_con_el_padre() -> None:
+    """`initializer` de un grupo de procesos: si el que los lanzó muere de golpe (trabajo cancelado = el
+    trabajador se mata), cada uno termina solo; si no, se quedaban esperando encargos para siempre con su memoria
+    (tienen su propia punta de la cola: nunca la ven cerrada)."""
+    import multiprocessing as mp
+    import threading
+    padre = mp.parent_process()
+    if padre is None:
+        return
+
+    def vigilar():
+        try:
+            padre.join()
+        except Exception:
+            return
+        os._exit(0)
+    threading.Thread(target=vigilar, daemon=True).start()
+
+
+def eco_en_grupo(valores, espera_s: float = 0.0, progreso=None):
+    """Trabajo mínimo (pruebas y diagnóstico): `eco` de cada valor en un grupo de dos procesos lanzado desde
+    ESTE proceso; devuelve [(valor, pid)] y, antes, avisa los pid del grupo. Con `espera_s`, luego se queda
+    esperando (para probar qué pasa con el grupo si este proceso muere)."""
+    import concurrent.futures as cf
+    import multiprocessing as mp
+    import time
+    with con_hijos():
+        ex = cf.ProcessPoolExecutor(max_workers=2, mp_context=mp.get_context("spawn"),
+                                    initializer=morir_con_el_padre)
+        futuros = [ex.submit(eco, v) for v in valores]
+    try:
+        res = [f.result() for f in futuros]
+        if progreso is not None:
+            progreso(*sorted({pid for _v, pid in res}))
+        if espera_s:
+            time.sleep(espera_s)
+        return res
+    finally:
+        ex.shutdown(wait=True, cancel_futures=True)
 
 
 def eco(valor, pasos: int = 0, progreso=None):

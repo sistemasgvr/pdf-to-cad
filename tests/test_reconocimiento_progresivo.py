@@ -38,7 +38,8 @@ def test_card_is_in_corner_without_veil_and_restores_controls(win, app):
     assert not enabled.isEnabled() and not disabled.isEnabled()
     assert QtWidgets.QApplication.overrideCursor() is None
     card.step(detail="Capa 2 de 4", done=2, total=4)
-    assert card.bar.value() == 500
+    # la barra es la de TODA la carga, de 0 a 100 % (2026-11-16): ya no la cuenta de una sola etapa
+    assert 0 <= card.bar.value() < 1000 and card.bar.maximum() == 1000 and "%" in card.note.text()
     assert card.detail() == "Capa 2 de 4"
     card.end()
     assert not card.active and not card.isVisible()

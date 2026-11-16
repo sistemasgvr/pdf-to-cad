@@ -211,8 +211,13 @@ def _fichas_en_paralelo(f: dict, d, doc_index: int, n_proc: int, aviso) -> list:
     paso = HOJAS_POR_ENCARGO if isinstance(fuente, str) else max(1, -(-n // n_proc))
     encargos = [list(range(k, min(n, k + paso))) for k in range(0, n, paso)]
     por_hoja: Dict[int, object] = {}
-    with cf.ProcessPoolExecutor(max_workers=n_proc, mp_context=mp.get_context("spawn")) as ex:
-        futuros = [ex.submit(_fichas_de, fuente, doc_index, e) for e in encargos]
+    from ui.comun import proceso_hijo
+    with proceso_hijo.con_hijos():                   # (desde el trabajador «fondo», que es «daemon»)
+        ex = cf.ProcessPoolExecutor(max_workers=n_proc, mp_context=mp.get_context("spawn"),
+                                    initializer=proceso_hijo.morir_con_el_padre)
+    with ex:
+        with proceso_hijo.con_hijos():
+            futuros = [ex.submit(_fichas_de, fuente, doc_index, e) for e in encargos]
         for fut in cf.as_completed(futuros):
             for fi in fut.result():
                 por_hoja[fi.hoja] = fi

@@ -9,7 +9,7 @@ from __future__ import annotations
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from traduccion.i18n import t as _tr
-from ui.comun import ia_estilo, theme
+from ui.comun import ia_estilo, theme, tiempos_carga
 
 
 class ProgresoReconocimiento(QtWidgets.QFrame):
@@ -24,6 +24,7 @@ class ProgresoReconocimiento(QtWidgets.QFrame):
         self._cancel = None
         self._locked = []
         self._vigilados = []
+        self._seg = None                 # la barra de 0 a 100 % (`nucleo/avance_aprendido`)
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(12, 9, 12, 9)
         layout.setSpacing(5)
@@ -68,7 +69,9 @@ class ProgresoReconocimiento(QtWidgets.QFrame):
         self._text, self._detail, self._cancel = text, detail, cancel
         self._traducir()
         self.cancel_button.setEnabled(cancel is not None)
-        self.bar.setRange(0, 0)
+        self._seg = tiempos_carga.seguidor(text)
+        self.bar.setRange(0, 1000)
+        self.bar.setValue(0)
         self._pausar_edicion()
         # Un filtro en Python ve cada movimiento del ratón y repintado del lienzo: solo mientras reconoce.
         self._vigilados = [w for w in (self.host, self.viewport, getattr(self.host, "_flot_barra_win", None))
@@ -100,17 +103,21 @@ class ProgresoReconocimiento(QtWidgets.QFrame):
     def detail(self):
         return self._detail
 
-    def step(self, text=None, detail=None, done=None, total=None, **kwargs):
+    def step(self, text=None, detail=None, done=None, total=None, clave=None, **kwargs):
         if not self.active:
             return
         if text is not None:
             self._text = text
         if detail is not None:
             self._detail = detail
-        if total:
-            self.bar.setRange(0, 1000)
-            self.bar.setValue(max(0, min(1000, int(1000 * (done or 0) / total))))
+        if self._seg is not None:
+            # la etapa: su `clave` (p. ej. «capas», con su cuenta real) o la última línea del detalle
+            linea = (self._detail.splitlines() or [""])[-1]
+            self._seg.etapa(linea, done if total else None, total, clave=clave)
         self._colocar()
+
+    def fraccion(self) -> float:
+        return self._seg.fraccion() if self._seg is not None else 0.0
 
     def _colocar(self):
         modal = QtWidgets.QApplication.activeModalWidget()
@@ -127,6 +134,9 @@ class ProgresoReconocimiento(QtWidgets.QFrame):
         self.detail_label.setText("\n".join(fm.elidedText(line, QtCore.Qt.ElideRight, util)
                                             for line in self._detail.splitlines()[-2:]))
         self.detail_label.setToolTip(self._detail)
+        frac = self.fraccion()                           # la barra va sola entre un aviso y el siguiente
+        self.bar.setValue(int(frac * 1000))
+        self.note.setText(_tr("Vista provisional · {p} %").format(p=int(frac * 100)))
         self.ensurePolished()
         self.layout().activate()
         self.adjustSize()
@@ -160,6 +170,9 @@ class ProgresoReconocimiento(QtWidgets.QFrame):
             return
         self.active = False
         self._timer.stop()
+        seg, self._seg = self._seg, None
+        if seg is not None:
+            tiempos_carga.guardar(seg)
         for widget in self._vigilados:
             widget.removeEventFilter(self)
         self._vigilados = []

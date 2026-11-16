@@ -76,6 +76,8 @@ class Ficha:
     # borde por su marco (`marco` = 4 esquinas sup-izq, sup-der, inf-der, inf-izq en la hoja visible)
     por_bordes: bool = False
     marco: Optional[List[Tuple[float, float]]] = None
+    # lo que `borde_inclinado.marco_calculado` halló con `vista` y `lineas` (para no dibujar las franjas dos veces)
+    marco_calc: Optional[dict] = None
 
     @property
     def clave(self) -> Tuple[int, int]:
@@ -405,12 +407,15 @@ def _vista_cad(clips: Sequence[Rect], rotulos: Sequence[Rotulo]) -> Optional[Rec
     return best and best[1]
 
 
-def _marco(page: fitz.Page, v: Rect, lineas) -> List[Tuple[float, float]]:
+def _marco(page: fitz.Page, v: Rect, lineas, f: Optional["Ficha"] = None) -> List[Tuple[float, float]]:
     """Las 4 esquinas del marco del mapa (su borde puede ir inclinado, `borde_inclinado`); si no se
-    halla, las del recuadro de la vista."""
+    halla, las del recuadro de la vista. En `f.marco_calc` queda el cálculo entero para `armar`."""
     try:
         from hoja import borde_inclinado as BI
-        q = BI.cuadrilatero(page, tuple(v), segs=lineas)
+        calc = BI.marco_calculado(page, tuple(v), lineas)
+        if f is not None:
+            f.marco_calc = calc
+        q = calc["q"]
         if q:
             return [(float(x), float(y)) for x, y in q]
     except Exception:
@@ -453,7 +458,7 @@ def ficha(page: fitz.Page, doc_index: int = 0) -> Ficha:
             v = f.vista
             f.lineas = _trazos(paths, page, v, 2.0, BANDA_MAPA_FRAC * min(v[2] - v[0], v[3] - v[1]))
             if f.por_bordes:
-                f.marco = _marco(page, v, f.lineas)
+                f.marco = _marco(page, v, f.lineas, f)
         else:
             f.lineas = _trazos(paths, page, None, 0.0, 0.0)  # sin marco (SD): la plantilla se quita después
     return f

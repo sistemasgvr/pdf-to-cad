@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from nucleo import limpieza_tramos, model_ops
 from nucleo import valvula_receta as VR
@@ -217,7 +217,8 @@ def _tramo_libre(pipes, structures, i, k, ft, otras_valvulas, cerca, diam_in):
                     tu = _cruce(a, b, c, d)
                     if tu is not None:
                         prohibidos.append((tu[0] * L, alcance + TUBO_MIN_FT))
-        for o in otras_valvulas:                       # otra válvula en el mismo tramo
+        junto = getattr(otras_valvulas, "junto", None)   # (`Ubicadas`: solo las de la caja del tramo, en orden)
+        for o in (junto(a, b, tol) if junto else otras_valvulas):   # otra válvula en el mismo tramo
             if _dist_seg(o["x"], o["y"], a, b) <= tol:
                 s = ((o["x"] - a[0]) * ux + (o["y"] - a[1]) * uy) * ft
                 prohibidos.append((s, o["largo_ft"] / 2 + TUBO_MIN_FT))
@@ -244,6 +245,35 @@ def _intervalos(lo, hi, prohibidos, medio):
 
 def _todas(pipes):
     return lambda _x, _y, _r: range(len(pipes))
+
+
+class Ubicadas(list):
+    """Las válvulas ya ubicadas ({"x", "y", "largo_ft"}), por celdas. `junto(a, b, tol)` = las que caen en la caja
+    del tramo a–b agrandada `tol`, EN SU ORDEN: quien llama hace con ellas la misma cuenta que con todas (toda la que
+    está a ≤ tol del tramo está en esa caja). Con mil válvulas cada tramo recorría las mil (2026-11-14)."""
+    CELDA = 64.0
+
+    def __init__(self):
+        super().__init__()
+        self._celdas = {}
+
+    def append(self, o):
+        c = self.CELDA
+        self._celdas.setdefault((math.floor(o["x"] / c), math.floor(o["y"] / c)), []).append(len(self))
+        super().append(o)
+
+    def junto(self, a, b, tol):
+        c = self.CELDA
+        x0, x1 = min(a[0], b[0]) - tol, max(a[0], b[0]) + tol
+        y0, y1 = min(a[1], b[1]) - tol, max(a[1], b[1]) + tol
+        cx0, cx1, cy0, cy1 = math.floor(x0 / c), math.floor(x1 / c), math.floor(y0 / c), math.floor(y1 / c)
+        if (cx1 - cx0 + 1) * (cy1 - cy0 + 1) >= len(self):
+            return self                                # tramo muy largo: todas, como antes
+        ks = []
+        for cx in range(cx0, cx1 + 1):
+            for cy in range(cy0, cy1 + 1):
+                ks += self._celdas.get((cx, cy), ())
+        return [self[k] for k in sorted(ks)]
 
 
 def ubicar(pipes, structures, x, y, ft, radio_px, union="FLG", material="", otras=(), libre=True, cerca=None):
@@ -433,7 +463,7 @@ def ubicar_plano(pipes, structures, v, ft, otras=(), cerca=None):
 def ubicar_todas(pipes, structures, valvulas, ft, cerca=None):
     """[Lugar] de cada válvula guardada, en orden (cada una con las anteriores ya ubicadas como obstáculo)."""
     tol = TOL_UNION_FT / ft if ft else 3.0
-    out, ya = [], []
+    out, ya = [], Ubicadas()
     for v in valvulas or ():
         if del_plano(v):
             lug = ubicar_plano(pipes, structures, v, ft, ya, cerca)
@@ -524,12 +554,26 @@ def nueva(x, y, utilidad="", tipo="", estado="", origen=CAPA_PDF, certeza=SEGURA
 
 
 def juntar(existentes: Sequence[dict], nuevas: Sequence[dict]) -> List[dict]:
-    """Las de antes + las nuevas que no estaban. Reimportar la misma hoja no las repite."""
+    """Las de antes + las nuevas que no estaban. Reimportar la misma hoja no las repite. «¿Ya está?» mira solo las
+    de las celdas vecinas (`MISMA_PX`): una a ≤ `MISMA_PX` está a lo sumo una celda más allá (con 1 500 válvulas
+    eran 1.2 millones de pruebas)."""
     out = list(existentes)
+    celdas: Dict[Tuple[int, int], List[dict]] = {}
+
+    def celda(v):                                     # (sin coordenada finita: nunca está «a ≤ MISMA_PX» de nada)
+        x, y = float(v["x"]), float(v["y"])
+        return (math.floor(x / MISMA_PX), math.floor(y / MISMA_PX)) if math.isfinite(x) and math.isfinite(y) else None
+
+    for a in out:
+        celdas.setdefault(celda(a), []).append(a)
     for v in nuevas:
-        if not any(a.get("utilidad") == v.get("utilidad")
-                   and math.hypot(a["x"] - v["x"], a["y"] - v["y"]) <= MISMA_PX for a in out):
+        c = celda(v)
+        vecinas = () if c is None else (a for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                                         for a in celdas.get((c[0] + dx, c[1] + dy), ()))
+        if not any(a.get("utilidad") == v.get("utilidad") and math.hypot(a["x"] - v["x"], a["y"] - v["y"]) <= MISMA_PX
+                   for a in vecinas):
             out.append(v)
+            celdas.setdefault(c, []).append(v)
     return out
 
 

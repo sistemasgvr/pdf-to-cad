@@ -148,7 +148,29 @@ def sincronizar_varias(win, de_nuevo=False):
 
 
 class InventarioMixin:
+    def _filtrar_inventario_si_cambio(self):
+        """Desde el redibujo: el filtro solo se rehace si cambió algo de lo que mira (modelo, avisos, pestaña,
+        buscador, filtros, filas). Elegir una línea recorría las 16 mil filas de la lista en cada clic."""
+        clave = None
+        try:
+            pagina = self.tabs.currentWidget()
+            lista = pagina if isinstance(pagina, QtWidgets.QListWidget) else pagina.findChild(QtWidgets.QListWidget)
+            avisos = getattr(self, "_normas_avisos", None)
+            firma = getattr(getattr(self, "_memo_redibujo", None), "firma", None)
+            if firma is not None and lista is not None:
+                clave = (firma, id(avisos), len(avisos or ()), self.tabs.currentIndex(), id(lista), lista.count(),
+                         self.buscar_inventario.text(), self.filtro_inventario.checkedId(),
+                         getattr(getattr(self, "filtro_accesorios", None), "checkedId", lambda: None)(),
+                         bool(getattr(self, "_provisional", False)))
+        except (AttributeError, RuntimeError):
+            clave = None
+        if clave is not None and clave == getattr(self, "_filtro_inv_hecho", None):
+            return
+        self._filtrar_inventario()
+        self._filtro_inv_hecho = clave                  # (después: `_filtrar_inventario` la borra)
+
     def _filtrar_inventario(self):
+        self._filtro_inv_hecho = None
         """Oculta (no quita) las filas que no pasan el buscador y, en Utilidades, el filtro elegido."""
         if not hasattr(self, "buscar_inventario"):
             return

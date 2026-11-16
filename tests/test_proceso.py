@@ -41,6 +41,36 @@ def test_el_trabajo_corre_en_otro_proceso_y_avisa_su_avance(con_proceso):
     assert out["r"] == (2, pid)
 
 
+def test_el_trabajador_reparte_en_un_grupo_de_procesos_y_no_deja_huerfanos(con_proceso):
+    """El trabajador es un proceso «daemon» y multiprocessing no le dejaba lanzar procesos: lo que se repartía
+    (fichas de la composición sugerida, glifos de las válvulas) fallaba en silencio y seguía de a uno (2026-11-16).
+    Con `proceso_hijo.con_hijos` el grupo sale; y si el trabajo se cancela (el trabajador se mata), los procesos
+    del grupo terminan solos (`morir_con_el_padre`)."""
+    import time
+    out = {}
+    lazo = QtCore.QEventLoop()
+    t = proceso.Tarea("ui.comun.proceso_hijo:eco_en_grupo", ([1, 2, 3, 4],))
+    t.terminado.connect(lambda r, e: (out.update(r=r, e=e), lazo.quit()))
+    con_proceso.enviar(t)
+    QtCore.QTimer.singleShot(120000, lazo.quit)
+    lazo.exec()
+    assert out["e"] == "", out["e"]
+    assert [v for v, _pid in out["r"]] == [1, 2, 3, 4]
+    assert all(pid != os.getpid() for _v, pid in out["r"])
+    # cancelar con el grupo vivo: sus procesos no quedan esperando para siempre
+    grupo = []
+    t2 = proceso.Tarea("ui.comun.proceso_hijo:eco_en_grupo", ([1, 2, 3, 4],), {"espera_s": 120})
+    t2.avance.connect(lambda a: (grupo.extend(a), lazo.quit()))
+    con_proceso.enviar(t2)
+    lazo.exec()
+    assert grupo and all(_vivo(pid) for pid in grupo)
+    t2.cancelar()
+    fin = time.time() + 30
+    while any(_vivo(pid) for pid in grupo) and time.time() < fin:
+        time.sleep(0.2)
+    assert not any(_vivo(pid) for pid in grupo)
+
+
 def test_error_y_cancelar(con_proceso):
     out = {}
     lazo = QtCore.QEventLoop()

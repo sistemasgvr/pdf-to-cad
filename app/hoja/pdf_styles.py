@@ -286,7 +286,9 @@ def _drawings(page, extended, cache):
         out.extend(dict(p) for p in leyenda_mapa.simbolos_capas(page))
     else:                                              # sin leyenda: glifos de fuentes de símbolos, para asignar a mano
         from hoja import simbolos_fuente
-        out.extend(simbolos_fuente.capas(page))
+        # (una vez por hoja dentro de `lectura_unica`: las dos formas de la lectura —con y sin recortes— piden
+        # los mismos glifos; en una compuesta de 54 mapas son 49 mil círculos, ~3 s cada vez)
+        out.extend(dict(p) for p in memo(page, "simbolos_fuente", lambda: simbolos_fuente.capas(page)))
     return out
 
 

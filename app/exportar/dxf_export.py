@@ -338,7 +338,10 @@ def _export_valvulas(win, doc, msp):
     import math
     from nucleo import valvulas as _V
     from nucleo import terreno as _terreno
-    lugares = _V.ubicar_todas(win.pipes, win.structures, vs, ft)
+    # (con el índice de utilidades de la ventana, armado sobre las tuberías que se exportan: mismas candidatas y
+    # en el mismo orden; sin él cada válvula recorría todas —Southwest, 1 564 × 14 mil: más de 15 minutos—)
+    al_dia = getattr(win, "_cerca_valv_al_dia", None)
+    lugares = _V.ubicar_todas(win.pipes, win.structures, vs, ft, cerca=al_dia() if al_dia else None)
     win._valvulas_omitidas = sum(1 for v, l in zip(vs, lugares) if not _V.exportable(v, l))
     if "PDFCAD" not in doc.appids: doc.appids.add("PDFCAD")
     VP.ensure_layer(doc, "PDFCAD_VALVULA")

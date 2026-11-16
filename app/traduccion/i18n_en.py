@@ -3709,6 +3709,8 @@ EN: dict[str, str] = {
         'Going back to the previous composed sheet…',
     'Cancelando…': 'Cancelling…',
     'Vista provisional': 'Provisional preview',
+    'Vista provisional · {p} %': 'Provisional preview · {p}%',
+    '{p} %': '{p}%',
     'Preparando la revisión de esta línea…': 'Preparing the review of this line…',
     'Hoja {p} · {u} ({i} de {n}) · capa {k} de {m}': 'Sheet {p} · {u} ({i} of {n}) · layer {k} of {m}',
     'La hoja necesita más memoria de la que hay libre en el equipo. Prueba con menos hojas en la composición, menos utilidades a la vez o cerrando otros programas.':
