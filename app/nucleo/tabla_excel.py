@@ -96,7 +96,8 @@ def exportar(tablas, ruta):
             [t("4. En «Cotas por vértice», una celda vacía = cota automática (interpolada).")],
             [t("5. Pendiente (%) = (rasante final − rasante inicial) / largo × 100. Si la cambias, cambia también "
                "la rasante inicial o la final para que coincidan: si no coinciden, el Excel NO se importa.")],
-            [t("6. Los conflictos (hoja «Conflictos», C-1, C-2…) se recalculan al importar.")]):
+            [t("6. Los conflictos y las observaciones (hoja «Conflictos y observaciones», C-1…, OC-1…, OU-1…) se recalculan "
+               "al importar.")]):
         ley.append(fila)
     ley["A1"].font = Font(bold=True, size=13)
     ley.column_dimensions["A"].width = 110

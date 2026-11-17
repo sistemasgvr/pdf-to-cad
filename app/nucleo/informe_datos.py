@@ -73,32 +73,35 @@ def utilidad(pipes, i):
 
 
 def ficha_conflicto(c, pipes):
-    """`c` = `nucleo.conflictos.Conflicto` (C-n)."""
+    """`c` = `nucleo.conflictos.Conflicto`: conflicto C-n u observación OC/OU/OG/OV-n (`categoria`; el `tipo` de la ficha
+    sigue siendo «conflicto» para los dos: así los usan el panel Resolver, la Vista 3D y la IA)."""
     utils = [u for u in (utilidad(pipes, i) for i in c.pipes or []) if u]
     for u, z in zip(utils, c.cotas or []):
         u["cota_ft"] = z
-    return {"tipo": "conflicto", "id": c.id, "clase": c.clave, "titulo": c.titulo, "nivel": NIVEL_CONFLICTO,
+    return {"tipo": "conflicto", "categoria": c.categoria, "subtipo": c.subtipo,
+            "id": c.id, "clase": c.clave, "titulo": c.titulo, "nivel": NIVEL_CONFLICTO,
             "info": False, "x": float(c.x), "y": float(c.y), "utilidades": utils,
             "valores": {"diferencia_ft": c.diferencia}, "mensaje_app": c.mensaje or "", "fuente": "",
             "aprobado": None}
 
 
-def ficha_aviso(a, pipes, n):
-    """`a` = `nucleo.normas_validar.Aviso`; `n` = su número en el informe (N-1, N-2…)."""
+def ficha_aviso(a, pipes, n, codigo=None):
+    """`a` = `nucleo.normas_validar.Aviso`; `n` = su número en orden de lectura (N-1, N-2…) o `codigo` = el FIJO
+    del registro del proyecto (`conflictos.numerar_avisos`, 2026-11-14)."""
     from nucleo.normas_validar import CLASES
     u = utilidad(pipes, a.pipe)
     aprob = a.aprobado or None
-    return {"tipo": "aviso", "id": f"N-{n}", "clase": a.clase, "titulo": CLASES.get(a.clase, a.clase),
+    return {"tipo": "aviso", "id": codigo or f"N-{n}", "clase": a.clase, "titulo": CLASES.get(a.clase, a.clase),
             "nivel": "INFO" if a.info else (getattr(a, "nivel", "") or "AVISO"), "info": bool(a.info),
             "x": float(a.x), "y": float(a.y), "utilidades": [u] if u else [], "valores": {},
             "mensaje_app": a.mensaje or "", "fuente": getattr(a, "fuente", "") or "",
             "aprobado": ({k: aprob.get(k) for k in ("usuario", "fecha", "nota")} if aprob else None)}
 
 
-def ficha_reconocimiento(a, pipes, n):
+def ficha_reconocimiento(a, pipes, n, codigo=None):
     """Aviso del reconocimiento (diámetro del plano) → ficha R-n, aparte de la normativa."""
     f = ficha_aviso(a, pipes, n)
-    f.update(tipo="reconocimiento", id=f"R-{n}")
+    f.update(tipo="reconocimiento", id=codigo or f"R-{n}")
     return f
 
 
@@ -106,8 +109,10 @@ def _lectura(f):
     return (round(f["y"] / 8.0), f["x"])                  # como los C-n: de arriba abajo, de izquierda a derecha
 
 
-def fichas(conflictos, avisos, pipes, opciones):
-    """Las fichas del informe según `opciones` y cuántos «sin tipo» quedaron fuera."""
+def fichas(conflictos, avisos, pipes, opciones, codigos=None):
+    """Las fichas del informe según `opciones` y cuántos «sin tipo» quedaron fuera. `codigos` = {id(aviso): «N-n» /
+    «R-n»} fijos del proyecto (`conflictos.numerar_avisos`); sin él, se cuentan en orden de lectura."""
+    codigos = codigos or {}
     out = [ficha_conflicto(c, pipes) for c in conflictos or []] if opciones.conflictos else []
     sin_tipo = 0
     orden = sorted((a for a in avisos or []), key=lambda a: (round(a.y / 8.0), a.x))
@@ -116,14 +121,14 @@ def fichas(conflictos, avisos, pipes, opciones):
         if a.clase == CLASE_RECONOCIMIENTO:
             if getattr(opciones, "reconocimiento", True):
                 r += 1
-                out.append(ficha_reconocimiento(a, pipes, r))
+                out.append(ficha_reconocimiento(a, pipes, r, codigos.get(id(a))))
         elif not opciones.normativas:
             continue
         elif a.clase == "tipo":
             sin_tipo += 1
         else:
             n += 1
-            out.append(ficha_aviso(a, pipes, n))
+            out.append(ficha_aviso(a, pipes, n, codigos.get(id(a))))
     return out, sin_tipo
 
 
@@ -174,7 +179,9 @@ def resumen(lista, sin_tipo, pipes):
         else:
             pendientes += 1
     return {"utilidades": sum(1 for p in pipes if not p.get("world") and len(p.get("pts") or []) >= 2),
-            "conflictos": sum(1 for f in lista if f["tipo"] == "conflicto"),
+            "conflictos": sum(1 for f in lista if f["tipo"] == "conflicto"
+                              and f.get("categoria", "conflicto") == "conflicto"),
+            "observaciones": sum(1 for f in lista if f["tipo"] == "conflicto" and f.get("categoria") == "observacion"),
             "avisos": sum(1 for f in lista if f["tipo"] == "aviso"), "pendientes": pendientes,
             "reconocimiento": sum(1 for f in lista if f["tipo"] == "reconocimiento"),
             "avisos_pendientes": sum(1 for f in lista if f["tipo"] == "aviso" and not f["info"]
@@ -190,8 +197,8 @@ def caja_de(pipes):
     return (min(xs), min(ys), max(xs), max(ys)) if xs else None
 
 
-def armar(conflictos, avisos, pipes, ft_per_px, opciones, titulo="", ahora=None):
-    lista, sin_tipo = fichas(conflictos, avisos, pipes, opciones)
+def armar(conflictos, avisos, pipes, ft_per_px, opciones, titulo="", ahora=None, codigos=None):
+    lista, sin_tipo = fichas(conflictos, avisos, pipes, opciones, codigos)
     lista.sort(key=lambda f: (ORDEN_TIPO.get(f["tipo"], 9), _lectura(f)))
     fecha = (ahora or _dt.datetime.now()).strftime("%Y-%m-%d %H:%M")
     en_zonas = [f for f in lista if f["tipo"] != "reconocimiento"]           # los de reconocimiento, aparte

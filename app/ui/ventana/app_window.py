@@ -84,6 +84,7 @@ from ui.ventana.ventana_anotaciones import AnotacionesMixin
 from ui.ventana.ventana_valvulas import ValvulasMixin
 from ui.ventana.ventana_superficies import SuperficiesMixin
 from ui.ventana.ventana_lista_superficies import ListaSuperficiesMixin
+from ui.ventana.ventana_prop_superficie import PropSuperficieMixin
 from ui.ventana.ventana_flujo import FlujoMixin
 from ui.ventana.ventana_panel_izq import PanelIzquierdoMixin
 from ui.ventana.ventana_panel_der import PanelDerechoMixin
@@ -142,7 +143,7 @@ from ui.ventana.ventana_pasos import PasosVivosMixin
 
 class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, SinAccesorioMixin, ListaAccesoriosMixin, DibujarAccesoriosMixin, SeleccionAccesorioMixin, PerfilMixin, AccionesIAMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
-           AgregarUtilidadMixin, ReconocerMasMixin, OrtoPolarMixin, TextoPlanoMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, FlujoMixin, SuperficiesMixin, ListaSuperficiesMixin, QtWidgets.QMainWindow):
+           AgregarUtilidadMixin, ReconocerMasMixin, OrtoPolarMixin, TextoPlanoMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, FlujoMixin, SuperficiesMixin, ListaSuperficiesMixin, PropSuperficieMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"
@@ -485,8 +486,9 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             self.doc = None
             self.pdf_path = None
             self.project_path = None
-            self._ia_soltar(); self._cerrar_vista3d()
+            self._ia_soltar(); self._cerrar_vista3d(); self._soltar_conflictos()
             self.work_pdf_path = None
+            self._composite_layout = None
             self.src_pdfs = []
             self.composite = None
             self._scale_override = None
@@ -1770,6 +1772,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
                 self.pdf_path = None; self.doc = None
             self.work_pdf_path = tmp_pdf
             self.composite = data.get("composite")
+            self._composite_layout = None              # el esquema de hojas del proyecto anterior no sirve
             self._soltar_planos()
             from hoja import hoja_calcada as _hc       # los planos que se veían al guardar (page.png es esa imagen)
             gs = _hc.grupos(self.composite)
@@ -1788,7 +1791,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
                 self.src_pdfs = []
             self.project_path = path
             self._anotar_reciente(path)              # 2.0.0: «Recientes» (no las copias de recuperación)
-            self._ia_soltar(); self._cerrar_vista3d()
+            self._ia_soltar(); self._cerrar_vista3d(); self._soltar_conflictos()
             self.sheet_external_pdfs = external_pdfs
             self.sheet_sources = data.get("sheet_sources") or (
                 [{"name": model.get("pdf_name") or "PDF principal",
@@ -1992,7 +1995,8 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         self._cleanup_tmp_pdf()
         self.canvas.scene().clear(); self.canvas.pixmap_item = None; self.canvas.pdf_bg_item = None
         self.pdf_path = None; self.doc = None; self.project_path = None; self.gray = None; self._update_title()
-        self._ia_soltar(); self._cerrar_vista3d()
+        self._ia_soltar(); self._cerrar_vista3d(); self._soltar_conflictos()
+        self._composite_layout = None
         self.blank_canvas = False; self.paper = None
         self.sheet_layout = None
         self.sheet_rotations = {}

@@ -22,7 +22,7 @@ from ia import memoria as M
 from ia.texto import no_respaldados, numeros
 from traduccion.i18n_core import get_lang, t
 
-VERSION_PROMPT = 2                 # 2: reglas de alcance + pregunta delimitada (ia/alcance)
+VERSION_PROMPT = 3                 # 2: reglas de alcance + pregunta delimitada (ia/alcance); 3: conflicto ≠ observación
 HISTORIAL = 4                      # pares pregunta/respuesta anteriores que van en el pedido
 ENSENANZAS_MAX = 6
 _REF = re.compile(r"\[?\b([A-Za-z]+-\d+)\b\]?")
@@ -34,8 +34,10 @@ Reglas:
 1. Usa SOLO esos datos y las enseñanzas del equipo. No inventes normas, valores, distancias ni utilidades.
 2. Cada número que escribas debe estar en los datos. Si te piden algo que no está, dilo y sugiere dónde verlo en la \
 app (Tabla de datos, Normativas, Vista 3D).
-3. Nombra cada elemento con su código entre corchetes, por ejemplo [C-12], [N-3] o [AGUA-5]: así el usuario va \
-a él en el plano.
+3. Nombra cada elemento con su código entre corchetes, por ejemplo [C-12], [OC-4], [N-3] o [AGUA-5]: así el \
+usuario va a él en el plano. Un CONFLICTO (C-n) es solo cuando dos o más tuberías se cruzan, chocan o se tocan; lo \
+demás que Civil 3D no podrá construir tal como está dibujado es una OBSERVACIÓN (OC-n de cotas, OU-n unión no constructible, OG-n geométrica, OV-n de conexión vertical); \
+los avisos de normativa son N-n.
 4. Responde en {idioma}, breve y directo (pocas líneas o una lista corta). Unidades: pies (ft) y pulgadas (in).
 5. Si una enseñanza del equipo contradice tu respuesta, manda la enseñanza. Si el mensaje NO trae la sección de enseñanzas del equipo, no menciones ninguna: no hay.""" + A.REGLAS_SISTEMA
 

@@ -11,13 +11,35 @@ import threading
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from ia import proveedor as P, soluciones_ia
+from nucleo import conflictos as _conf
 from nucleo import informe_datos
 from nucleo.soluciones import CON_PROPUESTA
 from traduccion.i18n import t as _tr
+from traduccion.i18n_core import N_
 from ui.comun.ui_common import fila_lista
 from ui.dialogos import ia_soluciones_vista as V
 
 _ROL = QtCore.Qt.UserRole
+_CABECERA = _ROL + 3                                     # fila de título de sección («CONFLICTOS · 3»)
+SECCIONES = (
+    ("conflicto", N_("CONFLICTOS · {n}"), N_("Dos o más tuberías se cruzan, chocan o se tocan.")),
+    ("observacion", N_("OBSERVACIONES · {n}"),
+     N_("Lo que Civil 3D no podrá construir tal como está dibujado (cotas, uniones, codos, conexiones verticales).")),
+)
+# Panel angosto (pedido del usuario 2026-11-13: en el Asistente, Conflictos pedía ~856 px y el panel no se podía achicar
+# ni cabía en pantallas chicas): por debajo de DOS_COLUMNAS_PX la lista va ARRIBA y la ficha debajo, y los botones del
+# pie pasan a columna si no caben. Mismos widgets, solo cambia cómo se acomodan.
+DOS_COLUMNAS_PX = 720
+
+
+class _FichaScroll(QtWidgets.QScrollArea):
+    """Desplazamiento solo vertical que pide el ANCHO mínimo de su contenido (un QScrollArea pide casi nada y,
+    sin barra horizontal, la ficha quedaría cortada)."""
+
+    def minimumSizeHint(self):                           # noqa: N802
+        w = self.widget()
+        ancho = (w.minimumSizeHint().width() if w is not None else 0) + self.verticalScrollBar().sizeHint().width()
+        return QtCore.QSize(ancho, 120)
 
 
 class _Senales(QtCore.QObject):
@@ -58,12 +80,13 @@ class SolucionesDialog(QtWidgets.QDialog):
         il.setContentsMargins(12, 12, 12, 10)
         il.setSpacing(8)
         cab = QtWidgets.QHBoxLayout()
-        self.lbl_lista = QtWidgets.QLabel(_tr("CONFLICTOS DETECTADOS"))
+        self.lbl_lista = QtWidgets.QLabel(_tr("CONFLICTOS Y OBSERVACIONES"))
         self.lbl_total = QtWidgets.QLabel()
         cab.addWidget(self.lbl_lista, 1)
         cab.addWidget(self.lbl_total)
         il.addLayout(cab)
-        self.chk_auto = QtWidgets.QCheckBox(_tr("Solo los que tienen solución automática"))
+        from ui.comun.responsive import WrapCheckBox     # parte el texto si el panel es angosto
+        self.chk_auto = WrapCheckBox(_tr("Solo los que tienen solución automática"))
         self.chk_auto.toggled.connect(lambda _on: self.refrescar())
         il.addWidget(self.chk_auto)
         self.lista = QtWidgets.QListWidget()
@@ -72,6 +95,7 @@ class SolucionesDialog(QtWidgets.QDialog):
         self.lista.setFrameShape(QtWidgets.QFrame.NoFrame)
         self.lista.setAccessibleName(_tr("Resolver conflictos"))
         self.lista.currentItemChanged.connect(lambda it, _p: self._elegir(it))
+        self.lista.itemClicked.connect(self._clic_en_lista)
         il.addWidget(self.lista, 1)
         self.lbl_pie = QtWidgets.QLabel()
         il.addWidget(self.lbl_pie)
@@ -90,12 +114,13 @@ class SolucionesDialog(QtWidgets.QDialog):
         tit.addWidget(self.lbl_titulo, 1)
         tit.addWidget(self.lbl_critico, 0, QtCore.Qt.AlignTop)
         dl.addLayout(tit)
-        self.fichas = QtWidgets.QHBoxLayout()            # Red · Cotas
-        self.fichas.setSpacing(6)
-        dl.addLayout(self.fichas)
-        self.fichas2 = QtWidgets.QHBoxLayout()           # Separación actual (y la que piden las propuestas)
-        self.fichas2.setSpacing(6)
-        dl.addLayout(self.fichas2)
+        from ui.comun.responsive import FilaApilable     # las fichas se apilan si el panel es angosto
+        self._fila_fichas = FilaApilable(6)
+        self.fichas = self._fila_fichas.lay              # Red · Cotas
+        dl.addWidget(self._fila_fichas)
+        self._fila_fichas2 = FilaApilable(6)
+        self.fichas2 = self._fila_fichas2.lay            # Separación actual (y la que piden las propuestas)
+        dl.addWidget(self._fila_fichas2)
         self.lbl_msg = QtWidgets.QLabel()
         self.lbl_msg.setWordWrap(True)
         dl.addWidget(self.lbl_msg)
@@ -107,6 +132,8 @@ class SolucionesDialog(QtWidgets.QDialog):
         self.lbl_props = QtWidgets.QLabel(_tr("Propuestas calculadas por la app"))
         self.lbl_n = QtWidgets.QLabel()
         self.lbl_orden = QtWidgets.QLabel(_tr("Probadas en una copia del proyecto"))
+        self.lbl_props.setWordWrap(True)
+        self.lbl_orden.setWordWrap(True)
         cab_p.addWidget(self.lbl_props)
         cab_p.addWidget(self.lbl_n)
         cab_p.addStretch(1)
@@ -145,7 +172,9 @@ class SolucionesDialog(QtWidgets.QDialog):
         self.lbl_estado.setObjectName("hint")
         self.lbl_estado.setWordWrap(True)
         dl.addWidget(self.lbl_estado)
-        botones = QtWidgets.QHBoxLayout()
+        from ui.comun.responsive import FilaApilable     # en columna si el panel es angosto
+        self._fila_botones = FilaApilable(8)
+        botones = self._fila_botones.lay
         self.btn_ver = QtWidgets.QPushButton(_tr("Ver en el plano"))
         self.btn_ver.setCursor(QtCore.Qt.PointingHandCursor)
         self.btn_ver.setMinimumHeight(38)
@@ -169,16 +198,46 @@ class SolucionesDialog(QtWidgets.QDialog):
         botones.addWidget(self.btn_sin_acc)
         botones.addStretch(1)
         botones.addWidget(self.btn_aplicar)
-        dl.addLayout(botones)
+        dl.addWidget(self._fila_botones)
         div.addWidget(self.izq)
-        div.addWidget(der)
+        # Si falta ALTO (panel angosto: lista arriba y ficha abajo), la ficha se desplaza en vez de aplastarse
+        # y encimar los botones del pie (2026-11-13).
+        self._der_scroll = _FichaScroll()
+        self._der_scroll.setWidgetResizable(True)
+        self._der_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self._der_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self._der_scroll.setWidget(der)
+        div.addWidget(self._der_scroll)
         div.setStretchFactor(0, 0)
         div.setStretchFactor(1, 1)
         div.setSizes([250, 730])
+        self.div = div
         lay.addWidget(div, 1)
         from ui.comun import ia_estilo as E
         E.al_cambiar_tema(self, self._estilo)
         self.refrescar()
+
+    def resizeEvent(self, ev):                           # noqa: N802
+        super().resizeEvent(ev)
+        self._acomodar(self.width())
+
+    def minimumSizeHint(self):                           # noqa: N802
+        """El mínimo es el de UNA columna (lista arriba, ficha abajo): con el de dos, el panel nunca podía
+        achicarse lo bastante para pasar a una."""
+        alto = super().minimumSizeHint().height()
+        return QtCore.QSize(max(self.izq.minimumSizeHint().width(), self._der_scroll.minimumSizeHint().width()), alto)
+
+    def _acomodar(self, ancho):
+        """Lado a lado si cabe; si no, lista arriba y ficha debajo (los botones del pie: `FilaApilable`)."""
+        dos = self.izq.minimumSizeHint().width() + self._der_scroll.minimumSizeHint().width() + self.div.handleWidth()
+        vertical = ancho < max(DOS_COLUMNAS_PX, dos)
+        orient = QtCore.Qt.Vertical if vertical else QtCore.Qt.Horizontal
+        if self.div.orientation() != orient:
+            self.div.setOrientation(orient)
+            total = max(1, self.height() if vertical else ancho)
+            self.div.setSizes([int(total * 0.32), int(total * 0.68)] if vertical else [250, max(1, ancho - 250)])
+            from ui.comun.pila_actual import avisar_arriba   # el panel lateral suelta el mínimo de antes
+            avisar_arriba(self)
 
     def _estilo(self):
         from ui.comun import icons, theme
@@ -219,6 +278,9 @@ class SolucionesDialog(QtWidgets.QDialog):
         self._ico_ok = icons.icon("mdi:check-circle-outline", color=tk.success)
         for k in range(self.lista.count()):                  # retintar sin volver a calcular nada
             it = self.lista.item(k)
+            if it.data(_CABECERA):
+                it.setForeground(QtGui.QColor(tk.text_muted))
+                continue
             if not it.data(_ROL + 2):
                 it.setIcon(self._ico_auto if it.data(_ROL + 1) else self._ico_vacio)
         if getattr(self, "_actual", None) is not None:
@@ -234,31 +296,52 @@ class SolucionesDialog(QtWidgets.QDialog):
         self.lista.blockSignals(True)
         self.lista.clear()
         vigentes = list(getattr(self.win, "_conflictos", None) or [])
-        for c in vigentes:
-            auto = c.clave in CON_PROPUESTA or c.clave == "redes"
-            if solo and not auto:
-                continue
-            it = fila_lista(self.lista, f"{c.id}  {_tr(c.titulo)}", self._ico_auto if auto else self._ico_vacio)
-            it.setData(_ROL, c.id)
-            it.setData(_ROL + 1, auto)
-        # Los resueltos siguen en la lista con su MISMO número (2026-10-29), al final y en gris.
+        # Los resueltos siguen en la lista con su MISMO número (2026-10-29), al final de su sección y en gris.
         resueltos = self.win.conflictos_resueltos() if hasattr(self.win, "conflictos_resueltos") else []
-        for cid, titulo in resueltos:
-            it = fila_lista(self.lista, _tr("{c} · {t} (resuelto)").format(c=cid, t=_tr(titulo)), self._ico_ok)
-            it.setData(_ROL, cid)
-            it.setData(_ROL + 1, False)
-            it.setData(_ROL + 2, True)
-            it.setForeground(self.palette().brush(QtGui.QPalette.Disabled, QtGui.QPalette.Text))
+        # Dos secciones (terminología 2026-11-13): CONFLICTOS = dos o más tuberías se tocan (C-n);
+        # OBSERVACIONES = lo que Civil 3D no podrá construir tal como está dibujado (OC/OU/OG/OV-n).
+        for categoria, titulo_sec, ayuda in SECCIONES:
+            vig = [c for c in vigentes if c.categoria == categoria]
+            res = [(cid, t_) for cid, t_ in resueltos if _conf.categoria_de_codigo(cid) == categoria]
+            filas = []
+            for c in vig:
+                auto = c.clave in CON_PROPUESTA or c.clave == "redes"
+                if not (solo and not auto):
+                    filas.append(c)
+            if not filas and not res:
+                continue
+            cab = fila_lista(self.lista, _tr(titulo_sec).format(n=len(vig)))
+            cab.setFlags(QtCore.Qt.NoItemFlags)                # no se elige: es el título de la sección
+            cab.setData(_CABECERA, True)
+            cab.setToolTip(_tr(ayuda))
+            f = cab.font()
+            f.setBold(True)
+            f.setPointSizeF(max(7.0, f.pointSizeF() - 1))
+            cab.setFont(f)
+            cab.setForeground(self.palette().brush(QtGui.QPalette.Disabled, QtGui.QPalette.Text))
+            for c in filas:
+                auto = c.clave in CON_PROPUESTA or c.clave == "redes"
+                it = fila_lista(self.lista, f"{c.id}  {_tr(c.titulo)}", self._ico_auto if auto else self._ico_vacio)
+                it.setData(_ROL, c.id)
+                it.setData(_ROL + 1, auto)
+                it.setToolTip(_tr(c.subtipo))
+            for cid, titulo in res:
+                it = fila_lista(self.lista, _tr("{c} · {t} (resuelto)").format(c=cid, t=_tr(titulo)), self._ico_ok)
+                it.setData(_ROL, cid)
+                it.setData(_ROL + 1, False)
+                it.setData(_ROL + 2, True)
+                it.setForeground(self.palette().brush(QtGui.QPalette.Disabled, QtGui.QPalette.Text))
         self.lista.blockSignals(False)
         self._firma_vista = self.firma_lista()
         self.lbl_total.setText(_tr("{n} totales").format(n=len(vigentes)))
         self.lbl_pie.setText(_tr("{n} resueltos").format(n=len(resueltos)) if resueltos else "")
         n = self.lista.count()
-        fila = next((k for k in range(n) if self.lista.item(k).data(_ROL) == elegir), 0 if n else -1)
+        elegibles = [k for k in range(n) if not self.lista.item(k).data(_CABECERA)]
+        fila = next((k for k in elegibles if self.lista.item(k).data(_ROL) == elegir), elegibles[0] if elegibles else -1)
         if fila >= 0:
             self.lista.setCurrentRow(fila)
         else:
-            self._limpiar(_tr("No hay conflictos en el dibujo."))
+            self._limpiar(_tr("No hay conflictos ni observaciones en el dibujo."))
         self._mover = True
 
     def elegir(self, cid):
@@ -286,6 +369,19 @@ class SolucionesDialog(QtWidgets.QDialog):
             return
         it = self.lista.currentItem()
         self.refrescar(elegir=it.data(_ROL) if it is not None else None, mover=False)
+
+    def proyecto_cambiado(self):
+        """Otro proyecto (abrir, nuevo, cerrar; reporte 2026-11-14): nada del anterior queda en la lista ni en la
+        ficha. El primer redibujo del proyecto nuevo la vuelve a llenar (`al_cambiar_conflictos`)."""
+        self._pedido += 1                                # una respuesta de la IA pendiente ya no aplica
+        self._rec = None
+        self.lista.blockSignals(True)
+        self.lista.clear()
+        self.lista.blockSignals(False)
+        self._firma_vista = None
+        self.lbl_total.setText(_tr("{n} totales").format(n=0))
+        self.lbl_pie.setText("")
+        self._limpiar(_tr("No hay conflictos ni observaciones en el dibujo."))
 
     def _poner_sin_accesorio(self, c):
         """«No hay …» solo si el conflicto lo causa un accesorio."""
@@ -328,9 +424,11 @@ class SolucionesDialog(QtWidgets.QDialog):
     def _elegir(self, it):
         if it is None:
             return self._limpiar()
+        if it.data(_CABECERA):                               # título de sección: no se elige
+            return
         if it.data(_ROL + 2):                                # resuelto: solo su número y que está resuelto
             self._limpiar(_tr("{c} · resuelto").format(c=it.data(_ROL)))
-            self.lbl_msg.setText(_tr("Este conflicto ya no está en el dibujo. Conserva su número; Ctrl+Z lo deshace."))
+            self.lbl_msg.setText(_tr("Ya no está en el dibujo. Conserva su número; Ctrl+Z lo deshace."))
             return
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         try:
@@ -369,6 +467,8 @@ class SolucionesDialog(QtWidgets.QDialog):
         self.lbl_msg.setText(" ".join((c.mensaje or "").split()))
         self._vaciar(self.fichas)
         self._vaciar(self.fichas2)
+        if not c.es_conflicto:                          # observación: su categoría a la vista (2026-11-13)
+            self.fichas.addWidget(V.chip(_tr(c.subtipo), tk.soft, tk.soft_text, tk.border_soft))
         codigos = [self.win._etq(self.win.pipes[i]) for i in c.pipes or [] if 0 <= i < len(self.win.pipes)]
         if len(codigos) >= 2:
             self.fichas.addWidget(V.chip(_tr("Red: {a} vs {b}").format(a=codigos[0], b=codigos[1]),
@@ -496,6 +596,13 @@ class SolucionesDialog(QtWidgets.QDialog):
         self._llenar(self._actual[1], rec)               # el motivo va DENTRO de la tarjeta recomendada
 
     # ── acciones ──
+    def _clic_en_lista(self, it):
+        """Clic en el conflicto que YA estaba elegido: también lleva al lienzo (elegir otro ya lo hacía;
+        pedido 2026-11-13: todo clic en un conflicto lleva a su lugar)."""
+        if it is not None and self._actual is not None and it.data(_ROL) == self._actual[0].id:
+            c = self._actual[0]
+            self.win._ir_a_elemento(c.x, c.y, activar=False)
+
     def _ver(self):
         if self._actual:
             c = self._actual[0]

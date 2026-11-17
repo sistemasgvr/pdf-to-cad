@@ -58,7 +58,8 @@ class ValvulasMixin:
         """Lo que decide el perfil: el modelo y las válvulas (no van en `_firma_modelo`)."""
         vs = getattr(self, "valvulas", None) or []
         return (self._firma_modelo(), tuple((round(float(v["x"]), 4), round(float(v["y"]), 4), v.get("union") or "",
-                                             v.get("tipo") or "", v.get("certeza") or "") for v in vs))
+                                             v.get("tipo") or "", v.get("certeza") or "") for v in vs),
+                self._firma_superficies_perfil() if hasattr(self, "_firma_superficies_perfil") else None)
 
     def _otras_valvulas(self, salvo=-1):
         return [{"x": l.x, "y": l.y, "largo_ft": l.largo_ft}

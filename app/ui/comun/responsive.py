@@ -278,3 +278,45 @@ class GridAdaptable(QtWidgets.QLayout):
                     it.setGeometry(QtCore.QRect(int(round(x)), y, int(cell), h))
             y += h + self._sp
         return y - self._sp - rect.y() + m.bottom()
+
+
+class FilaApilable(QtWidgets.QWidget):
+    """Fila de botones que pasa a COLUMNA cuando no cabe (pedido del usuario 2026-11-13: en Asistente → Conflictos
+    los tres botones del pie sumaban ~530 px y el panel no se podía achicar). Su ancho mínimo es el del botón más
+    ancho (el de la columna), así nunca impide achicar el panel; con lugar, la fila de siempre (estiramientos
+    incluidos). Los botones se agregan a `self.lay` (QBoxLayout)."""
+
+    def __init__(self, spacing=8, parent=None):
+        super().__init__(parent)
+        self.lay = QtWidgets.QBoxLayout(QtWidgets.QBoxLayout.LeftToRight, self)
+        self.lay.setContentsMargins(0, 0, 0, 0)
+        self.lay.setSpacing(spacing)
+
+    def _items(self):
+        return [self.lay.itemAt(i) for i in range(self.lay.count())
+                if self.lay.itemAt(i).widget() is not None and not self.lay.itemAt(i).widget().isHidden()]
+
+    def ancho_en_fila(self):
+        its = self._items()
+        return sum(it.minimumSize().width() for it in its) + self.lay.spacing() * max(0, len(its) - 1)
+
+    def minimumSizeHint(self):                     # noqa: N802
+        its = self._items()
+        alto = super().minimumSizeHint().height()
+        return QtCore.QSize(max((it.minimumSize().width() for it in its), default=0), alto)
+
+    def acomodar(self):
+        d = (QtWidgets.QBoxLayout.TopToBottom if self.width() < self.ancho_en_fila()
+             else QtWidgets.QBoxLayout.LeftToRight)
+        if self.lay.direction() != d:
+            self.lay.setDirection(d)
+            self.updateGeometry()
+
+    def resizeEvent(self, ev):                     # noqa: N802
+        super().resizeEvent(ev)
+        self.acomodar()
+
+    def event(self, ev):                           # un botón que se muestra/oculta cambia el ancho en fila
+        if ev.type() == QtCore.QEvent.LayoutRequest:
+            self.acomodar()
+        return super().event(ev)

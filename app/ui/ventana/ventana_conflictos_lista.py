@@ -1,7 +1,7 @@
 """Conflictos NUMERADOS de `Main` (mezcla): al final de `_draw_pipe_conflicts` se juntan
 los cruces a la misma cota que el plugin no une y todas las alertas rojas en una lista
-`self._conflictos` (C-1, C-2…, `nucleo/conflictos.py`) y se dibuja su número junto a cada
-marca. La misma lista va a la Tabla de datos, a su Excel y a la Vista 3D."""
+`self._conflictos` (`nucleo/conflictos.py`: conflictos C-1, C-2… cuando dos o más tuberías se tocan y
+observaciones OC-1, OU-1, OG-1, OV-1… para lo demás) y se dibuja su número junto a cada marca. La misma lista va a la Tabla de datos, a su Excel y a la Vista 3D."""
 from __future__ import annotations
 
 from nucleo import conflictos as _conf
@@ -47,10 +47,7 @@ class ConflictosListaMixin:
         if getattr(self, "_conf_registro", None) is None:
             self._conf_registro = _conf.Registro()
         self._conflictos = _conf.numerar_fijo(items, self._conf_registro)
-        dlg = getattr(self, "_dlg_soluciones", None)          # el panel «Conflictos», si ya existe, al día
-        if dlg is not None:
-            from PySide6 import QtCore
-            QtCore.QTimer.singleShot(0, dlg, dlg.al_cambiar_conflictos)
+        self._avisar_panel_conflictos()
         from ui.comun import conflictos_view
         if not getattr(self, "_marcas_vigentes", False):  # si no, las mismas de antes siguen en su capa
             self._poner_marcas(conflictos_view.dibujar_iter(self.canvas.scene(), self._conflictos, poner=self._marca,
@@ -58,11 +55,41 @@ class ConflictosListaMixin:
                                len(self._conflictos))
         return self._conflictos
 
+    def _avisar_panel_conflictos(self):
+        """El panel «Conflictos», si ya existe, al día (rehace su lista solo si cambió)."""
+        dlg = getattr(self, "_dlg_soluciones", None)
+        if dlg is not None:
+            from PySide6 import QtCore
+            QtCore.QTimer.singleShot(0, dlg, dlg.al_cambiar_conflictos)
+
+    def _soltar_conflictos(self):
+        """Otro proyecto (reporte 2026-11-14: tras uno muy grande, el panel Resolver seguía con sus 5 729 conflictos):
+        los conflictos, sus resultados, el círculo que marca un lugar y el panel quedan vacíos hasta el primer
+        redibujo del proyecto nuevo."""
+        from ui.ventana.ventana_conflictos import _RESULTADOS_CONFLICTOS
+        for k in _RESULTADOS_CONFLICTOS:
+            setattr(self, k, [])
+        self._conf_registro = None
+        if hasattr(self, "_quitar_marca_lugar"):
+            self._quitar_marca_lugar()
+        dlg = getattr(self, "_dlg_soluciones", None)
+        if dlg is not None:
+            dlg.proyecto_cambiado()
+
+    def codigos_avisos(self, avisos=None):
+        """{id(aviso): «N-n» / «R-n»} FIJOS (2026-11-14): el mismo registro que los conflictos (`.digproj`), así
+        resolver un aviso no renumera los demás en el informe, la IA ni la Tabla de datos."""
+        if getattr(self, "_conf_registro", None) is None:
+            self._conf_registro = _conf.Registro()
+        avisos = getattr(self, "_normas_avisos", None) or [] if avisos is None else avisos
+        from nucleo.informe_datos import CLASE_RECONOCIMIENTO
+        return _conf.numerar_avisos(avisos, self._conf_registro, CLASE_RECONOCIMIENTO)
+
     def conflictos_resueltos(self):
-        """Conflictos que ya no están en el dibujo, con su número: [(«C-n», título)]."""
+        """Conflictos y observaciones que ya no están en el dibujo, con su número: [(«C-n» / «OC-n»…, título)]."""
         reg = getattr(self, "_conf_registro", None)
         if reg is None:
             return []
         vigentes = {c.id for c in getattr(self, "_conflictos", None) or []}
-        return [(f"C-{e['n']}", _conf.TITULOS.get(e["clave"], e["clave"])) for e in reg.resueltos()
-                if f"C-{e['n']}" not in vigentes]
+        return [(reg.codigo(e), _conf.TITULOS.get(e["clave"], e["clave"])) for e in reg.resueltos()
+                if reg.codigo(e) not in vigentes]

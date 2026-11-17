@@ -533,7 +533,12 @@ class PreguntaDialog(CopilotoChatMixin, OrdenesMixin, QtWidgets.QDialog):
     def _pintar(self, abajo=False):
         from ui.comun import theme
         datos = getattr(self.win, "_ia_cache_datos", None)
-        existe = (lambda c: datos[1].ref(c) is not None) if datos else (lambda _c: False)
+        conflicto = getattr(self.win, "_ia_conflicto", None)       # un C-n vigente siempre lleva al plano
+
+        def existe(c):
+            if conflicto is not None and conflicto(c) is not None:
+                return True
+            return bool(datos) and datos[1].ref(c) is not None
         barra = self.vista.verticalScrollBar()
         al_final = abajo or barra.value() >= barra.maximum() - 24   # si el usuario subió a leer, no lo bajamos
         pos = barra.value()

@@ -62,7 +62,7 @@ def _registro(a):
 
 def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
           nombre_utilidad=lambda c: c, nombre_familia=lambda f: f, conflictos=(), solo_pipes=None,
-          solo_estructuras=None, valvulas=None):
+          solo_estructuras=None, valvulas=None, codigos_avisos=None):
     """Las tablas. Con `solo_pipes` / `solo_estructuras` (índices), solo las filas de esas utilidades y buzones
     (las MISMAS filas; la ficha de la Vista 3D no arma 16 761 filas para mostrar una; sin curvas)."""
     pipes = pipes or []
@@ -148,19 +148,20 @@ def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
     from nucleo.normas_validar import CLASES
     for n, a in enumerate(avisos or [], 1):
         x, y = _xy(a_cad, (a.x, a.y))
-        av.filas.append([n, (a.pipe + 1) if a.pipe is not None and a.pipe >= 0 else "",
+        cod = (codigos_avisos or {}).get(id(a), "" if codigos_avisos is not None else n)  # N-n FIJO (2026-11-14)
+        av.filas.append([cod, (a.pipe + 1) if a.pipe is not None and a.pipe >= 0 else "",
                          t(CLASES.get(a.clase, a.clase)) + (" · " + t("Información") if a.info else ""),
                          a.mensaje, _estado_aviso(a), *_registro(a), x, y])
         av.lugares.append((a.x, a.y, "pipe", a.pipe))
 
-    co = Tabla("conflictos", N_("Conflictos"), [
-        N_("ID"), N_("Tipo de conflicto"), N_("Utilidades"), N_("Cota A (ft)"), N_("Cota B (ft)"),
+    co = Tabla("conflictos", N_("Conflictos y observaciones"), [
+        N_("ID"), N_("Categoría"), N_("Tipo"), N_("Utilidades"), N_("Cota A (ft)"), N_("Cota B (ft)"),
         N_("Diferencia (ft)"), N_("Detalle"), N_("X"), N_("Y")])
     for c in conflictos or []:
         x, y = _xy(a_cad, (c.x, c.y))
         za = c.cotas[0] if len(c.cotas) > 0 else None
         zb = c.cotas[1] if len(c.cotas) > 1 else None
-        co.filas.append([c.id, t(c.titulo), ", ".join(f"#{i + 1}" for i in c.pipes), _r(za, 3), _r(zb, 3),
+        co.filas.append([c.id, t(c.subtipo), t(c.titulo), ", ".join(f"#{i + 1}" for i in c.pipes), _r(za, 3), _r(zb, 3),
                          _r(c.diferencia, 3), " ".join(c.mensaje.split()), x, y])
         co.lugares.append((c.x, c.y, "pipe" if c.pipes else None, c.pipes[0] if c.pipes else -1))
     tablas = [ut, bz, cu, bd, av, co]

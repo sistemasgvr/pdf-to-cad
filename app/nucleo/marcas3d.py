@@ -69,7 +69,7 @@ def marcas(ar, pipes, avisos, conflictos, id_aviso, id_conflicto):
         c = (q[0], q[1], q[2] + R_CONFLICTO_FT)
         ar.op.append(M.esfera(c, R_CONFLICTO_FT, COLOR_CONFLICTO, ident))
         ar.picks.capsula(c, c, R_CONFLICTO_FT, ident)
-        ar.registrar(ident, "conflicto", n, [q], codigo=k.get("id", ""), titulo=k.get("titulo", ""),
+        ar.registrar(ident, "conflicto", n, [q], codigo=k.get("id", ""), titulo=k.get("titulo", ""), clave=k.get("clave", ""),
                      mensaje=k.get("mensaje", ""), pipes=list(k.get("pipes") or []), cotas=list(k.get("cotas") or []),
                      x=k["x"], y=k["y"])
         punto = (c[0], c[1], c[2] + R_CONFLICTO_FT)

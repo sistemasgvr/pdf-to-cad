@@ -103,16 +103,36 @@ class IAMixin:
         ft = self.scale / self.zoom if self.scale and self.zoom else 0.0
         conflictos = list(getattr(self, "_conflictos", None) or [])
         avisos = list(getattr(self, "_normas_avisos", None) or [])
-        fichas, _sin_tipo = informe_datos.fichas(conflictos, avisos, self.pipes, informe_datos.Opciones())
+        fichas, _sin_tipo = informe_datos.fichas(conflictos, avisos, self.pipes, informe_datos.Opciones(),
+                                                 self.codigos_avisos(avisos))   # N-n / R-n fijos
         informe_datos.zonas(fichas, ft)                 # las mismas zonas (y números N-n) que el informe
         datos = DatosProyecto.armar(self.pipes, fichas, ft, self._titulo_informe(), texto_plano=tp,
                                     zoom=self.zoom or 1.0)
         self._ia_cache_datos = (firma, datos)
         return datos
 
+    def _ia_conflicto(self, codigo):
+        """El conflicto («C-12») u observación («OC-3», «OU-1»…) vigente con ese número (cualquier caja), o None."""
+        from nucleo import conflictos as _conf
+        cid = str(codigo or "").strip().upper()
+        if not _conf.es_codigo(cid):
+            return None
+        return next((c for c in getattr(self, "_conflictos", None) or [] if str(c.id).upper() == cid), None)
+
     def _ia_ir_a(self, codigo):
+        """Código de una respuesta (C-12, N-3, AGUA-5) → al lugar en el plano. Un conflicto va a donde está AHORA
+        (pedido 2026-11-13: todo clic en un conflicto lleva al lienzo); lo demás, por los datos que leyó la IA."""
+        c = self._ia_conflicto(codigo)
+        if c is not None:
+            self._ir_a_elemento(c.x, c.y, activar=False)
+            return True
         datos = getattr(self, "_ia_cache_datos", None)
         ref = datos[1].ref(codigo) if datos else None
+        if ref is None and datos is None:
+            try:
+                ref = self._ia_datos().ref(codigo)       # la IA aún no había leído el proyecto
+            except Exception:                            # noqa: BLE001
+                ref = None
         if ref is None:
             return False
         objeto = "pipe" if ref["objeto"] == "pipe" else None

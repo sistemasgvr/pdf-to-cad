@@ -280,16 +280,22 @@ class ListasMixin:
         self._refresh_counts()
         self.pipe_list.blockSignals(True); self.pipe_list.clear()
         iconos = {}                     # el muestrario de cada capa UNA vez (era un pixmap por utilidad)
+        tipos = {}                      # y su nombre traducido
+        t_red, t_vert = _tr("red: {red}"), _tr("{n} vért.")
+        textos, icos = [], []
         for i, p in enumerate(self.pipes, 1):
             tag = " (AB)" if p.get("ab") else ""
             nm = " · " + ((p.get("name") or "").strip() or model_ops.nombre_por_defecto(p, i - 1))
             n = len(p.get("pts") or [])
-            info = (_tr("red: {red}").format(red=p.get("net", "")) if p.get("world")
-                    else _tr("{n} vért.").format(n=n))
-            icono = iconos.get(p["layer"])
+            info = (t_red.format(red=p.get("net", "")) if p.get("world") else t_vert.format(n=n))
+            capa = p["layer"]
+            icono = iconos.get(capa)
             if icono is None:
-                icono = iconos[p["layer"]] = swatch_icon(layer_qcolor(p["layer"]))
-            fila_lista(self.pipe_list, f"{i}. {self._tipo(p['layer'])}{tag}{nm} ({info})", icono)
+                icono = iconos[capa] = swatch_icon(layer_qcolor(capa))
+                tipos[capa] = self._tipo(capa)
+            textos.append(f"{i}. {tipos[capa]}{tag}{nm} ({info})")
+            icos.append(icono)
+        filas_lista(self.pipe_list, textos, icos)      # todas juntas (2026-11-14: una por una, ~3 s con 29 000)
         self._atenuar_lista_utilidades()            # apagadas en «Capas»: en gris (ventana_capas)
         if hasattr(self, "_filtrar_inventario"):    # buscador y filtros del Inventario (2.0.0)
             self._filtrar_inventario()
@@ -325,16 +331,18 @@ class ListasMixin:
             if k not in iconos_s:
                 iconos_s[k] = _icon(nombre, color=color)
             return iconos_s[k]
-        with model_ops.indice_vertices():
+        filas = {False: ([], [], []), True: ([], [], [])}      # (textos, iconos, ocultos) de buzones / curvas
+        sin_fam = _tr("(sin familia)")
+        with model_ops.indice_vertices(self._memoria_indices()):
             for i, s in enumerate(self.structures):
                 is_curve = bool(s.get("curve"))
                 if is_curve:
                     p = self._pipe_at_vertex(s.get("x"), s.get("y")) if s.get("x") is not None else None
-                    fam = (p.get("pipe_family") if p else "") or _tr("(sin familia)")
+                    fam = (p.get("pipe_family") if p else "") or sin_fam
                     sz = f"  {p['pipe_size']}" if p and p.get("pipe_size") else ""
                     item_icon = ico("mdi:vector-curve", "#a855f7")   # curva = violeta
                 else:
-                    fam = s.get("part") or _tr("(sin familia)")
+                    fam = s.get("part") or sin_fam
                     sz = f"  {s['part_size']}" if s.get("part_size") else ""
                     if s.get("hidden"):
                         item_icon = ico("mdi:eye-off-outline", _theme.tokens().text_muted)
@@ -344,14 +352,24 @@ class ListasMixin:
                         item_icon = ico("mdi:circle-medium", "#f97316")   # conducto = naranja
                     else:
                         item_icon = ico("mdi:circle-medium", "#3b82f6")   # buzón = azul
-                it = fila_lista(self.curve_list if is_curve else self.bz_list,
-                                self._solid_label(s) if s.get("solid") and not is_curve
-                                else f"{s.get('cod', '?')}  ·  {fam}{sz}", item_icon)
+                textos, icos, ocultos = filas[is_curve]
                 if not is_curve and s.get("hidden"):
-                    it.setForeground(QtGui.QColor(_theme.tokens().text_muted))
-                    it.setToolTip(_tr("Oculto — no se dibuja ni se crea en Civil3D como buzón real."))
+                    ocultos.append(len(textos))
+                textos.append(self._solid_label(s) if s.get("solid") and not is_curve
+                              else f"{s.get('cod', '?')}  ·  {fam}{sz}")
+                icos.append(item_icon)
                 if is_curve: self._curve_rows.append(i)
                 else: self._bz_rows.append(i)
+        for is_curve, lista in ((False, self.bz_list), (True, self.curve_list)):
+            textos, icos, ocultos = filas[is_curve]
+            filas_lista(lista, textos, icos)             # todas juntas (ver utilidades)
+            if ocultos:
+                tenue = QtGui.QColor(_theme.tokens().text_muted)
+                globo = _tr("Oculto — no se dibuja ni se crea en Civil3D como buzón real.")
+                for k in ocultos:
+                    it = lista.item(k)
+                    it.setForeground(tenue)
+                    it.setToolTip(globo)
         self.bz_list.blockSignals(False); self.curve_list.blockSignals(False)
         self._sync_bz_panel(); self._sync_curve_panel()
         self.cl_list.blockSignals(True); self.cl_list.clear()
@@ -368,9 +386,11 @@ class ListasMixin:
         elide a la derecha para no sacar barra horizontal (ver el bloque
         RESPONSIVO en _build_ui), así que el texto recortado con "…" se puede
         leer completo al pasar el ratón."""
-        for lw in (self.pipe_list, self.sleader_list,
-                   self.txt_marks_list, self.region_list, self.bz_list,
-                   self.curve_list, self.cl_list, self.db_list):
+        # Utilidades, buzones y curvas (decenas de miles de filas): el globo se calcula al pedirlo (`GloboDeFila`)
+        for lw in (self.pipe_list, self.bz_list, self.curve_list):
+            if getattr(lw, "_pdfcad_globo", None) is None:
+                lw._pdfcad_globo = GloboDeFila(lw)
+        for lw in (self.sleader_list, self.txt_marks_list, self.region_list, self.cl_list, self.db_list):
             for r in range(lw.count()):
                 it = lw.item(r)
                 if it is not None and not it.toolTip():

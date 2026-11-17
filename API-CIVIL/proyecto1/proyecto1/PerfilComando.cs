@@ -215,6 +215,7 @@ namespace Civil3DBasico
                     $"desde ella → {rec.Pasos.Count} tubo(s) de {red.Tramos.Count} en la red, {rec.EstFin - rec.EstIni:0.0} ft");
                 ctx.SinSuperficie = !PerfilEje.MuestrearTerreno(tr, rec, red.SuperficieId);
                 if (ctx.SinSuperficie) PerfilLog.Aviso("Sin superficie: no se dibuja terreno ni recubrimientos");
+                else PerfilEje.MuestrearOtros(tr, rec, red.OtrasSuperficies);
                 ctx.Cruces = PerfilCruces.BuscarCandidatos(tr, ctx.CivDoc, rec, out var verts);
                 ctx.VerticalesTodas = new List<VerticalConexion>(verts);
                 ctx.VerticalesTodas.AddRange(red.Verticales);
@@ -270,6 +271,7 @@ namespace Civil3DBasico
                     if (ctx.AlignId.IsNull) { tr.Abort(); ctx.Ed.WriteMessage("\n✗ No se pudo crear el eje del perfil."); return false; }
                     PerfilEje.EstacionesDefinitivas(tr, ctx.AlignId, ctx.Rec, ctx.Cruces);
                     if (!ctx.SinSuperficie) ctx.TerrenoId = PerfilVista.CrearTerreno(tr, ctx);
+                    if (!ctx.SinSuperficie) PerfilVista.CrearOtrosTerrenos(tr, ctx);   // las demás superficies (2026-11-14)
                     if (!PerfilVista.CrearVistas(tr, ctx)) { tr.Abort(); ctx.Ed.WriteMessage("\n✗ No se pudo crear la vista de perfil."); return false; }
                     _captura.Suscribir(ctx.Db);
                     PerfilVista.AgregarPartes(tr, ctx, _captura);

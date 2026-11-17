@@ -22,6 +22,8 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
 from nucleo import mallas3d as M
 from ui.comun import etiquetas3d
+from ui.comun import superficie3d
+from ui.comun import visor3d_diag as DG
 from ui.comun import visor3d_instancias as VI
 from ui.comun import visor3d_shaders as SH
 from ui.comun.cubo_vistas import CuboVistas
@@ -52,8 +54,19 @@ GIRO_DEG_PX = (0.22, 0.16)   # grados de giro por píxel arrastrado (horizontal,
 DESPLAZAR = 0.6         # el modelo se mueve el 60 % de lo que se mueve el ratón (1:1 era muy sensible)
 PROF_MIN_FT = 0.25      # profundidad mínima para desplazar (nunca se traba)
 ANIM_MS, ANIM_PASOS = 240, 12   # giro animado del cubo de vistas
+# Cada bloque que se sube a la tarjeta de video (2026-11-16: dos equipos de clientes cayeron al modo sin instancing y
+# la escena entera —2.5 GB con 29 000 utilidades— pasaba el límite de Qt de 2 GB por bloque: «OverflowError»). Se sube
+# en partes de este tamaño, cortadas en triángulos enteros; el dibujo es el mismo.
+BLOQUE_MAX_BYTES = 256 * 2 ** 20
+GL_PEDIDO = (3, 3)              # pedido EXPLÍCITO: hay drivers (Intel) que reportan la versión pedida, no la mayor
 
 VISTAS = {"arriba": (-90.0, 89.5), "frente": (-90.0, 0.0), "lateral": (0.0, 0.0), "iso": (-55.0, 30.0)}
+
+
+def partes_de(n_vertices, paso_bytes, maximo_bytes):
+    """[(desde, hasta)] de vértices en bloques de ≤ `maximo_bytes`, cortados en triángulos enteros (múltiplos de 3)."""
+    por_bloque = max(3, (maximo_bytes // paso_bytes) // 3 * 3)
+    return [(k, min(k + por_bloque, n_vertices)) for k in range(0, n_vertices, por_bloque)]
 
 
 def _np(m):
@@ -103,17 +116,27 @@ class Visor3D(AutoPanMixin, QOpenGLWidget):
     elegido = QtCore.Signal(int)        # id del objeto (0 = nada)
     doble = QtCore.Signal(int)
     sobre = QtCore.Signal(int)
+    fallo = QtCore.Signal(str)          # no se pudo dibujar: el texto para el usuario (`visor3d_diag.mensaje`)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         fmt = QtGui.QSurfaceFormat(); fmt.setSamples(4); fmt.setDepthBufferSize(24)
+        fmt.setVersion(*GL_PEDIDO)
+        fmt.setProfile(QtGui.QSurfaceFormat.CompatibilityProfile)   # los shaders son GLSL 1.20: compatibilidad
+        self._fmt_pedido = QtGui.QSurfaceFormat(fmt)
         self.setFormat(fmt)
+        self._info_gl = {}                  # el contexto OpenGL obtenido (para el registro)
+        self._fallo = ""                    # error al dibujar esta escena: no se reintenta en cada cuadro
         self.setMouseTracking(True)
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
         self.setMinimumSize(320, 240)
         self.cam = Camara()
         self.escena = None
         self.ver_suelo, self.opacidad_suelo = True, 0.18
+        self.bordes_superficie = True                    # bordes de los triángulos de la superficie importada
+        self.estilo_superficie = "relieve"               # relieve | cotas | malla (superficie3d, 2026-11-14)
+        self.curvas_nivel = False
+        self.intervalo_curvas = 0.0                      # ft; 0 = automático
         self.sel_id = 0
         self.hov_id = 0
         self.fondo = QtGui.QColor(40, 44, 52)
@@ -140,6 +163,7 @@ class Visor3D(AutoPanMixin, QOpenGLWidget):
     def set_escena(self, escena, encuadrar=False):
         self.escena = escena
         self._sucio = True
+        self._fallo = ""                    # otra escena (quizá más chica): se vuelve a intentar
         self._capa_rot = etiquetas3d.Capa(getattr(escena, "rotulos", None) or [],
                                           getattr(escena, "rotulos_largos", None), rotulo=True)
         self._capa_etq = etiquetas3d.Capa(getattr(escena, "etiquetas", None) or [])
@@ -189,11 +213,17 @@ class Visor3D(AutoPanMixin, QOpenGLWidget):
                 raise RuntimeError(p.log())
             self._prog = p
             self._inst = None
+            motivo = ""
             if VI.soportado(self.context()):
                 try:
                     self._inst = VI.Instanciador(self, self.context(), _FRAG)
-                except Exception:                     # sin instancing: los triángulos de siempre
+                except Exception as e:                # sin instancing: los triángulos de siempre
                     self._inst = None
+                    motivo = f"el programa de instancias no compiló o no enlazó: {type(e).__name__}: {e}"
+            else:
+                motivo = VI.motivo_no_soportado(self.context())
+            self._info_gl = DG.info_gl(self.context(), self.f, self._fmt_pedido)
+            DG.registrar_inicio(self._info_gl, self._inst is not None, motivo)
             self._vao = QOpenGLVertexArrayObject(self)
             self._vao.create()                   # se enlaza solo mientras se dibuja el modelo
             self.f.glEnable(GL_DEPTH_TEST)
@@ -204,11 +234,20 @@ class Visor3D(AutoPanMixin, QOpenGLWidget):
         except Exception as e:                                # sin OpenGL 2.1: lo dice la ventana
             self.error = str(e) or "OpenGL"
             self._prog = None
+            try:
+                self._info_gl = DG.info_gl(self.context(), self.context().functions(), self._fmt_pedido)
+            except Exception:                                 # noqa: BLE001
+                pass
+            DG.registrar_inicio(self._info_gl, False, f"no se pudo iniciar OpenGL: {type(e).__name__}: {e}")
+
+    def _soltar_vbos(self):
+        for partes in self._vbos.values():
+            for b, _n in partes:
+                b.destroy()
+        self._vbos = {}
 
     def _subir(self):
-        for b, _n in self._vbos.values():
-            b.destroy()
-        self._vbos = {}
+        self._soltar_vbos()
         if self.escena is None:
             return
         for clave in ("opacos", "transparentes", "suelo"):
@@ -217,11 +256,15 @@ class Visor3D(AutoPanMixin, QOpenGLWidget):
             datos = np.ascontiguousarray(fuente, np.float32)
             if not len(datos):
                 continue
-            b = QOpenGLBuffer(QOpenGLBuffer.VertexBuffer)
-            b.create(); b.bind()
-            b.allocate(datos.tobytes(), datos.nbytes)
-            b.release()
-            self._vbos[clave] = (b, len(datos))
+            partes = []
+            for desde, hasta in partes_de(len(datos), PASO, BLOQUE_MAX_BYTES):
+                trozo = datos[desde:hasta]
+                b = QOpenGLBuffer(QOpenGLBuffer.VertexBuffer)
+                b.create(); b.bind()
+                b.allocate(trozo.tobytes(), int(trozo.nbytes))
+                b.release()
+                partes.append((b, hasta - desde))
+            self._vbos[clave] = partes
         if self._inst is not None:
             self._inst.subir(self.escena.instancias)
         self._sucio = False
@@ -229,17 +272,43 @@ class Visor3D(AutoPanMixin, QOpenGLWidget):
     def _dibujar(self, clave, alfa):
         if clave not in self._vbos:
             return
-        b, n = self._vbos[clave]
         p = self._prog
-        b.bind()
-        for k, (off, tam) in enumerate(((0, 3), (12, 3), (24, 4), (40, 1), (44, 3), (56, 1))):
-            p.enableAttributeArray(k)
-            p.setAttributeBuffer(k, GL_FLOAT, off, tam, PASO)
         p.setUniformValue1f("uAlfa", float(alfa))
-        self.f.glDrawArrays(GL_TRIANGLES, 0, n)
-        b.release()
+        for b, n in self._vbos[clave]:                   # una o varias partes (`BLOQUE_MAX_BYTES`)
+            b.bind()
+            for k, (off, tam) in enumerate(((0, 3), (12, 3), (24, 4), (40, 1), (44, 3), (56, 1))):
+                p.enableAttributeArray(k)
+                p.setAttributeBuffer(k, GL_FLOAT, off, tam, PASO)
+            self.f.glDrawArrays(GL_TRIANGLES, 0, n)
+            b.release()
 
     def paintGL(self):
+        """Un error al dibujar NO sale de aquí (reporte del cliente 2026-11-16: el aviso de «Acción interrumpida»
+        volvía en bucle, porque cada cuadro repetía el error, y tuvo que cerrar la app con el administrador de tareas).
+        Se anota una vez con todo su contexto, la vista queda vacía y la ventana muestra un mensaje (`fallo`)."""
+        if self._fallo:
+            self._limpiar()
+            return
+        try:
+            self._pintar()
+        except Exception as e:                                # noqa: BLE001
+            tam = DG.tamanos(self.escena, self._inst)
+            DG.registrar_fallo(e, self._info_gl, tam, self._inst is not None)
+            self._fallo = DG.mensaje(e, tam, self._inst is not None)
+            self._soltar_vbos()
+            self._sucio = True
+            try:
+                self._limpiar()
+            except Exception:                                 # noqa: BLE001
+                pass
+            QtCore.QTimer.singleShot(0, self, lambda m=self._fallo: self.fallo.emit(m))
+
+    def _limpiar(self):
+        c = self.fondo
+        self.f.glClearColor(c.redF(), c.greenF(), c.blueF(), 1.0)
+        self.f.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+
+    def _pintar(self):
         c = self.fondo
         if self._prog is None:
             return
@@ -265,7 +334,8 @@ class Visor3D(AutoPanMixin, QOpenGLWidget):
         if self._inst is not None:
             try:
                 self._inst.dibujar(self._uniformes)
-            except Exception:                         # respaldo: los triángulos de siempre
+            except Exception as e:                    # respaldo: los triángulos de siempre
+                DG.registrar_inicio(self._info_gl, False, f"el instancing falló al dibujar: {type(e).__name__}: {e}")
                 self._inst = None
                 self._sucio = True
                 self.update()
@@ -284,6 +354,7 @@ class Visor3D(AutoPanMixin, QOpenGLWidget):
         f.glDisable(GL_DEPTH_TEST)                       # el cubo va ENCIMA del modelo
         pintor = QtGui.QPainter(self)
         self._dibujar_etiquetas(pintor)
+        superficie3d.dibujar_leyenda(self, pintor, self.oscuro)
         self.cubo.dibujar(pintor, self.width(), self.cam, self.oscuro)
         pintor.end()
 
@@ -295,6 +366,8 @@ class Visor3D(AutoPanMixin, QOpenGLWidget):
         p.setUniformValue("uOjo", QtGui.QVector3D(*self.cam.ojo()))
         p.setUniformValue1f("uPxMundo", 2.0 * math.tan(math.radians(self.cam.fov) / 2.0) / max(self.height(), 1))
         p.setUniformValue1f("uMinPx", RADIO_MIN_PX)
+        p.setUniformValue1f("uBordes", 1.0 if self.bordes_superficie else 0.0)
+        superficie3d.uniformes(self, p)
         luz = self.cam.ojo() - self.cam.objetivo + np.array([0.0, 0.0, self.cam.dist * 0.6])
         p.setUniformValue("uLuz", QtGui.QVector3D(*luz))
         r = self.resalte

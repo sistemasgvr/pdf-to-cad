@@ -71,6 +71,7 @@ namespace Civil3DBasico
     {
         public TipoRed Tipo; public ObjectId RedId; public string NombreRed = "";
         public ObjectId SuperficieId = ObjectId.Null;
+        public List<ObjectId> OtrasSuperficies = new List<ObjectId>();   // las demás TIN del dibujo (2026-11-14)
         public List<NodoPerfil> Nodos = new List<NodoPerfil>();
         public List<TramoRed> Tramos = new List<TramoRed>();
         public List<VerticalConexion> Verticales = new List<VerticalConexion>();
@@ -109,6 +110,8 @@ namespace Civil3DBasico
         public List<V2Bulge> Traza = new List<V2Bulge>();
         public double DistN0;                                         // distancia sobre la traza hasta N0
         public double[] TerrenoEst = new double[0], TerrenoZ = new double[0]; // D.4 (NaN = sin superficie)
+        // cotas de las OTRAS superficies en las mismas estaciones TerrenoEst (2026-11-14; NaN = fuera de ella)
+        public List<double[]> OtrosTerrenosZ = new List<double[]>();
         // [contrato] rango del eje (D.3): preliminar en T0 (traza), definitivo en T1a (Starting/EndingStation)
         public double EstMinPermitida, EstMaxPermitida;
     }

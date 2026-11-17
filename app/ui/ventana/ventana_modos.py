@@ -409,6 +409,8 @@ class ModosMixin:
             self.gprop_cl.setVisible(ti == TAB_CL)
         if hasattr(self, "gprop_acc"):
             self._sync_prop_accesorio()
+        if hasattr(self, "gprop_sup"):
+            self._sync_prop_superficie()
         if hasattr(self, "chk_bz_labels"):
             self.chk_bz_labels.setVisible(ti in (TAB_BZ, TAB_CURVE))
         # "En curso": solo mientras hay puntos en curso. gcur ya fue movido a la
@@ -428,6 +430,8 @@ class ModosMixin:
         # efecto porque _rebuild_structures los repone. Se oculta el boton.
         self.btn_del.setVisible(ti not in (TAB_BZ, TAB_ACC, TAB_SUP))   # accesorios: clic derecho en la lista
         self.btn_xd.setVisible(ti in (TAB_PIPE, TAB_BZ))
+        from ui.ventana import ventana_propiedades_vacio            # nada elegido: estado vacío (2026-11-13)
+        ventana_propiedades_vacio.sincronizar(self)
         if getattr(self, "cabecera_inspector", None) is not None:   # cabecera del inspector (2.0.0)
             self.cabecera_inspector.refrescar(desde_ui=True)
         if getattr(self, "_botones_varias", None):                  # «Varias utilidades» en gris si no aplican

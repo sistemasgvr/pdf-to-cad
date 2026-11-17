@@ -33,6 +33,7 @@ class Candidato:
     crs: str = ""                      # «EPSG:n» del archivo (o el elegido)
     elegido: bool = True
     avisos: List[str] = field(default_factory=list)
+    ruta: str = ""                     # ruta completa del archivo original (se muestra en Propiedades)
 
 
 def _unidad_txt(u):

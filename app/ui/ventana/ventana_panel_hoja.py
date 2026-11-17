@@ -205,7 +205,7 @@ class PanelHoja(QtWidgets.QWidget):
                 it.widget().hide()
                 it.widget().deleteLater()
         try:
-            planos = self.win._estado_capas().planos
+            planos = self.win._filas_planos()
         except Exception:                              # sin hoja abierta
             planos = []
         self.sec_planos.setVisible(bool(planos))

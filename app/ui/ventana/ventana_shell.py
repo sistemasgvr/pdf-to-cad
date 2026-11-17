@@ -129,14 +129,18 @@ class ShellMixin:
         self._ldock.setWidget(self.paneles_riel)
         # derecha: propiedades de siempre o el Asistente
         from ui.ventana import ventana_asistente
-        self.pila_derecha = QtWidgets.QStackedWidget()
+        from ui.comun.pila_actual import PilaActual     # el mínimo es el de la página a la vista (2026-11-13)
+        self.pila_derecha = PilaActual()
         self.pila_derecha.addWidget(self._rdock.widget())
         self.asistente = ventana_asistente.PanelAsistente(self)
         self.pila_derecha.addWidget(self.asistente)
         self._rdock.setWidget(self.pila_derecha)
-        for lista in (self.pipe_list, self.bz_list, self.curve_list, self.sleader_list, self.txt_marks_list,
-                      self.region_list, self.cl_list, self.db_list):
+        listas = (self.pipe_list, self.bz_list, self.curve_list, self.sleader_list, self.txt_marks_list,
+                  self.region_list, self.cl_list, self.db_list) + ((self.sup_list,) if hasattr(self, "sup_list") else ())
+        for lista in listas:
             lista.itemClicked.connect(lambda _it: self.ver_propiedades())   # solo el clic: no al elegir por código
+        from ui.ventana import ventana_panel_der_modos   # y con el teclado en la lista enfocada (2026-11-14)
+        ventana_panel_der_modos.seguir_teclado(self, listas)
         from ui.ventana import ventana_inspector
         ventana_inspector.poner_cabecera(self)          # cabecera del inspector (color, nombre, acciones)
         # centro: el plano y las vistas que se abren dentro de la ventana
@@ -250,6 +254,8 @@ class ShellMixin:
             if lbl is not None:
                 lbl.setText(nombre)
         panel.tab.setText(nombre)
+        from ui.ventana import ventana_panel_der_modos   # el segmentado «Propiedades | Asistente» (2026-11-14)
+        ventana_panel_der_modos.sincronizar(self)
 
     def mostrar_plano(self):
         if getattr(self, "centro", None) is not None:

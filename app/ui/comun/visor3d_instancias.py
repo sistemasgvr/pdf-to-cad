@@ -48,6 +48,18 @@ def soportado(ctx):
         return False
 
 
+def motivo_no_soportado(ctx):
+    """Por qué `soportado` dijo que no (para el registro)."""
+    if os.environ.get("PDFCAD_SIN_INSTANCING") == "1":
+        return "PDFCAD_SIN_INSTANCING=1"
+    try:
+        fmt = ctx.format()
+        return (f"el contexto reporta OpenGL {fmt.majorVersion()}.{fmt.minorVersion()} (hace falta 3.3) y no anuncia "
+                f"GL_ARB_instanced_arrays")
+    except Exception as e:                                    # noqa: BLE001
+        return f"no se pudo leer el contexto: {type(e).__name__}: {e}"
+
+
 class Instanciador:
     """Programa + buffers de las instancias de la escena. `RuntimeError` si no se puede."""
 

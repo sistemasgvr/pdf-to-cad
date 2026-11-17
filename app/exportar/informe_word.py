@@ -81,11 +81,11 @@ def escribir(informe, redactor, ruta, imagenes=None, notas=()):
     estilo = doc.styles["Normal"]
     estilo.font.name, estilo.font.size = "Arial", Pt(10)
 
-    doc.add_heading(t("Informe de conflictos y normativas"), 0)
+    doc.add_heading(t("Informe de conflictos, observaciones y normativas"), 0)
     if informe.titulo:
         doc.add_paragraph(t("Proyecto: {p}").format(p=informe.titulo))
     doc.add_paragraph(t("Fecha: {f}").format(f=informe.fecha))
-    contenido = [x for x, on in ((t("conflictos"), informe.opciones.conflictos),
+    contenido = [x for x, on in ((t("conflictos y observaciones"), informe.opciones.conflictos),
                                  (t("normativas"), informe.opciones.normativas),
                                  (t("avisos de reconocimiento"), bool(informe.resumen.get("reconocimiento")))) if on]
     doc.add_paragraph(t("Contenido: {c}.").format(c=(" " + t("y") + " ").join(contenido)))
@@ -97,7 +97,9 @@ def escribir(informe, redactor, ruta, imagenes=None, notas=()):
     r = informe.resumen
     filas = [(t("Utilidades revisadas"), r["utilidades"])]
     if informe.opciones.conflictos:
-        filas.append((t("Conflictos"), r["conflictos"]))
+        filas.append((t("Conflictos (dos o más tuberías se cruzan, chocan o se tocan)"), r["conflictos"]))
+        filas.append((t("Observaciones (Civil 3D no podrá construirlo tal como está dibujado)"),
+                      r.get("observaciones", 0)))
     if informe.opciones.normativas:
         filas += [(t("Avisos de normativa pendientes"), r["avisos_pendientes"]), (t("Avisos aprobados"), r["aprobados"]),
                   (t("Avisos informativos"), r["info"]), (t("Utilidades sin tipo"), r["sin_tipo"])]
@@ -110,7 +112,7 @@ def escribir(informe, redactor, ruta, imagenes=None, notas=()):
     if r["por_utilidad"]:
         doc.add_paragraph()
         from nucleo.informe_redaccion import nombre_utilidad
-        _tabla(doc, [t("Utilidad"), t("Conflictos y avisos")], [(nombre_utilidad(c), n) for c, n in r["por_utilidad"]])
+        _tabla(doc, [t("Utilidad"), t("Conflictos, observaciones y avisos")], [(nombre_utilidad(c), n) for c, n in r["por_utilidad"]])
 
     if imagenes.get("mapa"):
         doc.add_heading(t("Mapa general"), 1)
@@ -138,7 +140,7 @@ def escribir(informe, redactor, ruta, imagenes=None, notas=()):
                 for f in rec[:ANEXO_MAX]])
 
     if informe.fichas:
-        doc.add_heading(t("Anexo: todos los conflictos y avisos"), 1)
+        doc.add_heading(t("Anexo: todos los conflictos, observaciones y avisos"), 1)
         filas = []
         total = min(len(informe.fichas), ANEXO_MAX)
         for i, f in enumerate(informe.fichas[:ANEXO_MAX], 1):

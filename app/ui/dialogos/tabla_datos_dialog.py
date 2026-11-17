@@ -333,7 +333,7 @@ class TablaDatosDialog(QtWidgets.QDialog):
         tabla_excel.aplicar(w.pipes, w.structures, cambios)
         w._refresh_lists(); w._update_ui(); w._redraw()
         self.refrescar()
-        w._info(_tr("Excel importado: {n} cambio(s). Conflictos: {a} → {b}.").format(
+        w._info(_tr("Excel importado: {n} cambio(s). Conflictos y observaciones: {a} → {b}.").format(
             n=len(cambios), a=antes, b=len(getattr(w, "_conflictos", []) or [])))
         return cambios
 

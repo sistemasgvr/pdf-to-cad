@@ -137,6 +137,11 @@ class CapasMixin:
                                        c not in apagadas and s not in apagados, None, _miles(subs[s]),
                                        self._nombre_capa(sub_clave(c, s)), padre=c)
                                for s in (LINEAS, ESTRUCTURAS, VALVULAS) if s in subs]
+        return CP.Estado(utilidades, self._filas_planos(), self._filas_superficies())
+
+    def _filas_planos(self):
+        """Las filas de los planos de fondo (aparte: «Hoja y PDF» solo necesita éstas y con decenas de miles de
+        utilidades armar también las de utilidades costaba ~0.2 s cada vez, varias veces al abrir; 2026-11-14)."""
         planos = []
         encendidos = set(self._planos_encendidos())
         comp = self.composite
@@ -147,7 +152,7 @@ class CapasMixin:
                                   layer_qcolor(utils[0]) if len(utils) == 1 else None,
                                   _tr("{n} hoja(s)").format(n=hojas),
                                   _tr("Plano original del PDF: {pdf}").format(pdf=self._pdfs_plano(g))))
-        return CP.Estado(utilidades, planos, self._filas_superficies())
+        return planos
 
     def _sync_boton_capas(self):
         """Cuántas capas hay apagadas, en el botón (lo llama cada redibujo: barato)."""
@@ -327,6 +332,9 @@ class CapasMixin:
         if lst is None:
             return
         ap = self._lineas_apagadas()
+        if not ap and getattr(lst, "_pdfcad_limpia", False) and not getattr(lst, "_pdfcad_tenues", False):
+            return                                   # recién llenada y nada apagado: ninguna fila en gris
+        lst._pdfcad_tenues = bool(ap)
         tenue = QtGui.QBrush(QtGui.QColor(lst.palette().color(QtGui.QPalette.Disabled, QtGui.QPalette.Text)))
         normal = QtGui.QBrush()
         for row in range(min(lst.count(), len(self.pipes))):

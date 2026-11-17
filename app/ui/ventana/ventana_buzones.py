@@ -94,7 +94,16 @@ class BuzonesMixin:
     def _rebuild_structures(self):
         # Detección/reconciliación de buzones (pura) en model_ops; aquí solo se
         # asigna el resultado y se marca el proyecto como modificado.
+        # Con el MISMO modelo de la última vez que la reconciliación no cambió nada, no hay nada que rehacer
+        # (2026-11-14, 29 000 utilidades: ~2 s en cada refresco de las listas). La huella es por contenido.
+        from nucleo import memo_modelo
+        antes = memo_modelo.firma(self.pipes, self.structures)
+        if antes is not None and antes == getattr(self, "_estructuras_al_dia", None):
+            self._dirty = True
+            return
         self.structures = model_ops.rebuild_structures(self.pipes, self.structures)
+        despues = memo_modelo.firma(self.pipes, self.structures)
+        self._estructuras_al_dia = despues if despues == antes else None
         self._dirty = True
 
     # ── Tab Buzones: selección, panel de propiedades y edición ──────────────

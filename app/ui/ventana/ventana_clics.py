@@ -31,9 +31,16 @@ class ClicsMixin:
             return
         # Clic en un accesorio (codo/Tee/Wye/cruz/válvula) → se elige en Inventario «Accesorios» (2026-11-06). Antes
         # que las marcas de cruce: en una Tee la marca solo decía «Unión en Civil 3D».
-        if button == QtCore.Qt.LeftButton and self.mode == "idle"                 and not (QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ControlModifier)                 and self._elegir_accesorio_en(x, y):
+        # De lejos las marcas van resumidas por zona (`capa_marcas_resumen`): un clic en un globo acerca a esa zona
+        # y las marcas que no se ven (accesorios, cruces) no se eligen a ciegas.
+        resumen = button == QtCore.Qt.LeftButton and self._marcas_resumidas()
+        if resumen and self.mode == "idle" and self._clic_en_resumen(x, y):
             return
-        if button == QtCore.Qt.LeftButton and self.mode not in ("pipe", "flujo_punto", "flujo_tramos"):
+        if button == QtCore.Qt.LeftButton and self.mode == "idle" and not resumen \
+                and not (QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.ControlModifier) \
+                and self._elegir_accesorio_en(x, y):
+            return
+        if button == QtCore.Qt.LeftButton and not resumen and self.mode not in ("pipe", "flujo_punto", "flujo_tramos"):
             if self._try_click_conflict(x, y):
                 return
         if self.mode == "pipe":
@@ -69,6 +76,23 @@ class ClicsMixin:
         elif self.mode == "idle":
             if self._pick(x, y):
                 self.ver_propiedades()
+
+    ACERCAR_RESUMEN = 2.5              # cuánto acerca un clic en un globo del resumen por zona
+
+    def _marcas_resumidas(self) -> bool:
+        g = getattr(self, "_marcas", None)
+        return bool(g is not None and g.en_resumen(self.canvas.viewport()))
+
+    def _clic_en_resumen(self, x, y) -> bool:
+        """Clic en un globo del resumen: la vista se acerca a esa zona. True si había un globo."""
+        hit = self._marcas.zona_en(QtCore.QPointF(x, y), self.canvas.viewport())
+        if hit is None:
+            return False
+        z, k = hit
+        self.canvas.centerOn(float(z.x[k]), float(z.y[k]))
+        self.canvas.apply_zoom(self.ACERCAR_RESUMEN)
+        self.canvas.centerOn(float(z.x[k]), float(z.y[k]))
+        return True
 
     def _add_simple_leader(self, head, tail, orient, landing=None):
         """Coloca un Leader simple (solo flecha, sin texto) y queda listo para el siguiente.
@@ -182,6 +206,10 @@ class ClicsMixin:
             if habia:                                   # misma utilidad: quitar el vértice elegido
                 self._update_ui(); self._redraw()
             self._scroll_pipe_list_to(best)
+            return True
+        k = self._superficie_bajo_clic(x, y) if hasattr(self, "_superficie_bajo_clic") else None
+        if k is not None:                               # contorno o pastilla de una superficie (2026-11-14)
+            self._elegir_superficie(k)
             return True
         return False
 

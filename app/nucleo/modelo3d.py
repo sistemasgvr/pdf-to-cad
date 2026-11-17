@@ -583,7 +583,8 @@ def construir(pipes, structures, ft, colores=None, duct_banks=(), cruces=(), avi
     inst = I3.centrar(inst, origen)
     margen = max(hi[0] - lo[0], hi[1] - lo[1]) * 0.08 + 10.0
     if len(terreno):                                       # la superficie importada en lugar del plano genérico
-        suelo = centrar(terreno.copy())
+        suelo = terreno.copy()
+        suelo[:, :3] -= origen                             # sus columnas del eje son baricéntricas (mallas3d.tin)
     else:
         suelo = M.plano(lo[0] - margen - origen[0], lo[1] - margen - origen[1],
                         hi[0] + margen - origen[0], hi[1] + margen - origen[1], 0.0, (0.55, 0.47, 0.36, 1.0))

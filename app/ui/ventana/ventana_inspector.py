@@ -53,7 +53,7 @@ class CabeceraInspector(QtWidgets.QFrame):
         """(tipo, texto de su fila) según el grupo de propiedades que está a la vista."""
         w = self.win
         for tipo, grupo in (("pipe", "gprop"), ("bz", "gprop_bz"), ("curva", "gprop_curve"), ("cl", "gprop_cl"),
-                             ("acc", "gprop_acc")):
+                             ("acc", "gprop_acc"), ("sup", "gprop_sup")):
             g = getattr(w, grupo, None)
             if g is not None and not g.isHidden():
                 lista = w.tabs.currentWidget()
@@ -96,6 +96,16 @@ class CabeceraInspector(QtWidgets.QFrame):
                 color = layer_qcolor(f.capa)
                 partes.append((w._tipo(f.capa), "accent"))
             partes.append((_tr("Válvula") if f.clase == "valv" else _tr("Accesorio"), "neutro"))
+        elif tipo == "sup" and getattr(w, "_sup_elegida", lambda: -1)() >= 0:
+            reg = w.superficies[w._sup_elegida()]       # superficie (2026-11-14): color de la tierra + formato
+            from ui.ventana.ventana_superficies import COLOR as _COLOR_SUP
+            color = QtGui.QColor(_COLOR_SUP)
+            nombre = reg.get("nombre", texto)
+            partes.append((_tr("Superficie"), "accent"))
+            if reg.get("formato"):
+                partes.append((reg["formato"], "neutro"))
+            if not reg.get("visible", True):
+                partes.append((_tr("Apagada"), "neutro"))
         else:
             nombre = re.sub(r"^\d+\.\s*", "", texto)
         pm = QtGui.QPixmap(12, 12)
@@ -129,6 +139,8 @@ class CabeceraInspector(QtWidgets.QFrame):
                 for b in botones:
                     b.setVisible(self._disponibles.get(b, False))
             self._ocultos = False
+            from ui.ventana import ventana_propiedades_vacio      # nada elegido: sin botones (2026-11-13)
+            ventana_propiedades_vacio.sincronizar(w)
             return
         if desde_ui or not getattr(self, "_ocultos", False):
             self._disponibles = {b: not b.isHidden() for b in botones}
@@ -142,6 +154,10 @@ class CabeceraInspector(QtWidgets.QFrame):
     # ── acciones ──
     def _centrar(self):
         w = self.win
+        if getattr(w, "gprop_sup", None) is not None and not w.gprop_sup.isHidden() and w._sup_elegida() >= 0:
+            w._sup_sin_mover = False                    # encuadra su contorno (como al elegirla en la lista)
+            w._sel_superficie(w._sup_elegida())
+            return
         if 0 <= getattr(w, "sel_pipe", -1) < len(w.pipes) and not w.gprop.isHidden():
             pts = w.pipes[w.sel_pipe].get("pts") or []
             if pts:
@@ -158,6 +174,12 @@ class CabeceraInspector(QtWidgets.QFrame):
             a = w._acc.get(clave)
             if a is not None and not w.gprop.isHidden():
                 self.menu.addAction(a)
+        k = w._sup_elegida() if getattr(w, "gprop_sup", None) is not None and not w.gprop_sup.isHidden() else -1
+        if k >= 0:                                       # superficie: encender/apagar y quitar (como en «Capas ▾»)
+            vis = w.superficies[k].get("visible", True)
+            self.menu.addAction(_tr("Apagar") if vis else _tr("Encender"), lambda: w._cambiar_superficie(k, not vis))
+            self.menu.addAction(_icon("mdi:delete-outline", color=_theme.tokens().danger), _tr("Quitar"),
+                                lambda: w.quitar_superficie(k))
         self.menu.addSeparator()
         if self._visible(w.btn_del):
             self.menu.addAction(_icon("mdi:trash-can-outline", color=_theme.tokens().danger),

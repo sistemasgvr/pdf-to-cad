@@ -84,9 +84,14 @@ def de_estructura(tablas, s_idx, z0=None, z1=None):
 
 
 def de_conflicto(obj):
-    """(título, [(campo, valor)]) de un conflicto numerado (C-n) del modelo 3D."""
+    """(título, [(campo, valor)]) de un conflicto (C-n) u observación (OC/OU/OG/OV-n) numerado del modelo 3D."""
     titulo = f"{obj.get('codigo', '')} · {t(obj.get('titulo', ''))}"
-    filas = [(N_("Conflicto"), obj.get("codigo", "")), (N_("Tipo de conflicto"), t(obj.get("titulo", "")))]
+    from nucleo import conflictos as _conf
+    cod = obj.get("codigo", "")
+    obs = _conf.categoria_de_codigo(cod) == _conf.OBSERVACION
+    filas = [(N_("Observación") if obs else N_("Conflicto"), cod), (N_("Tipo"), t(obj.get("titulo", "")))]
+    if obs:
+        filas.append((N_("Categoría"), t(_conf.SUBTIPOS.get(obj.get("clave", ""), _conf.NOMBRE_CATEGORIA["observacion"]))))
     if obj.get("pipes"):
         filas.append((N_("Utilidades"), ", ".join(f"#{i + 1}" for i in obj["pipes"])))
     cotas = obj.get("cotas") or []

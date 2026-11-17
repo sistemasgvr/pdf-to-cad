@@ -59,7 +59,7 @@ the last change and <span class="key">&nbsp;Ctrl+Shift+Z&nbsp;</span> redoes it.
 <tr><td bgcolor="{{card}}" width="38%"><b>Top bar</b></td><td bgcolor="{{card}}">The <b>P</b> (File menu: new, open, save, close), the project name (an orange dot = unsaved changes), <b>Search or run a command…</b>, undo and redo, <b>Layers</b>, <b>Assistant</b>, the theme (moon / sun) and <b>Export to Civil 3D</b> (a window: what to include, Civil 3D version and language).</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>Rail (left)</b></td><td bgcolor="{{card}}"><b>Draw</b>, <b>Sheet and PDF</b>, <b>Inventory</b> and <b>Review</b> change the panel next to it; <b>Standards</b>, <b>Data table</b> and <b>Duct Bank</b> open inside the window (closing them takes you back to the drawing); <b>3D view</b> opens its own window. At the bottom: <b>Help</b> and <b>Settings</b>.</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>Rail panel</b></td><td bgcolor="{{card}}">Draw = the tools in a grid (Utility, Leader, Text, Erase, Centerline, Move, Manhole, Fittings, Duct Bank) and below the options of the chosen one; pressing it again stops it. Sheet and PDF = compose, scans, add utility, opacity, sheets minimap and marks, scale and georeference. Inventory = the lists (utilities, manholes, curves, fittings, duct banks…) and the buttons for several at once; <b>Fittings</b> holds the bends, Tees, Wyes, crosses and valves with a filter by type: click one and the drawing goes to it (right-click: «No fitting» or the valve options). Review = how many conflicts and warnings there are, solve, review and clean up, report, standards and what is shown on the drawing.</td></tr>
-<tr><td bgcolor="{{card}}" width="38%"><b>Right</b></td><td bgcolor="{{card}}">The <b>properties</b> of the selection (at the top, its color, name, actions and the Properties · Elevations · Data tabs) or, with <b>Assistant</b>, the AI: Chat, Conflicts and «How do I…?».</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Right</b></td><td bgcolor="{{card}}">The <b>properties</b> of the selection (at the top, its color, name, actions and the Properties · Elevations · Data tabs) or, with <b>Assistant</b>, the AI: Chat, Conflicts and «How do I…?». At the top, «<b>Properties | Assistant</b>» switches between them with one click. With the Assistant open, selecting something on the plan or in the Inventory (with the mouse or the arrow keys) shows its properties; chat links take you to the place without closing the conversation.</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>Status bar (bottom)</b></td><td bgcolor="{{card}}">Mode, messages, warnings, coordinates, scale, opacity, georeference and the magnifiers to zoom in and out.</td></tr>
 </table>
 
@@ -82,7 +82,7 @@ picked object on the right.</li>
 right that goes away on its own; some have a button (“Open folder”, “Undo”).</p>
 
 <h2>On the drawing and in Properties</h2>
-<p>At the top left of the drawing, the <b>“N conflicts · M warnings”</b> notice goes to Review; at the bottom, a bar
+<p>At the top left of the drawing, the <b>“N conflicts · O observations · M warnings”</b> notice goes to Review; at the bottom, a bar
 to select, edit vertices, zoom in, zoom out and fit. Properties is laid out in sections (General, Civil 3D catalog,
 Elevations, Status, Standards); the actions for the selection are in the header's <b>⋯</b> button. Clicking a
 crossing of two utilities at different elevations opens <b>Vertical connection</b>: both elevations, the difference
@@ -970,37 +970,82 @@ The same goes for the mouse (highlight, snap, click) and Undo, which stores only
 With tens of thousands of signs the canvas only repaints the ones in view.</p>
 </section>
 
+<section data-title="Conflicts, observations and warnings">
+<p>The app uses four terms for what needs review. Each one has its own <b>code</b> and its own numbering, in plan
+reading order (top to bottom, left to right). The same code shows on the plan, in Review, in the Data table and its
+Excel, in the 3D view, in the report and in the AI chat.</p>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><th align="left" width="24%">Term</th><th align="left" width="12%">Code</th><th align="left">What it means</th>
+    <th align="left" width="30%">Cases</th></tr>
+<tr><td bgcolor="{{danger}}"><b>Conflict</b></td><td bgcolor="{{card}}">C-1, C-2…</td>
+    <td bgcolor="{{card}}"><b>Only</b> when two or more pipes cross, clash or touch.</td>
+    <td bgcolor="{{card}}">Crossing at the same elevation, crossing without connection, clash between different networks.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Elevation observation</b></td><td bgcolor="{{card}}">OC-1, OC-2…</td>
+    <td bgcolor="{{card}}">At a vertex, the pipe arrives at one elevation and leaves at another.</td>
+    <td bgcolor="{{card}}">Elevation step.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Non-buildable joint</b></td><td bgcolor="{{card}}">OU-1, OU-2…</td>
+    <td bgcolor="{{card}}">Too many pipes at the same point: no fitting can join them.</td>
+    <td bgcolor="{{card}}">5 or more pipes at one point.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Geometric observation</b></td><td bgcolor="{{card}}">OG-1, OG-2…</td>
+    <td bgcolor="{{card}}">The shape of the pipe leaves no room for the elbows.</td>
+    <td bgcolor="{{card}}">Segment too short between elbows, return bend.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Vertical connection observation</b></td><td bgcolor="{{card}}">OV-1, OV-2…</td>
+    <td bgcolor="{{card}}">The height difference is not enough for the vertical connection.</td>
+    <td bgcolor="{{card}}">Sloped joint (no room for a vertical), sloped vertical connection.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Design rule warning</b></td><td bgcolor="{{card}}">N-1, N-2…</td>
+    <td bgcolor="{{card}}">Something breaks a design rule (clearance, diameter, slope…). A short clearance between two
+        pipes that do <b>not</b> touch is a warning, not a conflict.</td>
+    <td bgcolor="{{card}}">Those from the Design standards.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Recognition warning</b> (to verify)</td><td bgcolor="{{card}}">R-1, R-2…</td>
+    <td bgcolor="{{card}}">What the PDF recognition could not read with certainty.</td>
+    <td bgcolor="{{card}}">Plan diameter not read or doubtful.</td></tr>
+</table>
+<p>The four observations have something in common: <b>Civil 3D will not be able to build it as drawn</b> (the next
+page says what it will do instead). That is why their codes start with «O» and they go together.</p>
+<p><b>Codes never change.</b> Each one is given once and stays: if you solve C-3, the others keep their number
+(C-4 is still C-4) and C-3 is not used again; if the problem comes back (for example with
+<span class="key">&nbsp;Ctrl+Z&nbsp;</span>), it comes back with the same code. This applies to all of them: C, OC, OU,
+OG, OV, N and R. The codes are saved with the project.</p>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
+In <b>Review → Resolve conflicts…</b> the list has two sections: <b>Conflicts</b> and <b>Observations</b>.
+A project saved with an earlier version keeps its numbers: an observation that was C-7 becomes OC-7 (or OU-7,
+OG-7, OV-7 by its type).
+</td></tr></table>
+</section>
+
 <section data-title="Red alerts: when they appear">
-<p>Each conflict has a <b>number</b> (C-1, C-2…, in plan reading order) next to its mark; the same number shows
-in the Data table («Conflicts» tab), in its Excel and in the 3D view.</p>
+<p>Each alert has its <b>code</b> next to its mark: <b>C-n</b> for a conflict (two or more pipes touch) or
+<b>OC-n, OU-n, OG-n or OV-n</b> for an observation (see the previous page); the same code shows in the Data table («Conflicts and
+observations» tab), in its Excel and in the 3D view.</p>
 <p>The red triangle <img src="mark:alerta"> appears in these cases. All refer to
 <b>pressure</b> networks (water and gas), except «clashing pipes», which warns on any utility.</p>
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><th align="left" width="24%">Case</th><th align="left">When it appears</th><th align="left">What Civil 3D will do</th></tr>
-<tr><td bgcolor="{{danger}}"><b>Too many pipes</b></td>
+<tr><td bgcolor="{{danger}}"><b>Too many pipes</b><br><small>Non-buildable joint (OU-n)</small></td>
     <td bgcolor="{{card}}">5 or more pipes meet at the same point at the same elevation.</td>
     <td bgcolor="{{card}}">It will not place any fitting there. <b>Fix the drawing.</b></td></tr>
-<tr><td bgcolor="{{danger}}"><b>Different networks</b></td>
+<tr><td bgcolor="{{danger}}"><b>Different networks</b><br><small>Conflict (C-n)</small></td>
     <td bgcolor="{{card}}">Two pressure networks of a <b>different type</b> (water and gas) cross at the same elevation.</td>
     <td bgcolor="{{card}}">It does not join them: they will clash. Change one elevation.</td></tr>
-<tr><td bgcolor="{{danger}}"><b>Clashing pipes</b></td>
+<tr><td bgcolor="{{danger}}"><b>Clashing pipes</b><br><small>Conflict (C-n)</small></td>
     <td bgcolor="{{card}}">Two pipes of <b>any utility</b> (at least one that is not water or gas)
         cross each other at the same elevation and are not connected: for example water and storm
         drain, or two electrical lines crossing mid-segment without a box.</td>
     <td bgcolor="{{card}}">It does not join them: they will clash. <b>Fix the drawing or change one elevation.</b></td></tr>
-<tr><td bgcolor="{{danger}}"><b>Elevation step</b></td>
+<tr><td bgcolor="{{danger}}"><b>Elevation step</b><br><small>Elevation observation (OC-n)</small></td>
     <td bgcolor="{{card}}">At a vertex of one pipe, the incoming and outgoing segments have different elevations.</td>
     <td bgcolor="{{card}}">It joins both segments at the <b>average elevation</b>.</td></tr>
-<tr><td bgcolor="{{danger}}"><b>Segment too short between elbows</b></td>
+<tr><td bgcolor="{{danger}}"><b>Segment too short between elbows</b><br><small>Geometric observation (OG-n)</small></td>
     <td bgcolor="{{card}}">Between two consecutive bends there is a segment shorter than 3 diameters (minimum 1 foot).</td>
     <td bgcolor="{{card}}">It places <b>a single elbow</b> instead of two.</td></tr>
-<tr><td bgcolor="{{danger}}"><b>Sloped vertical connection</b></td>
+<tr><td bgcolor="{{danger}}"><b>Sloped vertical connection</b><br><small>Vertical connection observation (OV-n)</small></td>
     <td bgcolor="{{card}}">An approved vertical joint at a bend has too little elevation difference for two elbows.</td>
     <td bgcolor="{{card}}">It places a Wye with a sloped branch and the incoming pipe gets a <b>slope</b>.</td></tr>
-<tr><td bgcolor="{{danger}}"><b>No room for a vertical</b></td>
+<tr><td bgcolor="{{danger}}"><b>No room for a vertical</b><br><small>Vertical connection observation (OV-n)</small></td>
     <td bgcolor="{{card}}">Two pipes end at the same point at different heights, but the difference is too small to join them with a vertical pipe.</td>
     <td bgcolor="{{card}}">It gives a <b>slope</b> to the longer one (or to both, if they are the same length) and joins them with an elbow.</td></tr>
-<tr><td bgcolor="{{danger}}"><b>Return bend</b></td>
+<tr><td bgcolor="{{danger}}"><b>Return bend</b><br><small>Geometric observation (OG-n)</small></td>
     <td bgcolor="{{card}}">The pipe turns back almost in a U (turn over 135°) and the short segment is not long enough for the curve.</td>
     <td bgcolor="{{card}}">It places a <b>U curve</b> at the vertex and shifts the short segment slightly to the side.</td></tr>
 </table>
@@ -1125,7 +1170,7 @@ the branch one size smaller (12 → 8). A 6 in main has no smaller size: warning
 <p><b>rail → Data table…</b> (<span class="key">&nbsp;Ctrl+Shift+T&nbsp;</span>, or the table button on the top bar)
 shows all the project information in tabs: <b>utilities</b> (name, type, status, family, size, diameter, length,
 elevations, amperage, duct bank, coordinates and warnings), <b>manholes and boxes</b>, <b>curves</b>,
-<b>duct banks</b>, <b>standards warnings</b>, <b>conflicts</b> (C-1, C-2…) and <b>elevations per vertex</b>.</p>
+<b>duct banks</b>, <b>standards warnings</b>, <b>conflicts and observations</b> (C-1…, OC-1…, OU-1…) and <b>elevations per vertex</b>.</p>
 <ul>
 <li>Click a header to sort; <b>Search in the table…</b> filters.</li>
 <li>Double-click a row to see it on the plan.</li>
@@ -1343,7 +1388,9 @@ are never moved. <b>Remove from production</b> takes out the checked ones. Then 
 <code>produccion.json</code> with Git so it goes in the next installer.</p>
 <h2>Solve conflicts</h2>
 <p><b>Review → Solve conflicts…</b> (or right-click next to a C-n mark on the plan → «Solve C-n: see solutions…»)
-lists the conflicts. When you choose one:</p>
+lists the conflicts and, in another section, the observations. When you choose one, the plan goes to its place
+and zooms in until it is seen up close (about 40 ft; if you were already closer it does not zoom out), with a yellow
+circle that blinks for 10 seconds. The same from the chat, Review, the Data table and the 3D view. Also:</p>
 <ul>
 <li>The app computes the possible solutions: in a crossing or clash at the same elevation, lower or raise one of
     the two utilities just enough so they do not touch (and with the clearance the design standards ask for); in a
@@ -1473,7 +1520,10 @@ utilities it joins, their diameters and the axis elevation). <b>Show on the plan
 <li><b>Utilities</b>: it is also the color legend; untick the ones you do not want to see.</li>
 <li><b>Show</b>: manholes and solids, fittings, warnings.</li>
 <li><b>Surface</b>: show it, its opacity and its elevation (automatic = the highest rim, or 3 ft above the
-    highest pipe when there are no manholes). <b>Reset</b> goes back to the defaults.</li>
+    highest pipe when there are no manholes). <b>Reset</b> goes back to the defaults. With an imported surface, also:
+    <b>Style</b> — <i>Relief</i> (terrain colors with shading), <i>Elevations</i> (color bands from the lowest, purple,
+    to the highest, red, with a legend) or <i>Mesh</i> (only the triangles); <b>Triangle edges</b>; <b>Contours</b>
+    with their <b>Interval</b> (automatic: about 15 contours; a heavier one every 5).</li>
 </ul>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
@@ -1602,6 +1652,14 @@ coordinate system code (for example <b>CA83VF</b>), type it and the drawing will
 </ol>
 <p>The surface is shown on the sheet as an outline with its name (the sheet must be <b>georeferenced</b>).
 In <b>Inventory → Surfaces</b> you see each one with its status (✔ correct, ⚠ warning, ✖ error) and, when selected, what was checked: saved file, points and triangles, elevations, system and whether it falls on the sheet. In <b>Layers ▾ → Surfaces</b> you turn it on, off or remove it (<span class="key">&nbsp;Ctrl+Z&nbsp;</span> brings it back).</p>
+<p><b>Properties:</b> when you select it in the Inventory, or click its <b>outline</b> or its name on the plan, the
+right panel shows the <b>original file path</b> (with <span class="btn">Open the file's folder</span>), the format,
+the coordinate system and units, and its statistics as in Civil 3D: points, triangles, minimum, maximum and mean
+elevation, 2D and 3D area, mean and maximum slope, triangle side and area, and the extent. A click inside the surface
+does not select it (it covers the whole plan).</p>
+<p><b>Profile:</b> each surface that is on is drawn in the longitudinal profile as a ground line in its own color, with
+its name; where the run leaves the surface, the line stops. In Civil 3D, the profile also gets a ground profile for
+each surface in the drawing, each in its own color.</p>
 <p>When exporting the DXF, a <b>&lt;name&gt;_superficies</b> folder is created next to it with one LandXML per surface,
 already in the networks' coordinate system and with elevations in feet. In Civil 3D, <b>IMPORTAR_RED</b> creates it with
 the <b>same points and triangles</b> and checks it in the console (✔ or ⚠). Always keep that folder next to the DXF.</p>

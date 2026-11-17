@@ -260,8 +260,11 @@ def rebuild_structures(pipes, structures):
     celda = tol if tol > 0 else 1.0
     holgura = tol * (1 + 1e-9) + 1e-9
     celdas_det = {}
+    exactos = set()                                    # puntos ya detectados: el mismo punto está «cerca» (atajo)
 
     def _cerca_det(pt):
+        if (pt[0], pt[1]) in exactos:
+            return True
         for i in range(math.floor((pt[0] - holgura) / celda), math.floor((pt[0] + holgura) / celda) + 1):
             for j in range(math.floor((pt[1] - holgura) / celda), math.floor((pt[1] + holgura) / celda) + 1):
                 for s in celdas_det.get((i, j), ()):
@@ -283,6 +286,7 @@ def rebuild_structures(pipes, structures):
                          "net": kind, "covered": True, "world": False,
                          "hidden": False}
                 detected.append(nuevo)
+                exactos.add((pt[0], pt[1]))
                 celdas_det.setdefault((math.floor(pt[0] / celda), math.floor(pt[1] / celda)), []).append(nuevo)
     from nucleo.indice_plano import IndicePuntos
     validas = [k for k, o in enumerate(old_gravity)
@@ -418,15 +422,17 @@ _MIN_INDICE = 64            # con pocas tuberías el recorrido de siempre es igu
 
 
 @contextmanager
-def indice_vertices():
+def indice_vertices(memoria=None):
     """Dentro del bloque (en ESTE hilo), `curve_vertex_indices` y `pipe_at_vertex` buscan los vértices
     de las tuberías y las curvas por celdas cuando reciben la MISMA lista: los mismos candidatos, en
     el mismo orden y con la misma cuenta (mismo resultado). Antes recorrían TODAS las tuberías por
     cada curva: con 36 + 36 mapas (28 000 tuberías, 260 curvas) el redibujo tardaba 60 s y las
     listas 19 s (2026-10-23). Solo para quien no cambia vértices ni estructuras mientras dura
     (redibujo, listas, normativas, tabla de datos)."""
+    # `memoria` (2026-11-14): un dict que quien llama conserva MIENTRAS el modelo no cambie (la ventana: por
+    # firma del modelo); los índices de un redibujo sirven al siguiente (con 29 000 utilidades, ~0.5 s cada vez).
     previo = getattr(_vert, "v", None)
-    _vert.v = {}
+    _vert.v = memoria if memoria is not None else {}
     try:
         yield
     finally:

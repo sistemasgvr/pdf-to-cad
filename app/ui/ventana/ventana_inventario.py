@@ -166,6 +166,11 @@ class InventarioMixin:
         lista = pagina if isinstance(pagina, QtWidgets.QListWidget) else pagina.findChild(QtWidgets.QListWidget)
         if lista is None:
             return
+        # Sin buscar ni filtrar y con la lista recién llenada (nada oculto): no hay nada que recorrer (2026-11-14)
+        sin_filtro = not q and not filtro and lista is not getattr(self, "acc_list", None)
+        if sin_filtro and getattr(lista, "_pdfcad_limpia", False) and not getattr(lista, "_pdfcad_ocultas", False):
+            return
+        lista._pdfcad_ocultas = not sin_filtro
         for fila in range(lista.count()):
             it = lista.item(fila)
             ok = not q or q in (it.text() or "").lower()

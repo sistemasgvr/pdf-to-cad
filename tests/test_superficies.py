@@ -462,6 +462,27 @@ def test_ctrl_z_deshace_tambien_la_ubicacion_del_plano(win):
     assert win.georef.to_dict() == puesta
 
 
+def test_superficie_3d_con_color_por_cota_sombra_y_bordes():
+    """Pedido 2026-11-14 («en Civil 3D se ve con más detalle»): la superficie de la Vista 3D lleva color por cota
+    ya puesto y las baricéntricas para dibujar el borde de cada triángulo (la sombra de un sol fijo la pone el
+    shader, `visor3d_shaders`). La geometría (posiciones y normales) es la MISMA que sin relieve."""
+    from nucleo import mallas3d as M, modelo3d as M3
+    s = L.leer("TERRENO.xml", open(XML, "rb").read())[0]
+    tri = s.triangulos[~s.invisibles]
+    con, sin = M.tin(s.puntos, tri, M3.COLOR_TERRENO), M.tin(s.puntos, tri, M3.COLOR_TERRENO, relieve=False)
+    assert np.array_equal(con[:, :6], sin[:, :6]) and np.allclose(sin[:, 6:10], M3.COLOR_TERRENO)
+    assert np.all(con[:, 14] == -1.0) and np.all(sin[:, 14] == 0.0)          # marca de superficie para el visor
+    assert np.array_equal(con[:, 11:14], np.tile(np.eye(3, dtype=np.float32), (len(tri), 1)))
+    # lo más bajo, verdoso; lo más alto, claro (sin sombra: la rampa tal cual)
+    z = s.puntos[:, 2]
+    bajo, alto = M.color_por_cota([z.min(), z.max()], z.min(), z.max())
+    assert bajo[1] > bajo[0] and alto.sum() > bajo.sum() + 0.5
+    # en la escena: centrar no toca las baricéntricas
+    esc = M3.construir([], [], 1.0, superficies=[dict(px=np.column_stack([s.puntos[:, 0], -s.puntos[:, 1]]),
+                                                      z=s.puntos[:, 2], tri=tri)])
+    assert np.array_equal(esc.suelo[:, 11:15], con[:, 11:15])
+
+
 def test_superficie_en_la_vista_3d_en_lugar_del_suelo_plano(win):
     """Pedido 2026-11-12: la Vista 3D muestra el terreno importado (sus triángulos, a su cota) en lugar del plano
     genérico; apagada en «Capas», vuelve el plano."""

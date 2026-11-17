@@ -27,11 +27,15 @@ class ErrorSistema(Exception):
     """No se puede llevar la superficie al sistema de coordenadas del proyecto."""
 
 
-def registro(sup: Superficie, archivo: str, sha: str, indice: int, crs_origen: str) -> dict:
-    """Lo que se guarda en el proyecto (la geometría se vuelve a leer del archivo)."""
-    return {"nombre": sup.nombre, "formato": sup.formato, "archivo": archivo, "sha1": sha, "indice": int(indice),
-            "crs": crs_origen or "", "unidad": sup.unidad, "n_puntos": int(len(sup.puntos)),
-            "n_triangulos": int(len(sup.triangulos)), "visible": True}
+def registro(sup: Superficie, archivo: str, sha: str, indice: int, crs_origen: str, ruta: str = "") -> dict:
+    """Lo que se guarda en el proyecto (la geometría se vuelve a leer del archivo). `ruta` = dónde estaba el archivo
+    original al importarlo (2026-11-14, solo para mostrarla: el proyecto guarda su copia)."""
+    reg = {"nombre": sup.nombre, "formato": sup.formato, "archivo": archivo, "sha1": sha, "indice": int(indice),
+           "crs": crs_origen or "", "unidad": sup.unidad, "n_puntos": int(len(sup.puntos)),
+           "n_triangulos": int(len(sup.triangulos)), "visible": True}
+    if ruta:
+        reg["ruta"] = ruta
+    return reg
 
 
 def nombre_libre(nombre: str, usados) -> str:

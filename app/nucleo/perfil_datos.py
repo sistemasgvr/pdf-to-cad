@@ -205,6 +205,7 @@ class Perfil:
     intervalos: tuple          # (cota mayor, cota menor, estación mayor, estación menor)
     titulo: list
     valvulas: list = field(default_factory=list)
+    superficies: list = field(default_factory=list)   # [(nombre, [(estación, cota | None)])] (perfil_superficies)
 
 
 # ---------------------------------------------------------------- escalas (F.3)
@@ -239,9 +240,10 @@ def intervalos(s, v):
 
 # ---------------------------------------------------------------- armado
 
-def armar(pipes, structures, accs, rec, ft, numero=1, v=None, valvulas=()):
+def armar(pipes, structures, accs, rec, ft, numero=1, v=None, valvulas=(), superficies=()):
     """`accs` = accesorios del plano (`Main._accs_todos`, o []); `v` = escala vertical forzada (None = auto);
-    `valvulas` = las válvulas ubicadas del proyecto (dicts de `nucleo/valvulas.Lugar`)."""
+    `valvulas` = las válvulas ubicadas del proyecto (dicts de `nucleo/valvulas.Lugar`); `superficies` = [(nombre,
+    `perfil_superficies.IndiceTin` en px del plano)] de las superficies encendidas (2026-11-14)."""
     g = rec.grafo
     tol = PR.TOL_FT / ft if ft else 3.0
     pasos = _pasos(pipes, rec, ft, structures)
@@ -250,6 +252,8 @@ def armar(pipes, structures, accs, rec, ft, numero=1, v=None, valvulas=()):
     celdas = _celdas(g.tipo, pasos)
     terreno = sorted((n.e, n.rim) for n in nodos if n.rim is not None)
     vals = _valvulas(pasos, valvulas, ft, pipes)
+    from nucleo import perfil_superficies as _PS
+    sups = _PS.muestrear(pasos, superficies) if superficies else []
     largo = {}
     for p in pasos:
         k = round(p.diam_in, 3)
@@ -257,13 +261,15 @@ def armar(pipes, structures, accs, rec, ft, numero=1, v=None, valvulas=()):
     d_pred = max(largo, key=largo.get) if largo else 0.0
     zs = [p.z0 for p in pasos] + [p.z1 for p in pasos] + [p.z0 + p.alto_ft for p in pasos] \
         + [p.z1 + p.alto_ft for p in pasos] + [c.z_solera for c in cruces] \
-        + [c.z_solera + c.alto_ft for c in cruces] + [z for _e, z in terreno]         + [v.z_caja for v in vals if v.z_caja is not None]
+        + [c.z_solera + c.alto_ft for c in cruces] + [z for _e, z in terreno] \
+        + [v.z_caja for v in vals if v.z_caja is not None] \
+        + [z for _n, linea in sups for _e, z in linea if z is not None]
     e_ini, e_fin = rec.estaciones[0], rec.estaciones[-1]
     s = escala_auto(e_fin - e_ini)
     vv = v or elegir_v(s)
     return Perfil(g.tipo, g.red, pasos, nodos, cruces, celdas, terreno, e_ini, e_fin,
                   min(zs) if zs else 0.0, max(zs) if zs else 1.0, d_pred, s, vv, intervalos(s, vv),
-                  T.lineas_titulo(numero, d_pred, g.tipo, g.red, s, vv), vals)
+                  T.lineas_titulo(numero, d_pred, g.tipo, g.red, s, vv), vals, sups)
 
 
 def _valvulas(pasos, valvulas, ft, pipes=()):

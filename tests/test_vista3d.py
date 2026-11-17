@@ -213,6 +213,20 @@ def test_restablecer_suelo_y_flechas_desde_la_automatica(win):
     assert dlg.sld_suelo.value() == 18 and dlg.escena.suelo_z == pytest.approx(auto)
 
 
+def test_estilo_de_la_superficie_y_curvas_llegan_al_visor(win):
+    """2026-11-14: «Estilo», «Curvas de nivel» e «Intervalo» de las opciones de la vista (y con «Malla», los bordes no
+    se eligen: ya son la malla)."""
+    dlg = win.abrir_vista3d(); _esperar(dlg)
+    assert dlg.visor.estilo_superficie == "relieve" and not dlg.visor.curvas_nivel
+    dlg.cmb_estilo_sup.setCurrentIndex(dlg.cmb_estilo_sup.findData("malla"))
+    dlg.chk_curvas.setChecked(True)
+    dlg.cmb_intervalo.setCurrentIndex(dlg.cmb_intervalo.findData(2.0))
+    assert (dlg.visor.estilo_superficie, dlg.visor.curvas_nivel, dlg.visor.intervalo_curvas) == ("malla", True, 2.0)
+    assert not dlg.chk_bordes.isEnabled() and dlg.cmb_intervalo.isEnabled()
+    dlg.chk_curvas.setChecked(False)
+    assert not dlg.cmb_intervalo.isEnabled()
+
+
 # ─────────────────────────── accesorios como el plugin ───────────────────────────
 
 def test_espejo_de_wyesolido():

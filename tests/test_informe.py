@@ -28,7 +28,7 @@ def _pipes():
 def _datos():
     conflictos = [Conflicto("C-1", "cruce", 100.0, 0.0, "Cruce sin conexión entre dos utilidades.", [0, 1],
                             [101.0, 100.5]),
-                  Conflicto("C-2", "codos", 4000.0, 10.0, "Dos codos demasiado juntos", [2])]
+                  Conflicto("OG-1", "codos", 4000.0, 10.0, "Dos codos demasiado juntos", [2])]
     avisos = [Aviso(4010.0, 400.0, "diametro", "Diámetro 6\" no permitido", pipe=2),
               Aviso(120.0, 5.0, "tipo", "Sin tipo", pipe=1),
               Aviso(130.0, 6.0, "nota", "Solo se permite en zonas residenciales", pipe=0, info=True),
@@ -40,10 +40,10 @@ def _datos():
 def test_fichas_zonas_y_resumen():
     conflictos, avisos = _datos()
     inf = informe_datos.armar(conflictos, avisos, _pipes(), FT, Opciones())
-    assert [f["id"] for f in inf.fichas][:2] == ["C-1", "C-2"]                 # conflictos primero
+    assert [f["id"] for f in inf.fichas][:2] == ["C-1", "OG-1"]                 # conflictos primero
     assert all(f["clase"] != "tipo" for f in inf.fichas)                       # «sin tipo» solo se cuenta
     r = inf.resumen
-    assert (r["conflictos"], r["avisos"], r["sin_tipo"]) == (2, 3, 1)
+    assert (r["conflictos"], r["observaciones"], r["avisos"], r["sin_tipo"]) == (1, 1, 3, 1)   # codos = observación
     assert (r["aprobados"], r["info"], r["avisos_pendientes"]) == (1, 1, 1)
     assert r["utilidades"] == 3
     # dos lugares a ~390 ft: dos zonas, numeradas de izquierda a derecha, con todas sus fichas
@@ -101,7 +101,8 @@ def test_plantilla_y_datos_para_la_ia():
     assert "AGUA-3 (Ramal):" in red.ficha(f["diametro"])
     assert "Aprobado por ana" in red.ficha(f["material"]) and "Qué hacer" not in red.ficha(f["material"])
     assert "Qué hacer" not in red.ficha(f["nota"])                             # informativo
-    assert "Conflictos en el dibujo: 2." in red.resumen(inf)
+    assert "Conflictos en el dibujo: 1." in red.resumen(inf)
+    assert "tal como está dibujado): 1." in red.resumen(inf)                  # la observación, aparte
     assert "Agua" in red.zona(inf.zonas[1])
     # proveedor que aún no existe → plantilla, con el motivo
     red2, motivo2 = informe_redaccion.crear({"proveedor": "ollama"})

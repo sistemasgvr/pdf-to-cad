@@ -50,7 +50,7 @@ class ArmadoMixin:
         avisos = [dict(x=a.x, y=a.y, clase=a.clase, mensaje=a.mensaje, pipe=a.pipe, info=a.info,
                     aprobado=bool(a.aprobado))
                   for a in getattr(w, "_normas_avisos", []) or []]
-        conflictos = [dict(id=c.id, titulo=c.titulo, x=c.x, y=c.y, mensaje=c.mensaje, pipes=list(c.pipes),
+        conflictos = [dict(id=c.id, clave=c.clave, titulo=c.titulo, x=c.x, y=c.y, mensaje=c.mensaje, pipes=list(c.pipes),
                            cotas=list(c.cotas)) for c in getattr(w, "_conflictos", []) or []]
         suelo = None if self.spn_suelo.value() <= SIN_SUELO else self.spn_suelo.value()
         cruces = copy.deepcopy(getattr(w, "cross_connections", []) or [])
@@ -164,6 +164,7 @@ class ArmadoMixin:
             ov = busy.overlay_for(self.pila)
             ov.step(detail=_tr("Mostrando la escena…"), done=1000, total=1000, pump=False)
             ov.repaint()
+        self.lbl_vacio.setText(_tr("Dibuja o importa utilidades para verlas en 3D."))
         self.pila.setCurrentIndex(1 if escena.vacia else 0)
         self.visor.set_escena(escena, encuadrar=self._primera and not escena.vacia)
         self._capa_carga(False)
@@ -173,7 +174,9 @@ class ArmadoMixin:
         self.seleccion_del_plano(encuadrar=False)
         self._resumen()
         if self.visor.error:
-            self.lbl_vacio.setText(_tr("No se pudo iniciar la vista 3D (OpenGL 2.1): {e}").format(e=self.visor.error))
+            from nucleo import diagnostico
+            self.lbl_vacio.setText(_tr("No se pudo iniciar la vista 3D (OpenGL 2.1): {e}").format(e=self.visor.error)
+                                   + "\n\n" + _tr("Detalle guardado en: {r}").format(r=diagnostico.ruta()))
             self.pila.setCurrentIndex(1)
 
     # ── parche local (editar desde 3D) ──

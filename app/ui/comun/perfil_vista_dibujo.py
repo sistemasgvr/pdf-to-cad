@@ -11,6 +11,9 @@ from nucleo import perfil_textos as T
 from traduccion.i18n import t
 from ui.comun.perfil_vista_base import CAJA_PX_MIN, HUECO, LETRA_PT, RADIO_NODO, VALVULA_MIN_PX
 
+# una por superficie importada (la 1.ª, la tierra de la superficie en el plano); ninguna es color de una utilidad
+COLORES_SUPERFICIE = ("#8a6d3b", "#2e8b57", "#b8860b", "#6a5acd", "#c05a8a")
+
 
 class DibujoPerfilMixin:
     def _marcas_alerta(self):
@@ -160,6 +163,7 @@ class DibujoPerfilMixin:
             pt.restore()
 
     def _terreno(self, pt, tk):
+        self._superficies(pt, tk)
         ter = self.p.terreno
         if len(ter) < 2:
             return
@@ -168,6 +172,26 @@ class DibujoPerfilMixin:
         pts = [QtCore.QPointF(self.X(e), self.Z(z)) for e, z in ter]
         pt.drawPolyline(QtGui.QPolygonF(pts))
         pt.drawText(pts[0] + QtCore.QPointF(4, -4), T.TEXTO_RASANTE)
+
+    def _superficies(self, pt, tk):
+        """Línea de terreno de cada superficie importada (2026-11-14), continua, con su nombre al empezar; se corta
+        donde el recorrido sale de la superficie (no se une a ciegas)."""
+        for k, (nombre, linea) in enumerate(getattr(self.p, "superficies", None) or []):
+            color = QtGui.QColor(COLORES_SUPERFICIE[k % len(COLORES_SUPERFICIE)])
+            pt.setPen(QtGui.QPen(color, 1.6))
+            tramo, primero = [], None
+            for e, z in list(linea) + [(None, None)]:
+                if z is None:
+                    if len(tramo) >= 2:
+                        pt.drawPolyline(QtGui.QPolygonF(tramo))
+                    tramo = []
+                    continue
+                q = QtCore.QPointF(self.X(e), self.Z(z))
+                tramo.append(q)
+                if primero is None:
+                    primero = q
+            if primero is not None:
+                pt.drawText(primero + QtCore.QPointF(4, -4 - 13 * k), nombre)
 
     def _tuberia(self, pt, tk):
         p = self.p

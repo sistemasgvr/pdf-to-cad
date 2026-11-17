@@ -8,6 +8,8 @@ blanco/negro, opacidad, zoom con rueda y pan con botón central).
 
 Extraído de app_window.py sin cambios de comportamiento (solo reubicación).
 """
+import math
+
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from nucleo.model import Z_PDF
@@ -36,6 +38,13 @@ _MODE_CURSORS = {
 
 
 class Canvas(QtWidgets.QGraphicsView):
+    def drawForeground(self, painter, rect):
+        """Encima de todo: el resumen por zona de las marcas cuando hay demasiadas a la vista."""
+        super().drawForeground(painter, rect)
+        grupo = getattr(self.win, "_marcas", None)
+        if grupo is not None and getattr(grupo, "scene", None) is self.scene():
+            grupo.pintar_resumen(painter, rect, self.viewport())
+
     clicked = QtCore.Signal(float, float, object)
     dbl = QtCore.Signal(float, float)
     moved = QtCore.Signal(float, float)
@@ -47,10 +56,14 @@ class Canvas(QtWidgets.QGraphicsView):
         for _sb in (self.verticalScrollBar(), self.horizontalScrollBar()):   # nacieron antes del nombre
             _sb.style().unpolish(_sb); _sb.style().polish(_sb)
         self.setScene(QtWidgets.QGraphicsScene(self))
+        # Lo que en pantalla mide menos de ~1 px (el punto de un buzón con todo el plano a la vista) no se pinta:
+        # con miles de ellos cada repintado los recorría uno por uno sin que se vieran (2026-11-14).
+        self.scene().setMinimumRenderSize(1.25)
         self.setRenderHints(QtGui.QPainter.Antialiasing | QtGui.QPainter.SmoothPixmapTransform)
         self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
         self.setBackgroundBrush(QtGui.QColor(13, 19, 33)); self.setAcceptDrops(True)
         self._recognition_readonly = False            # reconociendo: solo navegar (`progreso_reconocimiento`)
+        self.resumen_marcas = True                    # de lejos, un globo por zona (`capa_marcas_resumen`)
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
         self.setMouseTracking(True); self.viewport().setMouseTracking(True)
         self.pixmap_item = None; self._pan = False; self._pan0 = None; self._moving = False
@@ -99,9 +112,42 @@ class Canvas(QtWidgets.QGraphicsView):
         self.pixmap_item.setVisible(not getattr(self, "fondo_oculto", False))
         self.setSceneRect(self.pixmap_item.boundingRect() if self.fondo_escala >= 1.0 else rect)
         self.resetTransform(); self.fitInView(self.pixmap_item, QtCore.Qt.KeepAspectRatio)
-        self._zoom_level = 1.0
+        self.fijar_base_zoom()
         if self.nitidez is not None:
             self.nitidez.fijar(self.pixmap_item)
+
+    def _escala_vista(self):
+        t = self.transform()
+        return math.hypot(t.m11(), t.m12())
+
+    def _escala_encuadre(self):
+        """Escala con la que la hoja entera cabe en el lienzo de AHORA (la misma cuenta de `fitInView`, margen
+        2 px). None sin hoja o sin tamaño."""
+        if self.pixmap_item is None:
+            return None
+        r = self.sceneRect()
+        vp = self.viewport().rect().adjusted(2, 2, -2, -2)
+        if r.width() <= 0 or r.height() <= 0 or vp.width() <= 0 or vp.height() <= 0:
+            return None
+        return min(vp.width() / r.width(), vp.height() / r.height())
+
+    @property
+    def _zoom_level(self):
+        """Nivel de zoom = escala de la vista / escala con la hoja entera a la vista (1 = «Encuadrar todo»).
+        Se MIDE siempre (reporte 2026-11-16: «Revisar y limpiar» y otros «ir a» acercaban con fitInView; un
+        contador guardado aparte quedaba desfasado y al alejar se topaba con `_ZOOM_MIN` con la vista aún cerca)."""
+        enc = self._escala_encuadre()
+        if enc:
+            return self._escala_vista() / enc
+        return self.__dict__.get("_nivel_sin_hoja", 1.0)
+
+    @_zoom_level.setter
+    def _zoom_level(self, valor):
+        self.__dict__["_nivel_sin_hoja"] = valor      # solo cuenta sin hoja: con hoja el nivel se mide
+
+    def fijar_base_zoom(self):
+        """Compatibilidad: el nivel ya se mide contra la hoja entera (no hay base que guardar)."""
+        self._zoom_level = 1.0
 
     def cambiar_imagen(self, qimg, escala=1.0):
         """Otra imagen de la MISMA hoja (capas cambiadas) sin tocar lo dibujado encima."""
@@ -192,10 +238,11 @@ class Canvas(QtWidgets.QGraphicsView):
         usan esta misma función — así el tope es consistente en ambos caminos."""
         if not self.pixmap_item:
             return False
-        new = self._zoom_level * factor
-        if new < _ZOOM_MIN or new > _ZOOM_MAX:
+        actual = self._zoom_level
+        new = actual * factor
+        # fuera del rango solo se deja volver hacia él (p. ej. tras agrandar la ventana)
+        if (new < _ZOOM_MIN and factor < 1) or (new > _ZOOM_MAX and factor > 1):
             return False
-        self._zoom_level = new
         self.scale(factor, factor)
         self.viewChanged.emit()
         return True

@@ -289,9 +289,43 @@ def cilindro_vertical(c, r, z0, z1, color, ident, lados=20):
     return barrido((c[0], c[1], z0), (c[0], c[1], z1), pts, color, ident)
 
 
-def tin(pos, triangulos, color, ident=0):
+# Colores de la superficie por cota (2026-11-14): de lo más bajo a lo más alto, verde grisáceo → arena → marrón
+# claro. Ninguno es el de una utilidad (azul agua, rojo eléctrico…), así las tuberías se siguen leyendo encima.
+RAMPA_COTA = ((0.0, (0.40, 0.52, 0.38)), (0.35, (0.62, 0.62, 0.44)), (0.7, (0.72, 0.60, 0.43)),
+              (1.0, (0.88, 0.82, 0.72)))
+
+
+def color_por_cota(z, zmin, zmax):
+    """(n, 3) colores de la rampa `RAMPA_COTA` para las cotas `z` (sin relieve: el tono del medio)."""
+    z = np.asarray(z, np.float64)
+    t = (z - zmin) / (zmax - zmin) if zmax > zmin else np.full(len(z), 0.5)
+    t = np.clip(t, 0.0, 1.0)
+    xs = [a for a, _c in RAMPA_COTA]
+    return np.column_stack([np.interp(t, xs, [c[k] for _a, c in RAMPA_COTA]) for k in range(3)])
+
+
+PASOS_CURVAS = (0.1, 0.2, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 25.0, 50.0, 100.0, 200.0, 250.0, 500.0, 1000.0)
+CURVAS_OBJETIVO = 15                 # curvas que se buscan en el desnivel de la superficie (intervalo automático)
+
+
+def intervalo_curvas(zmin, zmax):
+    """Intervalo «redondo» (ft) para que el desnivel tenga unas `CURVAS_OBJETIVO` curvas de nivel."""
+    rango = float(zmax) - float(zmin)
+    if not rango > 0:
+        return 1.0
+    crudo = rango / CURVAS_OBJETIVO
+    return next((p for p in PASOS_CURVAS if p >= crudo), PASOS_CURVAS[-1])
+
+
+def tin(pos, triangulos, color, ident=0, relieve=True):
     """Superficie de terreno (TIN, 2026-11-12): triángulos planos con su normal hacia arriba (la Y del plano va
-    invertida en 3D, así que el sentido de los vértices no se usa). `pos` (n, 3) en pies del dibujo."""
+    invertida en 3D, así que el sentido de los vértices no se usa). `pos` (n, 3) en pies del dibujo.
+
+    `relieve` (2026-11-14, «se ve plana comparada con Civil 3D»): color por COTA (`color_por_cota`, de lo más bajo a
+    lo más alto de ESTA superficie); el visor le pone la sombra de un sol fijo (no la luz de la cámara, que de frente
+    aplanaba las laderas), su estilo (relieve, cotas, malla), las curvas de nivel y el borde de cada triángulo
+    (`visor3d_shaders`). Para eso el vértice marca `aRadio` = −1 y lleva en el eje sus coordenadas baricéntricas. La
+    geometría es la misma. Sin relieve: un solo `color`, como antes."""
     pos = np.asarray(pos, np.float64)
     tri = np.asarray(triangulos, np.int64).reshape(-1, 3)
     if not len(tri):
@@ -301,7 +335,13 @@ def tin(pos, triangulos, color, ident=0):
     n[n[:, 2] < 0] *= -1.0
     largo = np.linalg.norm(n, axis=1, keepdims=True)
     n = np.divide(n, largo, out=np.tile([0.0, 0.0, 1.0], (len(n), 1)), where=largo > 0)
-    return _vertices(p.reshape(-1, 3), np.repeat(n, 3, axis=0), color, ident)
+    out = _vertices(p.reshape(-1, 3), np.repeat(n, 3, axis=0), color, ident)
+    if relieve:
+        zs = pos[np.unique(tri), 2]
+        out[:, 6:9] = color_por_cota(p[:, :, 2].reshape(-1), float(zs.min()), float(zs.max()))
+        out[:, 11:14] = np.tile(np.eye(3), (len(tri), 1))             # baricéntricas de cada vértice
+        out[:, 14] = -1.0                                             # marca de superficie para el visor
+    return out
 
 
 def plano(xmin, ymin, xmax, ymax, z, color):

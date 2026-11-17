@@ -260,12 +260,43 @@ class HerramientasMixin:
             self._no_center = False
         if activar and elegido:
             self.ver_propiedades()
+        centro = getattr(self, "centro", None)            # Tabla de datos / Normativas ocupan el centro: volver al
+        if centro is not None and centro.currentWidget() is not self.canvas and hasattr(self, "mostrar_plano"):
+            self.mostrar_plano()                          # lienzo, si no el lugar se marcaba sin verse (2026-11-13)
+        if self._es_lugar_de_conflicto(x, y):             # un conflicto u observación: acercarse (2026-11-14)
+            self._acercar_a(x, y, self.ACERCAR_CONFLICTO_FT)
         self.canvas.centerOn(x, y)
         self._marcar_lugar(x, y)
         if activar:
             self.raise_(); self.activateWindow()
 
-    MARCA_LUGAR_MS = 5000          # cuánto dura el círculo que marca el lugar (pedido 2026-11-05)
+    ACERCAR_CONFLICTO_FT = 40.0    # al ir a un conflicto, la vista muestra ~esto en su lado corto (pedido 2026-11-14)
+    ACERCAR_SIN_ESCALA_PX = 260.0  # lo mismo sin escala conocida (px de la hoja)
+
+    def _es_lugar_de_conflicto(self, x, y):
+        """(x, y) es el punto de un conflicto u observación numerado: todos los caminos que llevan a uno (chat,
+        Resolver, Revisión, Tabla de datos, Vista 3D) pasan sus mismas coordenadas."""
+        return any(abs(c.x - x) < 1e-6 and abs(c.y - y) < 1e-6 for c in getattr(self, "_conflictos", None) or [])
+
+    def _acercar_a(self, x, y, pies):
+        """Acerca el lienzo (nunca lo aleja) hasta que su lado corto muestre ~`pies` alrededor de (x, y), dentro de
+        los topes de zoom del lienzo (`Canvas.apply_zoom`)."""
+        cv = self.canvas
+        vp = cv.viewport().rect()
+        lado = min(vp.width(), vp.height())
+        escala_vista = abs(cv.transform().m11()) or 1.0
+        if lado <= 0 or cv.pixmap_item is None:
+            return
+        ft_px = self.scale / self.zoom if getattr(self, "scale", None) and getattr(self, "zoom", None) else 0.0
+        objetivo_px = pies / ft_px if ft_px > 0 else self.ACERCAR_SIN_ESCALA_PX     # px de la escena a mostrar
+        factor = (lado / objetivo_px) / escala_vista
+        if factor <= 1.0:                                 # ya se ve igual de cerca o más: no alejar
+            return
+        from ui.comun import canvas as _canvas
+        tope = getattr(_canvas, "_ZOOM_MAX", 400.0) / max(cv._zoom_level, 1e-9)
+        cv.apply_zoom(min(factor, tope * 0.999))
+
+    MARCA_LUGAR_MS = 10000         # cuánto dura el círculo que marca el lugar (5 s el 2026-11-05; 10 s el 2026-11-13)
     MARCA_PARPADEO_MS = 300        # medio ciclo del parpadeo
 
     def _marcar_lugar(self, x, y):
@@ -280,7 +311,12 @@ class HerramientasMixin:
         it.setZValue(Z_HANDLE + 9)
         reloj = QtCore.QTimer(self)
         reloj.setInterval(self.MARCA_PARPADEO_MS)
-        reloj.timeout.connect(lambda: it.setOpacity(0.15 if it.opacity() > 0.5 else 1.0))
+        def _parpadeo():
+            try:
+                it.setOpacity(0.15 if it.opacity() > 0.5 else 1.0)
+            except RuntimeError:                       # la escena se vació (otro proyecto): el círculo ya no está
+                reloj.stop()
+        reloj.timeout.connect(_parpadeo)
         reloj.start()
         self._marca_lugar = (sc, it, reloj)
         QtCore.QTimer.singleShot(self.MARCA_LUGAR_MS, self, lambda m=self._marca_lugar: self._quitar_marca_lugar(m))
@@ -427,14 +463,29 @@ class HerramientasMixin:
                                  conflictos=getattr(self, "_conflictos", []), solo_pipes=solo_pipes,
                                  solo_estructuras=solo_estructuras,
                                  valvulas=None if solo_pipes is not None or solo_estructuras is not None
-                                 else self._filas_valvulas())
+                                 else self._filas_valvulas(),
+                                 codigos_avisos=self.codigos_avisos() if hasattr(self, "codigos_avisos") else None)
 
     def _toggle_theme(self):
         # Alterna claro↔oscuro globalmente. El módulo `theme` se encarga de
         # aplicar paleta + stylesheet + persistir la preferencia. Los widgets
         # con QSS propio (btn_export, hints, opacidad, etc.) se recomponen en
         # `_apply_theme_custom_styles` — está conectado al bus del tema.
-        _theme.toggle(QtWidgets.QApplication.instance())
+        app = QtWidgets.QApplication.instance()
+        if getattr(self, "_cambiando_tema", False):      # un clic de más mientras cambia: no volver a alternar
+            return
+        if not self.isVisible():                          # sin la ventana en pantalla (pruebas): como siempre
+            _theme.toggle(app)
+            return
+        # A veces tarda (Qt re-pule cientos de widgets): un aviso con girador para que no parezca colgada
+        # (pedido 2026-11-13). Ver `ui/comun/cambio_tema.py`.
+        from ui.comun import cambio_tema
+        self._cambiando_tema = True
+        texto = _tr("Cambiando a modo claro…") if _theme.is_dark() else _tr("Cambiando a modo oscuro…")
+
+        def _listo():
+            self._cambiando_tema = False
+        cambio_tema.cambiar(self, lambda: _theme.toggle(app), texto, al_terminar=_listo)
 
     def _refresh_theme_action_label(self):
         # El item del menú muestra el tema al que se cambiaría (el opuesto al actual).

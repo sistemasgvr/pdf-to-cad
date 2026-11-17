@@ -18,11 +18,13 @@ _CATALOGO = (
       "sin_diametro": {"type": "boolean", "description": "solo las que siguen con el diámetro por defecto"},
       "sin_tipo": {"type": "boolean", "description": "solo las que no tienen tipo"}}, []),
     ("ver_ficha", "Los datos de una utilidad, conflicto o aviso por su código.",
-     {"codigo": dict(_TEXTO, description="p. ej. AGUA-5, C-12 o N-3")}, ["codigo"]),
+     {"codigo": dict(_TEXTO, description="p. ej. AGUA-5, C-12, OC-3 o N-3")}, ["codigo"]),
     ("listar_avisos", "Los avisos de normativa, opcionalmente de una clase.",
      {"clase": dict(_TEXTO, description="grosor (diámetro del plano), diametro, material, pendiente, separacion, "
                                         "buzon…")}, []),
-    ("listar_conflictos", "Los conflictos del proyecto.", {}, []),
+    ("listar_conflictos", "Los conflictos (C-n: dos o más tuberías se cruzan, chocan o se tocan) y las "
+                          "observaciones (OC-n, OU-n, OG-n, OV-n: lo que Civil 3D no podrá construir tal como está "
+                          "dibujado).", {}, []),
     ("buscar_texto", "Busca en TODO el texto del plano (calles, lugares, direcciones, números de servicio, notas, "
                      "rótulos de tubería). Cada resultado trae su código TX-n (lleva al lugar), su hoja y las "
                      "utilidades que tiene cerca.",

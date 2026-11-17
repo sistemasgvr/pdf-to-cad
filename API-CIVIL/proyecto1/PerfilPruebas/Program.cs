@@ -20,7 +20,7 @@ internal static partial class Program
     static int Main()
     {
         Formatos(); Metrica(); VVE(); Empaquetado(); Recorrido();
-        M1(); M2(); M2b(); M3(); M4(); M5(); M6(); M7(); M8(); M9(); M10(); M11(); Complementos(); Enderezar(); Valvulas(); Superficies();
+        M1(); M2(); M2b(); M3(); M4(); M5(); M6(); M7(); M8(); M9(); M10(); M11(); M12(); Complementos(); Enderezar(); Valvulas(); Superficies(); AlturaBuzon();
         Console.WriteLine($"\n{total - fallos}/{total} comprobaciones OK" + (fallos > 0 ? $" — {fallos} FALLO(S)" : ""));
         return fallos == 0 ? 0 : 1;
     }
@@ -388,6 +388,26 @@ internal static partial class Program
     {
         var r = PerfilDiseno.Maquetar(new EntradaMaquetacion { S = 20, EstIni = 100, EstFin = 200, EstMinPermitida = 0, EstMaxPermitida = 400, ZMinDibujo = 700, ZMaxDibujo = 760 });
         Chequear(Cerca(r.V, 10) && Cerca(r.VE, 2) && r.AltoMarco <= 12 + 1e-9, $"M11 V={r.V} VE={r.VE} alto={r.AltoMarco}");
+    }
+
+    static void M12()
+    {
+        // 2026-11-14: el rango vertical abarca también las OTRAS superficies (sus perfiles se ven en la vista)
+        var est = new[] { 110.0, 120.0, 130.0 };
+        var z = new[] { 742.0, 743.0, 744.0 };
+        var otra = new[] { double.NaN, 760.0, 730.0 };
+        PerfilDiseno.TerrenosJuntos(est, z, new List<double[]>(), out var e0, out var z0);
+        Chequear(ReferenceEquals(e0, est) && ReferenceEquals(z0, z), "M12 sin otras superficies: las mismas listas");
+        PerfilDiseno.TerrenosJuntos(est, z, new List<double[]> { otra }, out var ej, out var zj);
+        Chequear(ej.Length == 6 && Cerca(ej[4], 120) && Cerca(zj[4], 760) && double.IsNaN(zj[3]), "M12 juntas: " + string.Join(",", zj));
+        var e = new EntradaMaquetacion { S = 10, EstIni = 100, EstFin = 150, EstMinPermitida = 0, EstMaxPermitida = 400, ZMinDibujo = 740, ZMaxDibujo = 745 };
+        e.TerrenoEst = est; e.TerrenoZ = z;
+        var r0 = PerfilDiseno.Maquetar(e);
+        var e2 = new EntradaMaquetacion { S = 10, EstIni = 100, EstFin = 150, EstMinPermitida = 0, EstMaxPermitida = 400, ZMinDibujo = 740, ZMaxDibujo = 745 };
+        e2.TerrenoEst = ej; e2.TerrenoZ = zj;
+        var r = PerfilDiseno.Maquetar(e2);
+        Chequear(r.ElevationMax >= 760 && r.ElevationMin <= 730 && r.ElevationMax > r0.ElevationMax,
+                 $"M12 la vista abarca las otras superficies ({r.ElevationMin}–{r.ElevationMax} vs {r0.ElevationMin}–{r0.ElevationMax})");
     }
 
     static void Complementos()

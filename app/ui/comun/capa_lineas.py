@@ -17,6 +17,9 @@ import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
 
+CORRIDAS_MIN = 1500               # utilidades a pintar a partir de las que se juntan por pluma
+
+
 def lineas_de(pts):
     """Segmentos (`QLineF`) y caja (x0, y0, x1, y1) de una polilínea en px de la escena."""
     lineas = [QtCore.QLineF(a[0], a[1], b[0], b[1]) for a, b in zip(pts, pts[1:])]
@@ -36,6 +39,7 @@ class CapaLineas(QtWidgets.QGraphicsItem):
         self._caja = QtCore.QRectF()
         self._ocultas = frozenset()                      # claves apagadas en «Capas» (no se pintan)
         self._mascara = None                             # entradas que sí se pintan (numpy), o None = todas
+        self._corridas = None                            # (pluma, segmentos) de todo lo pintable, o None
         self.setZValue(z)
         self.setFlag(QtWidgets.QGraphicsItem.ItemUsesExtendedStyleOption)
 
@@ -47,6 +51,7 @@ class CapaLineas(QtWidgets.QGraphicsItem):
         self.entradas.append((lineas, pluma))
         self._cajas.append(caja)
         self._np = None
+        self._corridas = None
         self._ancho = max(self._ancho, pluma.widthF())
 
     def cerrar(self):
@@ -67,6 +72,7 @@ class CapaLineas(QtWidgets.QGraphicsItem):
             return
         lineas, _vieja = self.entradas[k]
         self.entradas[k] = (lineas, pluma)
+        self._corridas = None
         if pluma.widthF() > self._ancho:
             self.prepareGeometryChange()
             self._ancho = pluma.widthF()
@@ -85,6 +91,7 @@ class CapaLineas(QtWidgets.QGraphicsItem):
     def _poner_mascara(self):
         """Lo que se pinta, con las entradas de AHORA: el redibujo fija las ocultas antes de agregar las líneas
         (por eso también lo hace `cerrar`; con la máscara vacía se pintaba todo, reporte 2026-11-03)."""
+        self._corridas = None
         if not self._ocultas:
             self._mascara = None
             return
@@ -124,10 +131,35 @@ class CapaLineas(QtWidgets.QGraphicsItem):
                      & (c[:, 3] >= z.top() - m) & (c[:, 1] <= z.bottom() + m))
         if self._mascara is not None and len(self._mascara) == len(toca):
             toca &= self._mascara
+        indices = np.flatnonzero(toca)
+        if len(indices) >= CORRIDAS_MIN:
+            # Muchas a la vez (la vista alejada: decenas de miles de llamadas por repintado, 2026-11-14): las
+            # utilidades SEGUIDAS con la misma pluma van en una sola llamada con sus segmentos en el mismo orden
+            # (mismo dibujo). Con todo a la vista las corridas se guardan hasta que algo cambie.
+            todo = len(indices) == (len(toca) if self._mascara is None else int(self._mascara.sum()))
+            corridas = self._corridas if todo and self._corridas is not None else self._armar_corridas(indices)
+            if todo:
+                self._corridas = corridas
+            for pluma, lineas in corridas:
+                painter.setPen(pluma)
+                painter.drawLines(lineas)
+            return
         actual = None
-        for k in np.flatnonzero(toca).tolist():
+        for k in indices.tolist():
             lineas, pluma = self.entradas[k]
             if pluma is not actual:
                 painter.setPen(pluma)
                 actual = pluma
             painter.drawLines(lineas)
+
+    def _armar_corridas(self, indices):
+        corridas, actual, junta = [], None, None
+        entradas = self.entradas
+        for k in indices.tolist():
+            lineas, pluma = entradas[k]
+            if pluma is not actual and (actual is None or pluma != actual):
+                junta = []
+                corridas.append((pluma, junta))
+            actual = pluma
+            junta.extend(lineas)
+        return corridas

@@ -136,7 +136,7 @@ def test_valoradas_como_no_utiles_no_vuelven():
 # ── contexto ──
 def test_contexto_resume_y_elige_lo_que_viene_al_caso():
     d = _datos()
-    assert "Agua (AGUA): 1 utilidades" in d.resumen and "Conflictos (C-n): 1" in d.resumen
+    assert "Agua (AGUA): 1 utilidades" in d.resumen and "Conflictos (C-n: dos o más tuberías se cruzan, chocan o se tocan): 1." in d.resumen
     f, u = d.seleccionar("¿qué pasa en C-1?")
     assert f[0].codigo == "C-1" and {x.codigo for x in u} == {"AGUA-1", "ALCANTARILLADO-2"}
     f, u = d.seleccionar("¿cómo está el drenaje?")

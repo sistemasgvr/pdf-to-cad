@@ -429,6 +429,7 @@ class PanelDerechoMixin:
         rv.addWidget(self.lbl_cl_hint)
         self.gprop_cl.setVisible(False); self.lbl_cl_hint.setVisible(False)
         self._build_prop_accesorio(rv)              # accesorio elegido (tab Accesorios, 2026-11-06)
+        self._build_prop_superficie(rv)             # superficie elegida (tab Superficies, 2026-11-14)
         self._cl_prop_guard = False
         self._bz_prop_guard = False                 # evita reentradas al setear valores desde el modelo
         self._curve_prop_guard = False
@@ -449,6 +450,8 @@ class PanelDerechoMixin:
         for _b in (self.btn_ct, self.btn_mv, self.btn_edit, self.btn_xd, self.btn_del):
             rr.addWidget(_b)
         rv.addLayout(rr)
+        from ui.ventana import ventana_propiedades_vacio
+        ventana_propiedades_vacio.poner(self, rv)       # «Nada seleccionado» (2026-11-13)
         # RESPONSIVO: en un QFormLayout la etiqueta y el campo van en la MISMA
         # fila, así que etiquetas largas ("Material de la tubería:") imponen un
         # ancho mínimo grande y sacan barra horizontal. Con WrapLongRows la
@@ -510,4 +513,6 @@ class PanelDerechoMixin:
         # 300 (antes 250): la fuente base subió a 14px por accesibilidad, y con
         # 250 los campos quedaban demasiado estrechos.
         rdock.setMinimumWidth(300)
+        from ui.comun.pila_actual import MINIMO_BASE    # vuelve a 300 aunque Conflictos lo haya ensanchado
+        rdock.setProperty(MINIMO_BASE, 300)
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, rdock)

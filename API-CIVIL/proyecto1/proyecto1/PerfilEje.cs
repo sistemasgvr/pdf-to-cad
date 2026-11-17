@@ -206,6 +206,30 @@ namespace Civil3DBasico
             return alguna;
         }
 
+        /// <summary>
+        /// Las OTRAS superficies del dibujo (2026-11-14) en las mismas estaciones del terreno principal: rec.OtrosTerrenosZ
+        /// (una fila por superficie con alguna cota en el recorrido; NaN fuera de ella). Solo para el rango de la vista.
+        /// </summary>
+        internal static void MuestrearOtros(Transaction tr, Recorrido rec, IList<ObjectId> ids)
+        {
+            rec.OtrosTerrenosZ = new List<double[]>();
+            if (ids == null || ids.Count == 0 || rec.TerrenoEst.Length == 0) return;
+            foreach (ObjectId id in ids)
+            {
+                CivilDB.Surface sup;
+                try { sup = (CivilDB.Surface)tr.GetObject(id, OpenMode.ForRead); } catch { continue; }
+                var zs = new double[rec.TerrenoEst.Length];
+                for (int i = 0; i < zs.Length; i++)
+                {
+                    V2 p = PerfilRecorrido.PuntoEnTraza(rec.Traza, rec.TerrenoEst[i] - PerfilRecorrido.EST_INICIAL + rec.DistN0);
+                    zs[i] = double.NaN;
+                    try { zs[i] = sup.FindElevationAtXY(p.X, p.Y); } catch { }
+                }
+                if (zs.Any(z => !double.IsNaN(z))) rec.OtrosTerrenosZ.Add(zs);
+            }
+            PerfilLog.Log("EJE", $"otras superficies: {rec.OtrosTerrenosZ.Count} de {ids.Count} con cotas en el recorrido");
+        }
+
         /// <summary>D.3: cota de EJE del recorrido en una estación (lineal dentro del tubo; hasta el centro del accesorio en los huecos). ft.</summary>
         internal static double ZEjeRecorrido(Recorrido rec, double est)
         {

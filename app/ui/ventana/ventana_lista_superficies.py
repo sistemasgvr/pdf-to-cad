@@ -155,7 +155,9 @@ class ListaSuperficiesMixin:
 
     def _sel_superficie(self, k):
         self._datos_superficie()
-        if not 0 <= k < len(self.superficies):
+        if hasattr(self, "_sync_prop_superficie"):            # sus propiedades en el panel derecho (2026-11-14)
+            self._update_ui()
+        if not 0 <= k < len(self.superficies) or getattr(self, "_sup_sin_mover", False):
             return
         for it in getattr(self, "_sup_items", []) or []:          # el contorno (no la pastilla) de esa superficie
             if isinstance(it, QtWidgets.QGraphicsPathItem) and it.data(0) == ("superficie", k):

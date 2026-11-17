@@ -39,7 +39,8 @@ def armar(conflictos, avisos, conflictos_ocultos=False, sin_escala=False):
     notas = [n for n, si in ((CONFLICTOS_OCULTOS, conflictos_ocultos), (SIN_ESCALA, sin_escala)) if si]
     grupos = []
     if conflictos:
-        grupos.append(Grupo(CONFLICTOS, N_("Conflictos"), len(conflictos)))
+        obs = any(not getattr(c, "es_conflicto", True) for c in conflictos)   # observaciones (terminología 2026-11-13)
+        grupos.append(Grupo(CONFLICTOS, N_("Conflictos y observaciones") if obs else N_("Conflictos"), len(conflictos)))
     por_clase = {}
     for a in avisos or []:
         if a.info or a.clase in OCULTAS:

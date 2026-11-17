@@ -13,6 +13,7 @@ from nucleo.normas_validar import NOMBRE_ACC
 from traduccion.i18n import t as _tr
 from nucleo.model import Z_HANDLE
 from ui.comun.capa_marcas import duenas, sello
+from ui.comun.capa_marcas_resumen import ACCESORIO, AVISO, CONFLICTO, OBSERVACION, clase  # noqa: F401
 from ui.comun.ui_common import layer_qcolor, tooltip_bloque
 
 _COLORES = {                    # (fondo, texto, borde)
@@ -170,6 +171,7 @@ def dibujar_iter(scene, accesorios, avisos, tol_px, poner=None, reusar=None, gua
             if guardar:
                 guardar(clave, it)
         it.setToolTip(globo)
+        clase(it, ACCESORIO)
         (poner or scene.addItem)(it)
         k = ("cajas", it._pastilla.width(), it._pastilla.height())
         if k not in medidas:

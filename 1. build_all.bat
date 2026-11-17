@@ -72,6 +72,29 @@ if "%ISCC%"=="" (
 
 echo.
 echo ========================================
+echo  Comprobaciones antes de compilar
+echo ========================================
+REM El .exe lleva SU propio Python y bibliotecas: deben ser las mismas que en desarrollo
+REM (requirements-build.txt). Con otras versiones el .exe del cliente fallaba (2026-11-13).
+python scripts\verificar_entorno_build.py
+if errorlevel 1 (
+    echo.
+    echo [ERROR] El entorno de compilacion no coincide con el de desarrollo ^(ver arriba^). No se compila.
+    pause
+    exit /b 1
+)
+REM Pruebas de la app y arnes del plugin (la regresion con PDF dorados se corre aparte). Si algo falla, no hay
+REM instalador. Informe en dist\informe_entrega.md y la salida de cada paso en dist\entrega\.
+python scripts\verificar_entrega.py fuentes --version "%NEWVER%"
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Fallaron las comprobaciones ^(ver arriba y dist\informe_entrega.md^). No se compila.
+    pause
+    exit /b 1
+)
+
+echo.
+echo ========================================
 echo  PASO 1/3: Compilar plugin C# (.NET 8)
 echo ========================================
 call installer\build_plugin.bat
@@ -92,16 +115,6 @@ echo ========================================
 REM Limpiar dist previa (solo el exe, no el instalador si ya existe).
 if exist "dist\Asistente C3D.exe" del /q "dist\Asistente C3D.exe" 2>nul
 if exist build rmdir /s /q build 2>nul
-
-REM El .exe lleva SU propio Python y bibliotecas: deben ser las mismas que en desarrollo
-REM (requirements-build.txt). Con otras versiones el .exe del cliente fallaba (2026-11-13).
-python scripts\verificar_entorno_build.py
-if errorlevel 1 (
-    echo.
-    echo [ERROR] El entorno de compilacion no coincide con el de desarrollo ^(ver arriba^). No se compila.
-    pause
-    exit /b 1
-)
 
 python -m PyInstaller --clean -y PDF-a-CAD.spec
 set "PYI_RC=%errorlevel%"
@@ -124,16 +137,14 @@ echo ========================================
 echo  Verificando que el instalador lleve todo
 echo ========================================
 REM Autoprueba del .exe (modulos, datos, proceso hijo), DLL del plugin, PdfCadMcp, setup.iss y versiones.
-python scripts\verificar_instalador.py
+REM Si falla NO se genera el instalador (antes se podia seguir igual y el error lo veia el cliente).
+python scripts\verificar_entrega.py exe
 if errorlevel 1 (
     echo.
-    echo [AVISO] La verificacion encontro problemas ^(arriba^). El instalador podria fallar en esos puntos.
-    set "SEGUIR=N"
-    set /p "SEGUIR=Generar el instalador de todos modos? (S/N, Enter = N): "
-    if /i not "!SEGUIR!"=="S" (
-        pause
-        exit /b 1
-    )
+    echo [ERROR] El .exe o el instalador no pasan la verificacion ^(ver arriba y dist\informe_entrega.md^).
+    echo         No se genera el instalador.
+    pause
+    exit /b 1
 )
 
 echo.
@@ -157,11 +168,13 @@ if not "%ISCC_RC%"=="0" (
 )
 
 set "OUTFILE=dist\AsistenteC3D-Setup-%NEWVER%.exe"
+python scripts\verificar_entrega.py final --instalador "%OUTFILE%"
 
 echo.
 echo =====================================================
 echo  LISTO!  Instalador generado:
 echo    %OUTFILE%
+echo  Informe de la entrega: dist\informe_entrega.md
 echo =====================================================
 echo.
 if exist "%OUTFILE%" (

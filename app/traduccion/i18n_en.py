@@ -515,6 +515,59 @@ EN: dict[str, str] = {
     "Georref: no": "Georef: no",
     "Georref: no (escala titleblock)": "Georef: no (titleblock scale)",
     "Modo claro": "Light mode",
+    "Cambiando a modo claro…": "Switching to light mode…",
+    "Nada seleccionado": "Nothing selected",
+    "Aplicando los colores a la ventana…": "Applying the colors to the window…",
+    "Ver las propiedades de lo elegido": "See the properties of the selection",
+    "Chat, conflictos y Civil 3D con la IA": "Chat, conflicts and Civil 3D with the AI",
+    "Haz clic en una utilidad, un buzón o una curva del plano, o elígela en el Inventario, para ver y editar sus "
+    "propiedades.": "Click a utility, manhole or curve on the plan, or pick it in the Inventory, to see and edit its "
+                    "properties.",
+    "Cambiando a modo oscuro…": "Switching to dark mode…",
+    # Terminología 2026-11-13/14: conflicto (C-n) = dos o más tuberías se tocan; lo demás, observación (OC/OU/OG/OV-n)
+    "Informe de conflictos, observaciones y normativas": "Conflicts, observations and design rules report",
+    "conflictos y observaciones": "conflicts and observations",
+    "Conflictos (dos o más tuberías se cruzan, chocan o se tocan)":
+        "Conflicts (two or more pipes cross, clash or touch)",
+    "Observaciones (Civil 3D no podrá construirlo tal como está dibujado)":
+        "Observations (Civil 3D will not be able to build it as drawn)",
+    "Conflictos, observaciones y avisos": "Conflicts, observations and warnings",
+    "Anexo: todos los conflictos, observaciones y avisos": "Appendix: all conflicts, observations and warnings",
+    "Conflictos (C-n: dos o más tuberías se cruzan, chocan o se tocan): {n}.":
+        "Conflicts (C-n: two or more pipes cross, clash or touch): {n}.",
+    "Observaciones (OC-n de cotas, OU-n unión no constructible, OG-n geométricas, OV-n de "
+    "conexión vertical: lo que Civil 3D no podrá construir tal como está dibujado): {n}.":
+        "Observations (OC-n elevation, OU-n non-buildable joint, OG-n geometric, OV-n vertical connection: "
+        "what Civil 3D will not be able to build as drawn): {n}.",
+    "Observación de cotas": "Elevation observation",
+    "Unión no constructible": "Non-buildable joint",
+    "Observación geométrica": "Geometric observation",
+    "Observación de conexión vertical": "Vertical connection observation",
+    "Observación": "Observation",
+    "Observaciones": "Observations",
+    "Conflictos y observaciones": "Conflicts and observations",
+    "Categoría": "Category",
+    "Observaciones (lo que Civil 3D no podrá construir tal como está dibujado): {n}.":
+        "Observations (what Civil 3D will not be able to build as drawn): {n}.",
+    "Zona {z} · conflictos: {c} · observaciones: {o} · avisos: {a}.":
+        "Zone {z} · conflicts: {c} · observations: {o} · warnings: {a}.",
+    "6. Los conflictos y las observaciones (hoja «Conflictos y observaciones», C-1…, OC-1…, OU-1…) se recalculan "
+    "al importar.": "6. Conflicts and observations («Conflicts and observations» sheet, C-1…, OC-1…, OU-1…) are "
+                    "recalculated on import.",
+    "CONFLICTOS · {n}": "CONFLICTS · {n}",
+    "Dos o más tuberías se cruzan, chocan o se tocan.": "Two or more pipes cross, clash or touch.",
+    "OBSERVACIONES · {n}": "OBSERVATIONS · {n}",
+    "Lo que Civil 3D no podrá construir tal como está dibujado (cotas, uniones, codos, conexiones verticales).":
+        "What Civil 3D will not be able to build as drawn (elevations, joints, elbows, vertical connections).",
+    "CONFLICTOS Y OBSERVACIONES": "CONFLICTS AND OBSERVATIONS",
+    "No hay conflictos ni observaciones en el dibujo.": "There are no conflicts or observations in the drawing.",
+    "Ya no está en el dibujo. Conserva su número; Ctrl+Z lo deshace.":
+        "It is no longer in the drawing. It keeps its number; Ctrl+Z undoes it.",
+    "Conflictos y observaciones ({n})": "Conflicts and observations ({n})",
+    "Excel importado: {n} cambio(s). Conflictos y observaciones: {a} → {b}.":
+        "Excel imported: {n} change(s). Conflicts and observations: {a} → {b}.",
+    "{n} observaciones": "{n} observations",
+    "1 observación": "1 observation",
     "Modo oscuro": "Dark mode",
     "Fondo blanco": "White background",
     "Fondo negro": "Black background",
@@ -1005,8 +1058,6 @@ EN: dict[str, str] = {
         "The PDF legend could not be read. You can retry or continue reviewing the layers.",
     "Acción interrumpida": "Action interrupted",
     "Ocurrió un error al ejecutar la acción.": "An error occurred while running the action.",
-    "Cierra este aviso y vuelve a intentar la acción. Si se repite, comparte los detalles del error.":
-        "Close this message and try the action again. If it happens again, share the error details.",
     "Reconocimiento interrumpido": "Recognition interrupted",
     "No se pudo completar el reconocimiento de las capas.": "The layer recognition could not be completed.",
     "Puedes volver a intentar esta acción o cancelar para regresar al editor.":
@@ -2996,7 +3047,6 @@ EN: dict[str, str] = {
     'Caída en el buzón {v}: {req}': 'Drop in the manhole {v}: {req}',
     'Abrir el manual de usuario': 'Open the user manual',
     'Según el manual de usuario': 'According to the user manual',
-    'CONFLICTOS DETECTADOS': 'DETECTED CONFLICTS',
     'Choque en Civil 3D': 'Clash in Civil 3D',
     'Propuestas calculadas por la app': 'Proposals calculated by the app',
     'Probadas en una copia del proyecto': 'Tested on a copy of the project',
@@ -3125,7 +3175,6 @@ EN: dict[str, str] = {
     'IA:': 'AI:',
     '{c} · {t} (resuelto)': '{c} · {t} (resolved)',
     '{c} · resuelto': '{c} · resolved',
-    'Este conflicto ya no está en el dibujo. Conserva su número; Ctrl+Z lo deshace.': 'This conflict is no longer in the drawing. It keeps its number; Ctrl+Z undoes it.',
     'Diámetro del buzón (in)': 'Manhole diameter (in)',
     'Distancia entre buzones {v}: {req}': 'Distance between manholes {v}: {req}',
     '{acc} solo se permite en {tipos}.': '{acc} is only allowed in {tipos}.',
@@ -3300,6 +3349,148 @@ EN: dict[str, str] = {
         'Fittings (bends, tees, wyes…)',
     'Superficie':
         'Surface',
+    'Bordes de los triángulos':
+        'Triangle edges',
+    'Dibuja el borde de cada triángulo de la superficie importada, como Civil 3D. De lejos se desvanecen solos.':
+        'Draws the edge of each triangle of the imported surface, like Civil 3D. From far away they fade out on their own.',
+    'Curvas de nivel cada {d} ft':
+        'Contours every {d} ft',
+    'Relieve':
+        'Relief',
+    'Cotas (franjas de color)':
+        'Elevations (color bands)',
+    'Malla':
+        'Mesh',
+    'Relieve: colores del terreno con sombra. Cotas: franjas de color de lo más bajo (morado) a lo más alto (rojo), como el análisis de elevaciones de Civil 3D. Malla: solo los triángulos.':
+        'Relief: terrain colors with shading. Elevations: color bands from the lowest (purple) to the highest (red), like the Civil 3D elevation analysis. Mesh: only the triangles.',
+    'Estilo':
+        'Style',
+    'Curvas de nivel':
+        'Contours',
+    'Líneas de igual cota sobre la superficie, con una más marcada cada 5.':
+        'Lines of equal elevation on the surface, with a heavier one every 5.',
+    'Cada cuántos pies va una curva de nivel. Automático: unas 15 curvas en el desnivel de la superficie.':
+        "How many feet between contours. Automatic: about 15 contours over the surface's elevation range.",
+    'Intervalo':
+        'Interval',
+    'Archivo original:':
+        'Original file:',
+    'Abrir la carpeta del archivo':
+        "Open the file's folder",
+    'Sistema de coordenadas:':
+        'Coordinate system:',
+    'Unidades:':
+        'Units:',
+    'Estadísticas':
+        'Statistics',
+    'Puntos:':
+        'Points:',
+    'Triángulos:':
+        'Triangles:',
+    'Cota mínima:':
+        'Minimum elevation:',
+    'Cota máxima:':
+        'Maximum elevation:',
+    'Cota media:':
+        'Mean elevation:',
+    'Área 2D:':
+        '2D area:',
+    'Área 3D:':
+        '3D area:',
+    'Pendiente media:':
+        'Mean slope:',
+    'Pendiente máxima:':
+        'Maximum slope:',
+    'Lado de triángulo (mín – máx):':
+        'Triangle side (min – max):',
+    'Área de triángulo (mín – máx):':
+        'Triangle area (min – max):',
+    'Extensión X:':
+        'X extent:',
+    'Extensión Y:':
+        'Y extent:',
+    'Ya no está en esa carpeta. El proyecto guarda su propia copia del archivo.':
+        'It is no longer in that folder. The project keeps its own copy of the file.',
+    '{a} (importada antes de 2.1.0: no se guardó la carpeta)':
+        '{a} (imported before 2.1.0: the folder was not saved)',
+    '{o} → {d} (el del dibujo)':
+        "{o} → {d} (the drawing's)",
+    'El del archivo (el plano no está georreferenciado)':
+        "The file's (the plan is not georeferenced)",
+    'Archivo: {a} · Dibujo: X/Y en {x}, cotas en pies':
+        'File: {a} · Drawing: X/Y in {x}, elevations in feet',
+    'Encendida':
+        'On',
+    'Apagada en «Capas ▾»':
+        'Off in «Layers ▾»',
+    '{v} ft':
+        '{v} ft',
+    '{v} ft² ({ac} acres)':
+        '{v} ft² ({ac} acres)',
+    '{a} – {b} ft':
+        '{a} – {b} ft',
+    '{a} – {b} ft²':
+        '{a} – {b} ft²',
+    '{a} a {b} {u}':
+        '{a} to {b} {u}',
+    'Apagada':
+        'Off',
+    '{m} {r}':
+        '{m} {r}',
+    '{n} accesorio(s)':
+        '{n} fitting(s)',
+    '{n} cruce(s) a distinta cota':
+        '{n} crossing(s) at different elevations',
+    '{n} aviso(s)':
+        '{n} warning(s)',
+    '{n} observación(es)':
+        '{n} observation(s)',
+    '{n} conflicto(s)':
+        '{n} conflict(s)',
+    'Clic o acércate para verlos uno por uno.':
+        'Click or zoom in to see them one by one.',
+    'El proyecto es demasiado grande para dibujarlo en 3D con la tarjeta de video de este equipo en modo compatible (más de 2 GB de geometría).':
+        "The project is too large to draw in 3D with this computer's graphics card in compatibility mode (more than 2 GB of geometry).",
+    'El modo rápido no está disponible en este equipo: actualizar el driver de video suele activarlo.':
+        'Fast mode is not available on this computer: updating the graphics driver usually enables it.',
+    'No hay memoria suficiente para dibujar este proyecto en 3D.':
+        'There is not enough memory to draw this project in 3D.',
+    'La tarjeta de video no pudo dibujar la vista 3D.':
+        'The graphics card could not draw the 3D view.',
+    'El resto de la app sigue funcionando con normalidad. Prueba apagando utilidades en el panel o abriendo un proyecto más chico.':
+        'The rest of the app keeps working normally. Try turning off utilities in the panel or opening a smaller project.',
+    'Detalle guardado en: {r}':
+        'Details saved in: {r}',
+    'El mismo error se repitió ({n} veces); quedó en el registro.':
+        'The same error repeated ({n} times); it was logged.',
+    'Algo falló en {d}.':
+        'Something failed in {d}.',
+    'Tu proyecto no se perdió: puedes seguir trabajando y guardar.':
+        'Your project was not lost: you can keep working and save.',
+    'Si vuelve a pasar, envíanos el archivo de registro (botón «Abrir la carpeta del registro»).':
+        'If it happens again, send us the log file («Open the log folder» button).',
+    'Error: {e}':
+        'Error: {e}',
+    'Abrir la carpeta del registro':
+        'Open the log folder',
+    'la Vista 3D':
+        'the 3D View',
+    'el perfil':
+        'the profile',
+    'el Asistente':
+        'the Assistant',
+    'la exportación':
+        'the export',
+    'el informe':
+        'the report',
+    'el reconocimiento':
+        'the recognition',
+    'el compositor de hojas':
+        'the sheet composer',
+    'la Tabla de datos':
+        'the Data table',
+    'las normativas':
+        'the standards',
     'Mostrar la superficie':
         'Show the surface',
     'Cota':
@@ -3464,8 +3655,6 @@ EN: dict[str, str] = {
         'Difference (ft)',
     'El Excel no trae cambios respecto del proyecto.':
         'The Excel has no changes compared with the project.',
-    'Excel importado: {n} cambio(s). Conflictos: {a} → {b}.':
-        'Excel imported: {n} change(s). Conflicts: {a} → {b}.',
     'ID':
         'ID',
     'Importar Excel':
@@ -3478,8 +3667,6 @@ EN: dict[str, str] = {
         'Not applied:',
     'Se aplicarán {n} cambio(s):':
         '{n} change(s) will be applied:',
-    'Tipo de conflicto':
-        'Conflict type',
     'Unión con pendiente':
         'Sloped joint',
     'Utilidad #{n} · vértice {v} · {campo}':
@@ -3617,8 +3804,6 @@ EN: dict[str, str] = {
         'Slope per segment (%)',
     '5. Pendiente (%) = (rasante final − rasante inicial) / largo × 100. Si la cambias, cambia también la rasante inicial o la final para que coincidan: si no coinciden, el Excel NO se importa.':
         '5. Slope (%) = (end invert − start invert) / length × 100. If you change it, also change the start or end invert so they match: if they do not match, the Excel is NOT imported.',
-    '6. Los conflictos (hoja «Conflictos», C-1, C-2…) se recalculan al importar.':
-        '6. Conflicts («Conflicts» sheet, C-1, C-2…) are recalculated when importing.',
     'Utilidad #{n}: la pendiente «{v}» no es un número.':
         'Utility #{n}: the slope «{v}» is not a number.',
     'Utilidad #{n}: pendiente {p} %, pero sus rasantes ({zs} → {ze} ft en {L} ft) dan {dan} %. Para {p} % la rasante final sería {sug} ft (o la inicial {sug0} ft).':
@@ -3957,7 +4142,6 @@ EN: dict[str, str] = {
     'Ajusta las cotas del tramo para llegar a la pendiente pedida.': 'Adjust the elevations of the segment to reach the required slope.',
     'Alarga el tramo entre los dos codos o junta los codos en uno.': 'Lengthen the segment between the two bends or merge the bends into one.',
     'Aleja las dos utilidades o cambia sus cotas para cumplir la separación.': 'Move the two utilities apart or change their elevations to meet the separation.',
-    'Anexo: todos los conflictos y avisos': 'Appendix: all conflicts and warnings',
     'Aprobado por {u} el {fecha}.': 'Approved by {u} on {fecha}.',
     'Arma un informe en Word con las fichas de cada zona del plano, sus capturas y la explicación de cada conflicto y aviso.': 'Builds a Word report with the sheets of each zone of the plan, their captures and the explanation of each conflict and warning.',
     'Armando el anexo: {i} de {n} filas': 'Building the appendix: {i} of {n} rows',
@@ -3976,7 +4160,6 @@ EN: dict[str, str] = {
     'Capturas de cada zona': 'Captures of each zone',
     'Concepto': 'Item',
     'Confirma que se cumple la condición de uso indicada.': 'Confirm that the stated condition of use is met.',
-    'Conflictos ({n})': 'Conflicts ({n})',
     'Conflictos en el dibujo: {n}.': 'Conflicts in the drawing: {n}.',
     'Conflictos y avisos': 'Conflicts and warnings',
     'Contenido: {c}.': 'Content: {c}.',
@@ -3992,7 +4175,6 @@ EN: dict[str, str] = {
     'Iguala la cota de llegada y la de salida en ese vértice, o pon un buzón si el escalón es intencional.': 'Match the incoming and outgoing elevations at that vertex, or add a manhole if the step is intentional.',
     'Informe automático': 'Automatic report',
     'Informe automático…': 'Automatic report…',
-    'Informe de conflictos y normativas': 'Conflicts and design-standards report',
     'Informe guardado: {n} conflictos y avisos en {z} zonas.\n{ruta}': 'Report saved: {n} conflicts and warnings in {z} zones.\n{ruta}',
     'Juntando conflictos y avisos…': 'Gathering conflicts and warnings…',
     'La conexión vertical debe ser vertical: iguala la ubicación en planta de sus dos puntas.': 'The vertical connection must be vertical: match the plan location of its two ends.',
@@ -4055,7 +4237,6 @@ EN: dict[str, str] = {
     'Claude (próximamente)': 'Claude (coming soon)',
     'Configurar IA': 'Configure AI',
     'Configurar IA…': 'Configure AI…',
-    'Conflictos (C-n): {n}.': 'Conflicts (C-n): {n}.',
     'Conflictos y avisos que vienen al caso ({n} de {total})': 'Relevant conflicts and warnings ({n} of {total})',
     'Contenido de la zona: {c}': 'Zone content: {c}',
     'Corregida: la IA lo tendrá en cuenta': 'Corrected: the AI will take it into account',

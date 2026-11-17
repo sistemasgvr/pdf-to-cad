@@ -15,7 +15,8 @@ using Exception = System.Exception;
 //     TinSurface.CreateFromLandXML y se VERIFICA contra el XDATA (puntos, triángulos,
 //     cotas, recuadro, muestras con FindElevationAtXY).
 //   · Exactitud: los números del LandXML ya están en el sistema del dibujo. Se importa
-//     una COPIA con el <Units> igual al del dibujo (y sin <CoordinateSystem>), y con
+//     el original si ya tiene el <Units> del dibujo; si no, una copia con ese <Units> (y sin
+//     <CoordinateSystem>) que queda JUNTO al original (Civil 3D la referencia), y con
 //     traslación, giro y «pie topográfico → internacional» apagados mientras dura la
 //     importación (se reponen después): Civil 3D no escala ni mueve nada.
 //   · Antes de los perfiles (paso 7): el perfil toma la primera TIN del dibujo como terreno.
@@ -114,8 +115,22 @@ namespace Civil3DBasico
             string unidadArch = SuperficiesNucleo.UnidadDelArchivo(texto);
             if (!string.IsNullOrEmpty(unidadArch) && !string.Equals(unidadArch, unidadDib, StringComparison.OrdinalIgnoreCase))
                 ed.WriteMessage($"\n    · LandXML en «{unidadArch}», dibujo en «{unidadDib}»: los números ya están en el sistema del dibujo, se importan sin convertir.");
-            string tmp = Path.Combine(Path.GetTempPath(), "pdfcad_superficie_" + Guid.NewGuid().ToString("N") + ".xml");
-            File.WriteAllText(tmp, SuperficiesNucleo.ReescribirUnidades(texto, unidadDib), new System.Text.UTF8Encoding(false));
+            // Civil 3D deja este archivo REFERENCIADO en la superficie (lo relee al reconstruirla): el original, o una
+            // copia con las unidades del dibujo que se queda JUNTO al original. Nunca en %TEMP% (se borraba y daba
+            // «Referenced file … not found», 2026-11-13).
+            string ajustado = SuperficiesNucleo.ReescribirUnidades(texto, unidadDib);
+            var (tmp, escribir) = SuperficiesNucleo.ArchivoParaCivil(ruta, texto, ajustado, unidadDib);
+            if (escribir)
+            {
+                try { File.WriteAllText(tmp, ajustado, new System.Text.UTF8Encoding(false)); }
+                catch (Exception exW)
+                {
+                    ed.WriteMessage($"\n    ✗ No se pudo escribir «{tmp}» ({exW.Message}). No se crea: Civil 3D necesita ese archivo " +
+                                    "junto al original para reconstruir la superficie.");
+                    return false;
+                }
+            }
+            ed.WriteMessage($"\n    · Archivo de la superficie: {tmp} (no lo muevas ni lo borres: Civil 3D lo usa al reconstruirla).");
 
             ObjectId id = ObjectId.Null;
             var imp = civilDoc.Settings.LandXMLSettings.Import;
@@ -142,7 +157,6 @@ namespace Civil3DBasico
                 try { if (trasl.HasValue) imp.Translation.Translate = trasl.Value; } catch { }
                 try { if (giro.HasValue) imp.Rotation.Rotate = giro.Value; } catch { }
                 try { if (pieAInt.HasValue) imp.SurfaceImport.ConvertSurveyFootToInternationalFoot = pieAInt.Value; } catch { }
-                try { File.Delete(tmp); } catch { }
             }
             if (id.IsNull)
             {

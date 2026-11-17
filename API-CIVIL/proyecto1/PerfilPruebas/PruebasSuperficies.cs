@@ -74,6 +74,16 @@ internal static partial class Program
         Chequear(b.IndexOf("<Units>") > b.IndexOf("<LandXML") && SuperficiesNucleo.UnidadDelArchivo(b) == "foot", "Superficies: sin <Units> se agrega tras <LandXML>");
         string auto = XmlPies.Replace("<Units><Imperial linearUnit=\"USSurveyFoot\" areaUnit=\"squareFoot\" volumeUnit=\"cubicYard\"/></Units>", "<Units/>");
         Igual(SuperficiesNucleo.UnidadDelArchivo(SuperficiesNucleo.ReescribirUnidades(auto, "foot")), "foot", "Superficies: <Units/> vacío");
+        // Archivo que queda referenciado en la superficie (nunca en %TEMP%: se borraba, 2026-11-13)
+        string orig = System.IO.Path.Combine("C:\\obra", "red_superficies", "TERRENO.xml");
+        var (r1, e1) = SuperficiesNucleo.ArchivoParaCivil(orig, XmlPies, SuperficiesNucleo.ReescribirUnidades(XmlPies, "USSurveyFoot"), "USSurveyFoot");
+        Chequear(r1 == orig && !e1, "Superficies: con las unidades del dibujo se referencia el ORIGINAL");
+        var (r2, e2) = SuperficiesNucleo.ArchivoParaCivil(orig, XmlPies, a, "foot");
+        Chequear(e2 && r2 == System.IO.Path.Combine("C:\\obra", "red_superficies", "TERRENO.civil3d-foot.xml"),
+                 $"Superficies: otras unidades → copia junto al original ({r2})");
+        Chequear(!r2.StartsWith(System.IO.Path.GetTempPath(), StringComparison.OrdinalIgnoreCase), "Superficies: la copia no va a %TEMP%");
+        var (r3, e3) = SuperficiesNucleo.ArchivoParaCivil(orig, conCs, SuperficiesNucleo.ReescribirUnidades(conCs, "USSurveyFoot"), "USSurveyFoot");
+        Chequear(e3 && r3 != orig, "Superficies: con <CoordinateSystem> se usa la copia sin él");
         bool fallo = false;
         try { SuperficiesNucleo.ReescribirUnidades("<algo/>", "foot"); } catch (FormatException) { fallo = true; }
         Chequear(fallo, "Superficies: no es LandXML → error");

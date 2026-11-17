@@ -87,6 +87,12 @@ namespace Civil3DBasico
                 }
                 else { mensaje = "✗ La entidad no pertenece a una red de tuberías."; return null; }
                 red.SuperficieId = EsTin(tr, surf) ? surf : PrimeraTin(tr, civDoc);
+                try                                         // las demás superficies también van al perfil (2026-11-14)
+                {
+                    foreach (ObjectId id in civDoc.GetSurfaceIds())
+                        if (id != red.SuperficieId && EsTin(tr, id)) red.OtrasSuperficies.Add(id);
+                }
+                catch (Exception ex) { PerfilLog.Log("GRAFO", "otras superficies: " + ex.Message); }
                 PerfilLog.Log("GRAFO", $"red '{red.NombreRed}' tipo {red.Tipo} superficie {(red.SuperficieId.IsNull ? "(ninguna)" : red.SuperficieId.Handle.ToString())}");
                 return red;
             }

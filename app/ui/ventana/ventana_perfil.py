@@ -325,7 +325,8 @@ class PerfilMixin(PerfilABMixin, RamalesPerfilMixin, GuardadosPerfilMixin, Plano
             numero = self._perfil_numero()
             try:
                 datos = PD.armar(self.pipes, self.structures, getattr(self, "_accs_todos", None) or [],
-                                 rec, self._ft(), numero, valvulas=self._valvulas_perfil())
+                                 rec, self._ft(), numero, valvulas=self._valvulas_perfil(),
+                                 superficies=self._superficies_perfil() if hasattr(self, "_superficies_perfil") else ())
             except Exception:                         # nunca tumbar el redibujo por el perfil
                 import traceback
                 traceback.print_exc()

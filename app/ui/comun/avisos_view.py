@@ -22,6 +22,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from nucleo import diametro_plano
 from nucleo.model import Z_HANDLE
 from ui.comun.capa_marcas import duenas, sello
+from ui.comun.capa_marcas_resumen import ACCESORIO, AVISO, CONFLICTO, OBSERVACION, clase  # noqa: F401
 from ui.comun.ui_common import QA_OFFPATTERN, tooltip_bloque
 from traduccion.i18n import t as _tr
 
@@ -106,5 +107,6 @@ def dibujar_iter(scene, avisos, tol_px, con_accesorios_visibles, poner=None, reu
         cab = _tr("Utilidad {n}").format(n=", ".join(f"#{k}" for k in quien)) if quien else ""
         texto = "\n".join(([cab] if cab else []) + [("ⓘ " if a.info else "⚠ ") + a.mensaje for a in lista])
         it.setToolTip(tooltip_bloque(texto))
+        clase(it, AVISO, len(lista))
         (poner or scene.addItem)(it)
         yield it

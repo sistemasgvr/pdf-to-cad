@@ -56,11 +56,16 @@ def formato(texto, existe, tk):
     return _COD.sub(enlazar, s).replace("\n", "<br>")
 
 
+def _es_conflicto_u_observacion(c):
+    from nucleo import conflictos as _conf
+    return _conf.es_codigo(c)
+
+
 def siguientes(res):
     """Preguntas para seguir, a partir de lo que nombró la respuesta (máx. 2)."""
     out = []
     for c in (res.referencias or [])[:2]:
-        out.append(_tr("¿Por qué ocurre {c} y cómo se resuelve?").format(c=c) if c.startswith("C-")
+        out.append(_tr("¿Por qué ocurre {c} y cómo se resuelve?").format(c=c) if _es_conflicto_u_observacion(c)
                    else _tr("Más detalle sobre {c}").format(c=c))
     return out
 

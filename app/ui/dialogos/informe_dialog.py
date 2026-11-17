@@ -28,7 +28,7 @@ class InformeDialog(QtWidgets.QDialog):
             "conflicto y aviso.")))
         g1 = QtWidgets.QGroupBox(_tr("Qué incluir"))
         l1 = QtWidgets.QVBoxLayout(g1)
-        self.chk_conf = QtWidgets.QCheckBox(_tr("Conflictos ({n})").format(n=n_conflictos))
+        self.chk_conf = QtWidgets.QCheckBox(_tr("Conflictos y observaciones ({n})").format(n=n_conflictos))
         self.chk_norm = QtWidgets.QCheckBox(_tr("Normativas ({n} avisos)").format(n=n_avisos))
         self.chk_rec = QtWidgets.QCheckBox(_tr("Avisos de reconocimiento, aparte ({n})").format(n=n_reconocimiento))
         self.chk_rec.setToolTip(_tr("Lo que el reconocimiento del PDF no leyó con certeza (diámetro del plano). Va "

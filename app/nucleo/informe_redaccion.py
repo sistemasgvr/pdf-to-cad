@@ -83,6 +83,9 @@ class RedactorPlantilla(Redactor):
         if informe.opciones.conflictos:
             partes.append(t("Conflictos en el dibujo: {n}.").format(n=r["conflictos"]) if r["conflictos"]
                           else t("No hay conflictos en el dibujo."))
+            if r.get("observaciones"):
+                partes.append(t("Observaciones (lo que Civil 3D no podrá construir tal como está dibujado): {n}.").format(
+                    n=r["observaciones"]))
         if informe.opciones.normativas:
             partes.append(t("Avisos de normativa: {n} (pendientes: {p}, aprobados: {a}, informativos: {i}).").format(
                 n=r["avisos"], p=r["avisos_pendientes"], a=r["aprobados"], i=r["info"]) if r["avisos"]
@@ -96,10 +99,12 @@ class RedactorPlantilla(Redactor):
         return " ".join(partes)
 
     def zona(self, zona):
-        nc = sum(1 for f in zona.fichas if f["tipo"] == "conflicto")
-        na = len(zona.fichas) - nc
+        nc = sum(1 for f in zona.fichas if f["tipo"] == "conflicto" and f.get("categoria", "conflicto") == "conflicto")
+        no = sum(1 for f in zona.fichas if f["tipo"] == "conflicto" and f.get("categoria") == "observacion")
+        na = len(zona.fichas) - nc - no
         capas = sorted({nombre_utilidad(u["capa"]) for f in zona.fichas for u in f["utilidades"]})
-        txt = t("Zona {z} · conflictos: {c} · avisos: {a}.").format(z=zona.numero, c=nc, a=na)
+        txt = (t("Zona {z} · conflictos: {c} · observaciones: {o} · avisos: {a}.").format(z=zona.numero, c=nc, o=no, a=na)
+               if no else t("Zona {z} · conflictos: {c} · avisos: {a}.").format(z=zona.numero, c=nc, a=na))
         if capas:
             txt += " " + t("Utilidades involucradas: {u}.").format(u=", ".join(capas))
         return txt

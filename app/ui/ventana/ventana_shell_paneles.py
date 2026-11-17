@@ -65,14 +65,17 @@ class _Cifra(QtWidgets.QFrame):
 
 def panel_revision(win):
     win._cifra_conf = _Cifra("Conflictos", "error")
+    win._cifra_obs = _Cifra("Observaciones", "error")          # terminología 2026-11-13: aparte de los conflictos
     win._cifra_norm = _Cifra("Normativa", "warn")
     win._cifra_rec = _Cifra("Reconocimiento", "accent")
     cifras = R.transparente(QtWidgets.QWidget())
-    cl = QtWidgets.QHBoxLayout(cifras)
+    cl = QtWidgets.QGridLayout(cifras)                          # 2 × 2: cuatro palabras largas no caben en fila
     cl.setContentsMargins(0, 4, 0, 4)
     cl.setSpacing(4)
-    for c in (win._cifra_conf, win._cifra_norm, win._cifra_rec):
-        cl.addWidget(c, max(1, c.lbl.sizeHint().width()))
+    for k, c in enumerate((win._cifra_conf, win._cifra_obs, win._cifra_norm, win._cifra_rec)):
+        cl.addWidget(c, k // 2, k % 2)
+    cl.setColumnStretch(0, 1)
+    cl.setColumnStretch(1, 1)
     mostrar = R.transparente(QtWidgets.QWidget())
     ml = QtWidgets.QHBoxLayout(mostrar)
     ml.setContentsMargins(0, 0, 0, 0)
@@ -115,12 +118,14 @@ class RevisionMixin:
     def _actualizar_revision(self, n_normativa, n_reconocimiento):
         if not hasattr(self, "_cifra_conf"):
             return
-        self._cifra_conf.poner(len(getattr(self, "_conflictos", None) or []))
+        conflictos = getattr(self, "_conflictos", None) or []
+        n_conf = sum(1 for c in conflictos if c.es_conflicto)
+        self._cifra_conf.poner(n_conf)
+        self._cifra_obs.poner(len(conflictos) - n_conf)
         self._cifra_norm.poner(n_normativa)
         self._cifra_rec.poner(n_reconocimiento)
         from ui.ventana import ventana_flotantes
-        ventana_flotantes.refrescar(self, len(getattr(self, "_conflictos", None) or []), n_normativa)
-        conflictos = getattr(self, "_conflictos", None) or []
+        ventana_flotantes.refrescar(self, n_conf, n_normativa, n_obs=len(conflictos) - n_conf)
         ids = [c.id for c in conflictos]
         if ids == self._ids_conflictos:
             return
@@ -129,8 +134,9 @@ class RevisionMixin:
         lista.clear()
         t = _theme.tokens()
         icono = _icon("mdi:alert-octagon-outline", color=t.danger)
+        icono_obs = _icon("mdi:alert-outline", color=t.danger)      # observación (OC/OU/OG/OV-n)
         for c in conflictos[:300]:                     # los primeros 300; el resto, en la Tabla de datos
-            it = fila_lista(lista, f"{c.id} · {_tr(c.titulo)}", icono)
+            it = fila_lista(lista, f"{c.id} · {_tr(c.titulo)}", icono if c.es_conflicto else icono_obs)
             it.setData(QtCore.Qt.UserRole, c.id)
             it.setToolTip(c.mensaje or _tr(c.titulo))
         lista.setVisible(bool(conflictos))

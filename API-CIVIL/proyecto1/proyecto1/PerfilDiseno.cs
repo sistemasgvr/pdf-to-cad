@@ -240,6 +240,23 @@ namespace Civil3DBasico
             return r;
         }
 
+        /// <summary>
+        /// Muestras del terreno principal + las de las otras superficies (mismas estaciones) en un solo par de listas: el
+        /// rango vertical de la vista (Vertical) las abarca a todas (2026-11-14). Sin otras: las mismas listas.
+        /// </summary>
+        internal static void TerrenosJuntos(double[] est, double[] z, IList<double[]> otros, out double[] estJ, out double[] zJ)
+        {
+            est = est ?? new double[0]; z = z ?? new double[0];
+            if (otros == null || otros.Count == 0) { estJ = est; zJ = z; return; }
+            var le = new List<double>(est); var lz = new List<double>(z);
+            foreach (var o in otros)
+            {
+                if (o == null) continue;
+                for (int i = 0; i < Math.Min(est.Length, o.Length); i++) { le.Add(est[i]); lz.Add(o[i]); }
+            }
+            estJ = le.ToArray(); zJ = lz.ToArray();
+        }
+
         /// <summary>F.4-4: rango vertical, franjas, fila y posiciones Y (y convierte X de x' al marco).</summary>
         private static void Vertical(EntradaMaquetacion e, ResultadoMaquetacion r, EstadoMaq st, double s)
         {

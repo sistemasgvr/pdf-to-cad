@@ -62,7 +62,8 @@ class InformeMixin:
             if not ruta:
                 return None
         ft = self.scale / self.zoom if self.scale and self.zoom else 0.0
-        inf = informe_datos.armar(conflictos, avisos, self.pipes, ft, opciones, titulo=self._titulo_informe())
+        inf = informe_datos.armar(conflictos, avisos, self.pipes, ft, opciones, titulo=self._titulo_informe(),
+                                  codigos=self.codigos_avisos(avisos))
         from ia import redactor_ia
         redactor, motivo = redactor_ia.crear(self._config_ia(), self._ia_memoria())
         dlg3d = getattr(self, "_vista3d_dlg", None)

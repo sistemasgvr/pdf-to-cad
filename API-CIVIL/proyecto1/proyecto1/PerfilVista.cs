@@ -79,6 +79,41 @@ namespace Civil3DBasico
             catch (Exception ex) { PerfilLog.Error("VISTA", "perfil de terreno", ex); PerfilLog.Aviso("No se pudo crear el perfil del terreno"); return ObjectId.Null; }
         }
 
+        /// <summary>Colores ACI de los perfiles de terreno de las demás superficies (el principal va en gris, ACI 8).</summary>
+        internal static readonly short[] COLORES_OTROS_TERRENOS = { 94, 40, 172, 212, 30 };
+
+        /// <summary>
+        /// Las DEMÁS superficies TIN del dibujo también van al perfil (2026-11-14, pedido del usuario: «que las superficies
+        /// agregadas en la app se vean también en el perfil longitudinal de C3D»): un perfil de terreno por superficie
+        /// "{nombre} - {superficie}", cada uno con su color. Se crean antes que las vistas, así cada ProfileView los muestra.
+        /// Un fallo deja solo un aviso: el perfil sigue.
+        /// </summary>
+        internal static int CrearOtrosTerrenos(Transaction tr, ContextoPerfil ctx)
+        {
+            int n = 0;
+            for (int k = 0; k < ctx.Red.OtrasSuperficies.Count; k++)
+            {
+                ObjectId sid = ctx.Red.OtrasSuperficies[k];
+                try
+                {
+                    string nombreSup = ((CivilDB.Surface)tr.GetObject(sid, OpenMode.ForRead)).Name;
+                    short aci = COLORES_OTROS_TERRENOS[k % COLORES_OTROS_TERRENOS.Length];
+                    ObjectId estilo = PerfilEstilos.TerrenoColor(tr, ctx.CivDoc, ctx.S, ctx.Estilos, aci);
+                    if (estilo.IsNull) estilo = ctx.Estilos.TerrenoStyle;
+                    CivilDB.Profile.CreateFromSurface(ctx.Nombre + " - " + nombreSup, ctx.AlignId, sid, ctx.Estilos.CapaId,
+                                                      estilo, ctx.Estilos.LabelSetPerfilVacio);
+                    n++;
+                }
+                catch (Exception ex)
+                {
+                    PerfilLog.Error("VISTA", "perfil de otra superficie", ex);
+                    PerfilLog.Aviso("No se pudo crear el perfil de una de las otras superficies");
+                }
+            }
+            if (n > 0) PerfilLog.Log("VISTA", $"perfiles de otras superficies: {n}");
+            return n;
+        }
+
         /// <summary>
         /// G.4-4: crea la ProfileView de cada hoja (nombre D.1, BandSetVacio, VistaStyle) en su inserción apilada, capa, sin bandas
         /// y rango preliminar. Rellena hoja.PvId/Insercion. false si falla la hoja 1 (fatal); las demás se omiten con aviso.

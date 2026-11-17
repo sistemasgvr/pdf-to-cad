@@ -404,6 +404,8 @@ namespace Civil3DBasico
 
             string unit = pipes[0].Unit;
             double factor = FactorConversion(unit, db);
+            _avisoSinRango.Clear();          // el aviso «No se pudo leer el rango» sale en CADA importación
+            BuzonesLog.Empezar();            // tapa / fondo de cada buzón, paso a paso (%TEMP%\PDFCAD_Buzones.log)
             ed.WriteMessage("\n\n╔══════════════════════════════════════════════════════════════════╗");
             ed.WriteMessage("\n║                    ▶▶▶  IMPORTAR RED — INICIO  ◀◀◀               ║");
             ed.WriteMessage("\n╚══════════════════════════════════════════════════════════════════╝");
@@ -1180,6 +1182,12 @@ namespace Civil3DBasico
             // ── 7. Perfiles longitudinales guardados en la app (PDFCAD_PERFIL): los mismos de
             //        CREAR_PERFIL_RED, sin preguntar, uno debajo de otro bajo el dibujo.
             CrearPerfilesDeLaApp(ed, db, perfilesApp);
+
+            if (BuzonesLog.Guardar())
+                ed.WriteMessage($"\n  · Tapa/fondo de cada buzón paso a paso: {BuzonesLog.Ruta}" +
+                    (BuzonesLog.FueraDeRango > 0
+                        ? $" — ⚠ {BuzonesLog.FueraDeRango} paso(s) con la altura fuera del rango de la pieza."
+                        : " — ninguna altura fuera del rango de la pieza."));
 
             ed.WriteMessage("\n\n╔══════════════════════════════════════════════════════════════════╗");
             ed.WriteMessage("\n║                     ▶▶▶  IMPORTAR RED — FIN  ◀◀◀                ║");
@@ -1980,6 +1988,10 @@ namespace Civil3DBasico
                         // Civil 3D la cambia sola y avisa en el Event Viewer. El fondo sigue en la rasante
                         // de la tubería; lo que se corre es la TAPA.
                         var rango = RangoAlturaEstructura(st);
+                        // Nombre que verá el Event Viewer (el código del buzón se le pone más abajo).
+                        string nomLog = $"{st.Name} [{(string.IsNullOrWhiteSpace(match?.Id) ? "-" : match.Id)}]";
+                        BuzonesLog.Texto($"{nomLog}: pieza {realFamName} / {realSizeName}; se pide tapa {rim:F3}, fondo {sump:F3}");
+                        BuzonesLog.Anotar(nomLog, "recién creado", st.RimElevation, st.SumpElevation, rango);
                         if (rango.HasValue)
                         {
                             double h = rim - sump, hc = Math.Min(Math.Max(h, rango.Value.min), rango.Value.max);
@@ -2004,11 +2016,25 @@ namespace Civil3DBasico
                         if (holdRim)
                         {
                             st.AutomaticRimSurfaceAdjustment = false;   // clave: si queda true, ignora el rim manual
-                            st.RimElevation = rim;
+                            // Tapa y fondo en un orden en que la altura INTERMEDIA tampoco salga del rango de la
+                            // pieza (Civil 3D la revisa en cada escritura; 2026-11-13).
+                            PonerTapaYFondo(st, rim, sump, rango, nomLog);
                             explicitRimSump[sid] = (rim, sump);         // reponer al final (la conexión lo pisa)
                         }
                         else st.AutomaticRimSurfaceAdjustment = true;   // rim tomado de la superficie
                         st.SumpElevation = sump;
+                        BuzonesLog.Anotar(nomLog, "fin de la creación", st.RimElevation, st.SumpElevation, rango);
+                        if (holdRim)
+                        {
+                            // ¿Civil 3D cambió la altura pedida? Decirlo aquí, con el buzón y el rango leído
+                            // (si no, solo queda el aviso del Event Viewer, sin pista de cuál ni por qué).
+                            double hFin = st.RimElevation - st.SumpElevation;
+                            if (Math.Abs(hFin - (rim - sump)) > 0.01)
+                                ed.WriteMessage($"\n  ⚠ Buzón {(string.IsNullOrWhiteSpace(match?.Id) ? $"({v.X:F2},{v.Y:F2})" : match.Id)}: " +
+                                    $"se pidió tapa {rim:F2} / fondo {sump:F2} ft (altura {rim - sump:F2}) y Civil 3D dejó " +
+                                    $"{st.RimElevation:F2} / {st.SumpElevation:F2} (altura {hFin:F2}); rango de la pieza " +
+                                    (rango.HasValue ? $"{rango.Value.min:F2}–{rango.Value.max:F2} ft." : "no leído."));
+                        }
 
                         if (match != null && !string.IsNullOrWhiteSpace(match.Id))
                         { try { st.Name = match.Id; } catch { } }
@@ -2319,22 +2345,20 @@ namespace Civil3DBasico
                     //    Salvo que, con el fondo que dejó la conexión, esa tapa quede FUERA del rango
                     //    «Rim to Sump Height» de la pieza (Civil 3D la corrige y avisa en el Event
                     //    Viewer, 2026-11-10): entonces primero el fondo.
-                    var rangoRe = RangoAlturaEstructura(st);
-                    bool FueraDeRango(double h) => rangoRe.HasValue && (h < rangoRe.Value.min - 1e-4 || h > rangoRe.Value.max + 1e-4);
-                    bool fondoPrimero = false;
-                    try { fondoPrimero = FueraDeRango(kv.Value.rim - st.SumpElevation) && !FueraDeRango(st.RimElevation - kv.Value.sump); } catch { }
-                    if (fondoPrimero)
-                    {
-                        { string err = SetSumpControlByElevation(st); if (err != null && stMsg == "") stMsg = "ctrlSump→" + err; }
-                        try { st.SumpElevation = kv.Value.sump; } catch (Exception e3) { if (stMsg == "") stMsg = "sump→" + e3.Message; }
-                    }
-                    try { st.RimElevation = kv.Value.rim; } catch (Exception e2) { if (stMsg == "") stMsg = "rim→" + e2.Message; }
+                    //    Ahora `PonerTapaYFondo` elige el orden (o pasos cortos) para que NINGUNA altura
+                    //    intermedia salga del rango (2026-11-13).
+                    var rangoR = RangoAlturaEstructura(st);
+                    string nomR = st.Name;
+                    BuzonesLog.Anotar(nomR, "tras conectar tuberías", st.RimElevation, st.SumpElevation, rangoR);
+                    try { PonerTapaYFondo(st, kv.Value.rim, kv.Value.sump, rangoR, nomR); }
+                    catch (Exception e2) { if (stMsg == "") stMsg = "rim→" + e2.Message; }
                     // 3) Reconfirmar POR ELEVACIÓN (por si el paso anterior lo reinició)
                     //    y recién ahí fijar sump — así queda como la ÚLTIMA escritura,
                     //    nada después puede volver a pisarlo.
                     { string err = SetSumpControlByElevation(st); if (err != null && stMsg == "") stMsg = "ctrlSump→" + err; }
                     try { st.SumpElevation = kv.Value.sump; } catch (Exception e3) { if (stMsg == "") stMsg = "sump→" + e3.Message; }
                     bool adj = st.AutomaticRimSurfaceAdjustment; double rb = st.RimElevation; double sb = st.SumpElevation;
+                    BuzonesLog.Anotar(nomR, "final (repuesto)", rb, sb, rangoR);
                     bool okRim = Math.Abs(rb - kv.Value.rim) < 0.05;
                     bool okSump = Math.Abs(sb - kv.Value.sump) < 0.05;
                     if (!adj && okRim && okSump) stOk++;
@@ -3355,27 +3379,38 @@ namespace Civil3DBasico
                 }
                 double? mn = Leer("RangeMin"), mx = Leer("RangeMax");
                 if (!mn.HasValue || !mx.HasValue || mx.Value <= 0 || mx.Value < mn.Value) return null;
-                // Unidades: valor del campo vs. altura actual (pies).
-                double factor = 1.0;
+                // Unidades: valor del campo vs. altura actual (pies); si no coinciden, la unidad escrita del campo
+                // (antes se rendía: sin rango, Civil 3D cambiaba la altura y avisaba en el Event Viewer).
                 double hAct = st.RimElevation - st.SumpElevation;
                 object val = tc.GetProperty("Value")?.GetValue(campo);
                 double v;
-                if (val != null && hAct > 1e-6 &&
-                    double.TryParse(Convert.ToString(val, System.Globalization.CultureInfo.InvariantCulture),
-                        System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v) && v > 0)
-                {
-                    double r = v / hAct;
-                    if (Math.Abs(r - 12.0) < 0.6) factor = 1.0 / 12.0;
-                    else if (Math.Abs(r - 1.0) > 0.05) return null;    // unidades desconocidas: no tocar
-                }
-                else
-                {
-                    string u = Convert.ToString(tc.GetProperty("Units")?.GetValue(campo)) ?? "";
-                    if (u.IndexOf("in", StringComparison.OrdinalIgnoreCase) >= 0) factor = 1.0 / 12.0;
-                }
-                return (mn.Value * factor, mx.Value * factor);
+                double? valor = val != null && double.TryParse(Convert.ToString(val, System.Globalization.CultureInfo.InvariantCulture),
+                        System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v) ? v : (double?)null;
+                string u = Convert.ToString(tc.GetProperty("Units")?.GetValue(campo)) ?? "";
+                double? factor = AlturaBuzonNucleo.FactorUnidades(valor, hAct, u);
+                if (!factor.HasValue) return null;                    // unidades desconocidas: no tocar
+                return (mn.Value * factor.Value, mx.Value * factor.Value);
             }
             catch { return null; }
+        }
+
+        // Escribe tapa y fondo en el orden de `AlturaBuzonNucleo.Pasos`: ninguna altura intermedia sale del rango
+        // de la pieza (Civil 3D la revisa en cada escritura y, si se sale, la cambia y avisa en el Event Viewer).
+        // Después de cada tapa reconfirma «fondo por ELEVACIÓN» (en algunas familias escribir la tapa lo reinicia
+        // a «por profundidad» y el fondo quedaría en tapa − profundidad).
+        private static void PonerTapaYFondo(CivilDB.Structure st, double rim, double sump, (double min, double max)? rango,
+                                            string nomLog = null)
+        {
+            var pasos = AlturaBuzonNucleo.Pasos(st.RimElevation, st.SumpElevation, rim, sump,
+                                                rango?.min, rango?.max);
+            foreach (var (tapa, valor) in pasos)
+            {
+                if (tapa) { st.RimElevation = valor; SetSumpControlByElevation(st); }
+                else st.SumpElevation = valor;
+                if (nomLog != null)                              // lo que Civil 3D dejó tras ESTA escritura
+                    BuzonesLog.Anotar(nomLog, (tapa ? "escribe tapa " : "escribe fondo ") + valor.ToString("F3"),
+                                      st.RimElevation, st.SumpElevation, rango);
+            }
         }
 
         private static string SetSumpControlByElevation(CivilDB.Structure st)

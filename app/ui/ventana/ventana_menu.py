@@ -301,6 +301,8 @@ class MenuMixin:
             panel.restore()
         self.act_panel_izq, self.act_panel_der = acciones
         self._titulo_panel_izq()
+        from ui.ventana import ventana_panel_der_modos   # «Propiedades | Asistente» en la cabecera (2026-11-14)
+        ventana_panel_der_modos.poner(self)
 
     def _build_statusbar(self):
         # ── Barra de estado: modo · info · contadores en vivo · escala · georref ──

@@ -91,7 +91,9 @@ class HojasEditorMixin:
         comp = getattr(self, "composite", None)
         if not lay and comp is not None and len(comp.pieces) >= 2 and getattr(self, "src_pdfs", None):
             lay = self._calcular_layout(comp)
-        if not lay or comp is None or len(comp.pieces) != len(lay):
+        if comp is None or (lay and len(comp.pieces) != len(lay)):
+            return None                    # sin hoja compuesta (o el esquema era de otra): sin zonas
+        if not lay:
             return lay
         # las hojas de una utilidad agregada (`grupo`) caen ENCIMA de las del editor: no se repiten.
         # Con solo algunos planos a la vista (ventana_planos), las del primero de ellos.

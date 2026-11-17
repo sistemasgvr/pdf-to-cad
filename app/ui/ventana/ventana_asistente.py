@@ -47,7 +47,8 @@ class PanelAsistente(QtWidgets.QWidget):
             sl.addWidget(b, 1)
         lay.addLayout(cab)
         cab.insertWidget(0, seg, 1)
-        self.pila = QtWidgets.QStackedWidget()
+        from ui.comun.pila_actual import PilaActual     # Conflictos no deja su ancho pegado en Chat (2026-11-13)
+        self.pila = PilaActual()
         self._paginas = {}
         for clave in PESTANAS:
             hueco = QtWidgets.QWidget()
@@ -58,8 +59,20 @@ class PanelAsistente(QtWidgets.QWidget):
         self.grupo.idClicked.connect(lambda i: self.preparar(PESTANAS[i]))
         _theme.al_tema(self, lambda _n: self._estilo())
         self._estilo()
+        from traduccion.i18n import LANG_BUS
+        LANG_BUS.changed.connect(self._anchos_pestanas)
+
+    def _anchos_pestanas(self, *_a):
+        """Cada pestaña al menos del ancho de su texto: en un panel angosto «Conflictos» salía cortado
+        («onflicto», 2026-11-13). El panel se puede seguir achicando hasta ese mínimo."""
+        for b in self.grupo.buttons():
+            b.ensurePolished()                             # letra y relleno de la hoja de estilo («seg»)
+            f = QtGui.QFont(b.font())
+            f.setBold(True)                                # la elegida va en negrita: que tampoco se corte
+            b.setMinimumWidth(max(b.sizeHint().width(), QtGui.QFontMetrics(f).horizontalAdvance(b.text()) + 24))
 
     def _estilo(self):
+        self._anchos_pestanas()                            # la hoja de estilo cambia la letra de los botones
         self.ic.setPixmap(_icon("mdi:creation", color=_theme.tokens().accent).pixmap(20, 20))
 
     # ── contenido de cada pestaña (se crea al abrirla) ──

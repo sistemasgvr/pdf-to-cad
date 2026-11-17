@@ -94,8 +94,9 @@ namespace Civil3DBasico
             {
                 S = ctx.S, EstIni = hoja.EstA, EstFin = hoja.EstB,
                 EstMinPermitida = rec.EstMinPermitida, EstMaxPermitida = rec.EstMaxPermitida,
-                TerrenoEst = rec.TerrenoEst, TerrenoZ = rec.TerrenoZ,
             };
+            // el rango vertical también abarca las otras superficies (2026-11-14): sus perfiles se ven en la vista
+            PerfilDiseno.TerrenosJuntos(rec.TerrenoEst, rec.TerrenoZ, rec.OtrosTerrenosZ, out e.TerrenoEst, out e.TerrenoZ);
             double zMin = double.MaxValue, zMax = double.MinValue;
             foreach (var p in rec.Pasos.Where(p => p.EstHasta > hoja.EstA - 1e-6 && p.EstDesde < hoja.EstB + 1e-6))
             {

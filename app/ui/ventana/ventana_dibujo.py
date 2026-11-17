@@ -40,13 +40,24 @@ class DibujoMixin:
         self._indice_redibujo = None                   # índice de tramos de ESTE redibujo
         self._en_redibujo = True
         try:
-            with model_ops.memo_cotas(), model_ops.indice_vertices():   # (nada cambia mientras se dibuja)
+            # (nada cambia mientras se dibuja; los índices de vértices valen mientras no cambie la firma)
+            with model_ops.memo_cotas(), model_ops.indice_vertices(self._memoria_indices(self._memo_redibujo.firma)):
                 self._redraw_todo()
         finally:
             self._en_redibujo = False
             self._marcas_vigentes = False
         if self._provisional:
             self._lanzar_calculo()
+
+    def _memoria_indices(self, firma=None):
+        """El dict de `model_ops.indice_vertices` para ESTE modelo: el mismo mientras su firma no cambie (así el
+        índice de vértices no se rearma en cada redibujo ni entre las listas y el dibujo); otro modelo, otro dict."""
+        if firma is None:
+            firma = self._firma_modelo()
+        m = getattr(self, "_indices_modelo", None)
+        if m is None or m[0] != firma or firma is None:
+            m = self._indices_modelo = (firma, {})
+        return m[1]
 
     def _firma_modelo(self):
         """Todo lo que leen los cálculos que se reusan entre redibujos (`_memo`)."""

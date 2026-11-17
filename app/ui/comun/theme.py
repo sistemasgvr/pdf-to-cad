@@ -649,7 +649,9 @@ def apply_theme(app: QtWidgets.QApplication, name: ThemeName) -> Theme:
     if getattr(app, "_pdfcad_fusion", None) is not app.style():
         app.setStyle("Fusion")
         app._pdfcad_fusion = app.style()
-    ventanas = [w for w in app.topLevelWidgets() if w.isVisible() and w.updatesEnabled()]
+    # El aviso «Cambiando a modo…» (`cambio_tema`) no se congela: es lo que se ve mientras tanto.
+    ventanas = [w for w in app.topLevelWidgets() if w.isVisible() and w.updatesEnabled()
+                and not w.property("pdfcad_sin_congelar")]
     for w in ventanas:
         w.setUpdatesEnabled(False)
     try:

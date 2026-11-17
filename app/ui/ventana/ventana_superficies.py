@@ -51,7 +51,7 @@ class SuperficiesMixin:
                 libre = S.nombre_libre(s.nombre, usados)          # el nombre que quedará, ya en el diálogo
                 usados.add(libre)
                 cands.append(Candidato(archivo=nombre, sha=sha, indice=k, sup=s, nombre=libre, crs=s.crs,
-                                       avisos=list(s.avisos)))
+                                       avisos=list(s.avisos), ruta=os.path.abspath(ruta)))
         return cands
 
     def importar_superficies(self, rutas=None, elegir=None, ubicar=None):
@@ -95,7 +95,7 @@ class SuperficiesMixin:
         primero = len(self.superficies)
         usados = {r["nombre"] for r in self.superficies}
         for c in elegidos:
-            reg = S.registro(c.sup, c.archivo, c.sha, c.indice, c.crs)
+            reg = S.registro(c.sup, c.archivo, c.sha, c.indice, c.crs, getattr(c, "ruta", "") or "")
             reg["nombre"] = S.nombre_libre(c.nombre or c.sup.nombre, usados)
             usados.add(reg["nombre"])
             self.superficies.append(reg)
@@ -195,6 +195,42 @@ class SuperficiesMixin:
             out.append(dict(px=plano, z=np.asarray(pts[:, 2], np.float64), tri=tri))
         return out
 
+    def _superficies_perfil(self):
+        """Para el perfil longitudinal (2026-11-14): [(nombre, `perfil_superficies.IndiceTin` en px del plano)] de
+        cada superficie ENCENDIDA (la MISMA geometría que la Vista 3D, `_superficies_3d`); el índice se arma una vez
+        por superficie y georreferencia. Sin georreferencia: []."""
+        from nucleo import perfil_superficies as PS
+        geo = getattr(self, "georef", None)
+        if geo is None or not geo.active():
+            return []
+        matriz = repr(getattr(geo, "matrix", None))
+        cache = self.__dict__.setdefault("_sup_indices", {})
+        out = []
+        for reg in getattr(self, "superficies", ()) or ():
+            if not reg.get("visible", True):
+                continue
+            clave = (reg.get("sha1"), reg.get("archivo"), reg.get("indice", 0), reg.get("crs", ""), matriz,
+                     self._sup_destino())
+            if clave not in cache:
+                try:
+                    pts, tri, inv, _u = self._sup_geometria(reg)
+                except (L.ErrorSuperficie, S.ErrorSistema):
+                    continue
+                plano = self._sup_a_plano(pts[:, :2])
+                tri = np.asarray(tri)
+                if inv is not None and len(inv):
+                    tri = tri[~np.asarray(inv, dtype=bool)]
+                cache[clave] = PS.IndiceTin(plano, pts[:, 2], tri)
+            out.append((reg["nombre"], cache[clave]))
+        return out
+
+    def _firma_superficies_perfil(self):
+        """Lo que cambia las líneas de terreno del perfil: qué superficies están encendidas y la georreferencia."""
+        geo = getattr(self, "georef", None)
+        return (tuple((r.get("sha1"), r.get("indice", 0), r.get("nombre"), r.get("crs", ""), r.get("visible", True))
+                      for r in getattr(self, "superficies", ()) or ()),
+                repr(getattr(geo, "matrix", None)) if geo is not None and geo.active() else None)
+
     # ── dibujo ────────────────────────────────────────────────────────────
     def _superficies_al_dia(self):
         """Contorno + nombre de cada superficie visible (ítems propios: no pasan por `_overlay`)."""
@@ -242,6 +278,7 @@ class SuperficiesMixin:
                 n=reg["nombre"], p=reg["n_puntos"], t=reg["n_triangulos"]))
             it.setAcceptedMouseButtons(QtCore.Qt.NoButton)
             it.setData(0, ("superficie", k))
+            it.setData(1, ("superficie", k))
             sc.addItem(it)
             # nombre en una pastilla del color de la tierra (como las etiquetas C-n), encima del contorno y apilada
             txt = QtWidgets.QGraphicsSimpleTextItem(reg["nombre"])
@@ -260,6 +297,7 @@ class SuperficiesMixin:
             caja.setZValue(Z_SUPERFICIE)
             caja.setAcceptedMouseButtons(QtCore.Qt.NoButton)
             caja.setToolTip(it.toolTip())
+            caja.setData(1, ("superficie", k))                       # clic en la pastilla = elegirla
             sc.addItem(caja)
             txt = caja
             self._sup_items += [it, txt]
@@ -280,6 +318,8 @@ class SuperficiesMixin:
             self._llenar_lista_superficies()
             if hasattr(self, "_vista3d_al_dia"):
                 self._vista3d_al_dia()
+            if hasattr(self, "_perfil_al_dia"):              # su línea de terreno en el perfil (2026-11-14)
+                self._perfil_al_dia()
             self._sync_boton_capas()
 
     def quitar_superficie(self, k):
@@ -292,6 +332,8 @@ class SuperficiesMixin:
         self._llenar_lista_superficies()
         if hasattr(self, "_vista3d_al_dia"):
             self._vista3d_al_dia()
+        if hasattr(self, "_perfil_al_dia"):
+            self._perfil_al_dia()
         self._sync_boton_capas()
         self._info(_tr("Superficie quitada: {n} (Ctrl+Z la devuelve).").format(n=nombre))
 

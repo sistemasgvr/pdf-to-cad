@@ -59,3 +59,43 @@ def test_ningun_widget_se_conecta_al_tema_con_una_lambda_suelta():
              for i, l in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
              if "THEME_BUS.changed.connect(lambda" in l]
     assert not malos, malos
+
+
+def test_build_all_no_genera_instalador_si_falla_una_comprobacion():
+    """Lista de entrega (2026-11-13): pruebas y arnés del plugin ANTES de compilar, la verificación del
+    .exe sin la pregunta «¿generar de todos modos?» y el informe al final. Antes se podía seguir con errores."""
+    bat = next(RAIZ.glob("*build_all.bat")).read_text(encoding="utf-8")
+    pos = {k: bat.find(k) for k in ("verificar_entorno_build.py", "verificar_entrega.py fuentes",
+                                    r"installer\build_plugin.bat", "PyInstaller", "verificar_entrega.py exe",
+                                    '"%ISCC%" "%ISS%"', "verificar_entrega.py final")}
+    assert all(v >= 0 for v in pos.values()), pos
+    orden = list(pos.values())
+    assert orden == sorted(orden), pos
+    assert "SEGUIR" not in bat and "de todos modos" not in bat
+    import verificar_entrega as E                       # sin los PDF dorados (pedido 2026-11-13)
+    assert not any("regresion" in " ".join(c) for f in E.PASOS.values() for _n, _d, c, _w in f)
+    for fase in ("fuentes", "exe"):
+        i = bat.find(f"verificar_entrega.py {fase}")
+        assert "if errorlevel 1" in bat[i:i + 200] and "exit /b 1" in bat[i:i + 600]
+
+
+def test_verificar_entrega_falla_si_un_paso_falla_y_lo_anota(tmp_path, monkeypatch):
+    import verificar_entrega as E
+    monkeypatch.setattr(E, "DIST", str(tmp_path))
+    monkeypatch.setattr(E, "INFORME", str(tmp_path / "informe_entrega.md"))
+    monkeypatch.setattr(E, "LOGS", str(tmp_path / "entrega"))
+    py = sys.executable
+    monkeypatch.setitem(E.PASOS, "exe", [
+        ("bien", "Paso que pasa", [py, "-c", "print('todo en orden')"], str(tmp_path)),
+        ("mal", "Paso que falla", [py, "-c", "import sys; print('se cayó'); sys.exit(3)"], str(tmp_path))])
+    assert E.main(["exe"]) == 1
+    informe = (tmp_path / "informe_entrega.md").read_text(encoding="utf-8")
+    assert "Paso que pasa | ✔ bien" in informe and "Paso que falla | ✖ FALLÓ" in informe
+    assert "No se generó el instalador" in informe and "commit" in informe
+    assert (tmp_path / "entrega" / "mal.log").read_text(encoding="utf-8").strip() == "se cayó"
+    monkeypatch.setitem(E.PASOS, "exe", [("bien", "Paso que pasa", [py, "-c", "pass"], str(tmp_path))])
+    assert E.main(["exe"]) == 0
+    inst = tmp_path / "setup.exe"
+    inst.write_bytes(b"x" * 10)
+    assert E.main(["final", "--instalador", str(inst)]) == 0
+    assert "SHA-256" in (tmp_path / "informe_entrega.md").read_text(encoding="utf-8")

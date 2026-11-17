@@ -59,7 +59,7 @@ solo cambiaron de lugar (abajo, dónde quedó cada una).</p>
 <tr><td bgcolor="{{card}}" width="38%"><b>Barra de arriba</b></td><td bgcolor="{{card}}">La <b>P</b> (menú Archivo: nuevo, abrir, guardar, cerrar), el nombre del proyecto (un punto naranja = cambios sin guardar), <b>Buscar o ejecutar un comando…</b>, deshacer y rehacer, <b>Capas</b>, <b>Asistente</b>, el tema (luna / sol) y <b>Exportar a Civil 3D</b> (una ventana: qué incluir, versión e idioma de Civil 3D).</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>Riel (izquierda)</b></td><td bgcolor="{{card}}"><b>Dibujar</b>, <b>Hoja y PDF</b>, <b>Inventario</b> y <b>Revisión</b> cambian el panel de su lado; <b>Normativas</b>, <b>Tabla de datos</b> y <b>Duct Bank</b> se abren dentro de la ventana (al cerrarlos vuelves al plano); <b>Vista 3D</b> abre su ventana. Abajo: <b>Ayuda</b> y <b>Ajustes</b>.</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>Panel del riel</b></td><td bgcolor="{{card}}">Dibujar = las herramientas en una cuadrícula (Utilidad, Leader, Texto, Borrar, Centerline, Mover, Buzón, Accesorios, Duct Bank) y debajo las opciones de la elegida; pulsarla otra vez la detiene. Hoja y PDF = componer, escaneos, agregar utilidad, opacidad, minimapa y marcas de las hojas, escala y georreferencia. Inventario = las listas (utilidades, buzones, curvas, accesorios, bancoductos…) y los botones para varias a la vez; en <b>Accesorios</b> están los codos, Tees, Wyes, cruces y válvulas con un filtro por tipo: clic en uno y el plano va a él (clic derecho: «No hay accesorio» o las opciones de la válvula). Revisión = cuántos conflictos y avisos hay, resolver, revisar y limpiar, informe, normativas y qué se muestra en el plano.</td></tr>
-<tr><td bgcolor="{{card}}" width="38%"><b>Derecha</b></td><td bgcolor="{{card}}">Las <b>propiedades</b> de lo elegido (arriba, su color, nombre, acciones y las pestañas Propiedades · Cotas · Datos) o, con <b>Asistente</b>, la IA: Chat, Conflictos y «¿Cómo hago…?».</td></tr>
+<tr><td bgcolor="{{card}}" width="38%"><b>Derecha</b></td><td bgcolor="{{card}}">Las <b>propiedades</b> de lo elegido (arriba, su color, nombre, acciones y las pestañas Propiedades · Cotas · Datos) o, con <b>Asistente</b>, la IA: Chat, Conflictos y «¿Cómo hago…?». Arriba, «<b>Propiedades | Asistente</b>» cambia de uno a otro con un clic. Con el Asistente abierto, elegir algo en el plano o en el Inventario (con el ratón o con las flechas) muestra sus propiedades; los enlaces del chat te llevan al lugar sin cerrar la conversación.</td></tr>
 <tr><td bgcolor="{{card}}" width="38%"><b>Barra de estado (abajo)</b></td><td bgcolor="{{card}}">Modo, mensajes, avisos, coordenadas, escala, opacidad, georreferencia y las lupas para acercar y alejar.</td></tr>
 </table>
 
@@ -83,7 +83,7 @@ elegido a la derecha.</li>
 abajo a la derecha que se va solo; algunos traen un botón («Abrir carpeta», «Deshacer»).</p>
 
 <h2>Sobre el plano y en Propiedades</h2>
-<p>Arriba a la izquierda del plano, el aviso <b>«N conflictos · M avisos»</b> lleva a Revisión; abajo, una barra
+<p>Arriba a la izquierda del plano, el aviso <b>«N conflictos · O observaciones · M avisos»</b> lleva a Revisión; abajo, una barra
 para seleccionar, editar vértices, acercar, alejar y encuadrar. Propiedades va por secciones (General, Catálogo de
 Civil 3D, Cotas, Estado, Normativa); las acciones de lo elegido están en el botón <b>⋯</b> de la cabecera. Al hacer
 clic en un cruce de dos utilidades a distinta cota se abre <b>Conexión vertical</b>: las dos cotas, la diferencia
@@ -967,37 +967,82 @@ Lo mismo el ratón (resaltado, imán, clic) y Deshacer, que guarda solo lo que c
 Con decenas de miles de señales el lienzo solo repinta las que están a la vista.</p>
 </section>
 
+<section data-title="Conflictos, observaciones y avisos">
+<p>La app usa cuatro términos para lo que hay que revisar. Cada uno lleva su propio <b>código</b> y su propia
+numeración, en orden de lectura del plano (de arriba abajo y de izquierda a derecha). El mismo código sale en el
+plano, en Revisión, en la Tabla de datos y su Excel, en la Vista 3D, en el informe y en el chat de la IA.</p>
+<table width="100%" cellspacing="4" cellpadding="10">
+<tr><th align="left" width="24%">Término</th><th align="left" width="12%">Código</th><th align="left">Qué significa</th>
+    <th align="left" width="30%">Casos</th></tr>
+<tr><td bgcolor="{{danger}}"><b>Conflicto</b></td><td bgcolor="{{card}}">C-1, C-2…</td>
+    <td bgcolor="{{card}}"><b>Solo</b> cuando dos o más tuberías se cruzan, chocan o se tocan.</td>
+    <td bgcolor="{{card}}">Cruce a la misma cota, cruce sin conexión, choque entre redes distintas.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Observación de cotas</b></td><td bgcolor="{{card}}">OC-1, OC-2…</td>
+    <td bgcolor="{{card}}">En un vértice, la tubería llega a una cota y sale a otra.</td>
+    <td bgcolor="{{card}}">Escalón de cota.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Unión no constructible</b></td><td bgcolor="{{card}}">OU-1, OU-2…</td>
+    <td bgcolor="{{card}}">Hay demasiadas tuberías en un mismo punto: no existe un accesorio que las una.</td>
+    <td bgcolor="{{card}}">5 o más tuberías en un punto.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Observación geométrica</b></td><td bgcolor="{{card}}">OG-1, OG-2…</td>
+    <td bgcolor="{{card}}">La forma de la tubería no deja lugar para los codos.</td>
+    <td bgcolor="{{card}}">Tramo muy corto entre codos, codo de retorno.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Observación de conexión vertical</b></td><td bgcolor="{{card}}">OV-1, OV-2…</td>
+    <td bgcolor="{{card}}">La diferencia de altura no alcanza para la conexión vertical.</td>
+    <td bgcolor="{{card}}">Unión con pendiente (sin espacio para vertical), conexión vertical con pendiente.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Aviso de normativa</b></td><td bgcolor="{{card}}">N-1, N-2…</td>
+    <td bgcolor="{{card}}">Algo no cumple una regla de diseño (separación, diámetro, pendiente…). Una separación
+        corta entre dos tuberías que <b>no</b> se tocan es un aviso, no un conflicto.</td>
+    <td bgcolor="{{card}}">Los de las Normativas de diseño.</td></tr>
+<tr><td bgcolor="{{card}}"><b>Aviso de reconocimiento</b> (por verificar)</td><td bgcolor="{{card}}">R-1, R-2…</td>
+    <td bgcolor="{{card}}">Lo que el reconocimiento del PDF no pudo leer con certeza.</td>
+    <td bgcolor="{{card}}">Diámetro del plano sin leer o dudoso.</td></tr>
+</table>
+<p>Las cuatro observaciones tienen algo en común: <b>Civil 3D no podrá construirlo tal como está dibujado</b> (la
+página siguiente dice qué hará en su lugar). Por eso sus códigos empiezan con «O» y van juntas.</p>
+<p><b>Los códigos no cambian nunca.</b> Cada uno se da una vez y queda fijo: si resuelves C-3, los demás siguen
+con su número (C-4 sigue siendo C-4) y C-3 no se vuelve a usar; si el problema vuelve (por ejemplo con
+<span class="key">&nbsp;Ctrl+Z&nbsp;</span>), vuelve con su mismo código. Vale para todos: C, OC, OU, OG, OV, N y R.
+Los códigos se guardan con el proyecto.</p>
+<table width="100%" cellspacing="0" cellpadding="12"><tr>
+<td width="6" bgcolor="{{info_border}}"></td><td bgcolor="{{info}}">
+En <b>Revisión → Resolver conflictos…</b> la lista tiene dos secciones: <b>Conflictos</b> y <b>Observaciones</b>.
+Un proyecto guardado con una versión anterior conserva sus números: una observación que era C-7 pasa a ser
+OC-7 (u OU-7, OG-7, OV-7 según su tipo).
+</td></tr></table>
+</section>
+
 <section data-title="Alertas rojas: cuándo salen">
-<p>Cada conflicto lleva un <b>número</b> (C-1, C-2…, en orden de lectura del plano) junto a su marca; el mismo
-número sale en la Tabla de datos (pestaña «Conflictos»), en su Excel y en la Vista 3D.</p>
+<p>Cada alerta lleva su <b>código</b> junto a la marca: <b>C-n</b> si es un conflicto (dos o más tuberías se tocan)
+u <b>OC-n, OU-n, OG-n u OV-n</b> si es una observación (ver la página anterior); el mismo código sale en la Tabla de datos (pestaña
+«Conflictos y observaciones»), en su Excel y en la Vista 3D.</p>
 <p>El triángulo rojo <img src="mark:alerta"> aparece en estos casos. Todos se refieren a redes
 <b>a presión</b> (agua y gas), salvo «tuberías que chocan», que avisa en cualquier utilidad.</p>
 <table width="100%" cellspacing="4" cellpadding="10">
 <tr><th align="left" width="24%">Caso</th><th align="left">Cuándo sale</th><th align="left">Qué hará Civil 3D</th></tr>
-<tr><td bgcolor="{{danger}}"><b>Demasiadas tuberías</b></td>
+<tr><td bgcolor="{{danger}}"><b>Demasiadas tuberías</b><br><small>Unión no constructible (OU-n)</small></td>
     <td bgcolor="{{card}}">5 o más tuberías se juntan en el mismo punto a la misma cota.</td>
     <td bgcolor="{{card}}">No pondrá ningún accesorio ahí. <b>Corrige el dibujo.</b></td></tr>
-<tr><td bgcolor="{{danger}}"><b>Redes distintas</b></td>
+<tr><td bgcolor="{{danger}}"><b>Redes distintas</b><br><small>Conflicto (C-n)</small></td>
     <td bgcolor="{{card}}">Dos redes a presión de <b>distinto tipo</b> (agua y gas) se cruzan a la misma cota.</td>
     <td bgcolor="{{card}}">No las une: quedarán chocando. Cambia la cota de una.</td></tr>
-<tr><td bgcolor="{{danger}}"><b>Tuberías que chocan</b></td>
+<tr><td bgcolor="{{danger}}"><b>Tuberías que chocan</b><br><small>Conflicto (C-n)</small></td>
     <td bgcolor="{{card}}">Dos tuberías de <b>cualquier utilidad</b> (al menos una que no sea de agua o gas)
         se atraviesan a la misma cota y no se conectan: por ejemplo agua y drenaje, o dos
         eléctricas que se cruzan a mitad de tramo sin caja.</td>
     <td bgcolor="{{card}}">No las une: quedarán chocando. <b>Corrige el dibujo o cambia la cota de una.</b></td></tr>
-<tr><td bgcolor="{{danger}}"><b>Escalón de cota</b></td>
+<tr><td bgcolor="{{danger}}"><b>Escalón de cota</b><br><small>Observación de cotas (OC-n)</small></td>
     <td bgcolor="{{card}}">En un vértice de una misma tubería, el tramo que llega y el que sale tienen cotas distintas.</td>
     <td bgcolor="{{card}}">Unirá los dos tramos a la <b>cota promedio</b>.</td></tr>
-<tr><td bgcolor="{{danger}}"><b>Tramo muy corto entre codos</b></td>
+<tr><td bgcolor="{{danger}}"><b>Tramo muy corto entre codos</b><br><small>Observación geométrica (OG-n)</small></td>
     <td bgcolor="{{card}}">Entre dos quiebres seguidos hay un tramo más corto que 3 diámetros (mínimo 1 pie).</td>
     <td bgcolor="{{card}}">Pondrá <b>un solo codo</b> en lugar de dos.</td></tr>
-<tr><td bgcolor="{{danger}}"><b>Conexión vertical con pendiente</b></td>
+<tr><td bgcolor="{{danger}}"><b>Conexión vertical con pendiente</b><br><small>Observación de conexión vertical (OV-n)</small></td>
     <td bgcolor="{{card}}">Una unión vertical aprobada en un quiebre tiene muy poco desnivel para dos codos.</td>
     <td bgcolor="{{card}}">Pondrá una Wye con el ramal inclinado y la tubería que llega tendrá <b>pendiente</b>.</td></tr>
-<tr><td bgcolor="{{danger}}"><b>Sin espacio para vertical</b></td>
+<tr><td bgcolor="{{danger}}"><b>Sin espacio para vertical</b><br><small>Observación de conexión vertical (OV-n)</small></td>
     <td bgcolor="{{card}}">Dos tuberías terminan en el mismo punto a distinta altura, pero la diferencia es muy chica para unirlas con una tubería vertical.</td>
     <td bgcolor="{{card}}">Le dará <b>pendiente</b> a la más larga (o a las dos, si miden lo mismo) y las unirá con un codo.</td></tr>
-<tr><td bgcolor="{{danger}}"><b>Codo de retorno</b></td>
+<tr><td bgcolor="{{danger}}"><b>Codo de retorno</b><br><small>Observación geométrica (OG-n)</small></td>
     <td bgcolor="{{card}}">La tubería da la vuelta casi en U (giro de más de 135°) y el tramo corto no alcanza para la curva.</td>
     <td bgcolor="{{card}}">Pondrá una <b>curva en U</b> en el vértice y correrá el tramo corto un poco hacia el costado.</td></tr>
 </table>
@@ -1120,7 +1165,7 @@ el ramal un tamaño menor (12 → 8). Una principal de 6 in no tiene tamaño men
 <p><b>riel → Tabla de datos…</b> (<span class="key">&nbsp;Ctrl+Shift+T&nbsp;</span>, o el botón de tabla en
 la barra superior) muestra toda la información del proyecto en pestañas: <b>utilidades</b> (nombre, tipo,
 estado, familia, tamaño, diámetro, largo, cotas, amperaje, bancoducto, coordenadas y avisos), <b>buzones y
-cajas</b>, <b>curvas</b>, <b>bancoductos</b>, <b>avisos de normativa</b>, <b>conflictos</b> (C-1, C-2…) y
+cajas</b>, <b>curvas</b>, <b>bancoductos</b>, <b>avisos de normativa</b>, <b>conflictos y observaciones</b> (C-1…, OC-1…, OU-1…) y
 <b>cotas por vértice</b>.</p>
 <ul>
 <li>Clic en un encabezado para ordenar; <b>Buscar en la tabla…</b> filtra.</li>
@@ -1340,7 +1385,9 @@ conversaciones nunca pasan. <b>Quitar de producción</b> saca las marcadas. Lueg
 <code>produccion.json</code> con Git para que vaya en el próximo instalador.</p>
 <h2>Resolver conflictos</h2>
 <p><b>Revisión → Resolver conflictos…</b> (o clic derecho junto a una marca C-n del plano → «Resolver C-n: ver
-soluciones…») lista los conflictos. Al elegir uno:</p>
+soluciones…») lista los conflictos y, en otra sección, las observaciones. Al elegir uno, el plano va a su lugar y se
+acerca hasta verlo de cerca (unos 40 ft; si ya estabas más cerca no aleja), con un círculo amarillo que parpadea
+10 segundos. Lo mismo desde el chat, Revisión, la Tabla de datos y la Vista 3D. Además:</p>
 <ul>
 <li>La app calcula las soluciones posibles: en un cruce o choque a la misma cota, bajar o subir una de las dos
     utilidades lo justo para que no se toquen (y con la separación que pidan las normativas); en un escalón,
@@ -1351,7 +1398,7 @@ soluciones…») lista los conflictos. Al elegir uno:</p>
 <li><b>Aplicar la propuesta elegida</b> cambia las cotas en un solo paso: <span class="key">&nbsp;Ctrl+Z&nbsp;</span>
     lo deshace. Lo aplicado queda en lo que la IA aprende del proyecto.</li>
 </ul>
-<p>Los conflictos que se arreglan cambiando el dibujo (5 o más tuberías en un punto, tramos cortos entre codos…)
+<p>Las observaciones que se arreglan cambiando el dibujo (5 o más tuberías en un punto, tramos cortos entre codos…)
 no tienen solución automática: la ventana explica qué hacer.</p>
 <h2>¿Qué significa esta regla?</h2>
 <p>En <b>riel → Normativas de diseño</b>, pestaña Reglas, elige una fila y pulsa <b>Explicar con IA</b>: la
@@ -1469,7 +1516,10 @@ del plano. Clic en una fila resalta ese tramo en el plano. <span class="key">&nb
 <li><b>Utilidades</b>: también es la leyenda de colores; desmarca las que no quieras ver.</li>
 <li><b>Mostrar</b>: buzones y sólidos, accesorios, avisos.</li>
 <li><b>Superficie</b>: mostrarla, su opacidad y su cota (automática = la tapa más alta, o 3 ft sobre la tubería
-    más alta si no hay buzones). <b>Restablecer</b> vuelve a lo de fábrica.</li>
+    más alta si no hay buzones). <b>Restablecer</b> vuelve a lo de fábrica. Con una superficie importada, además:
+    <b>Estilo</b> — <i>Relieve</i> (colores del terreno con sombra), <i>Cotas</i> (franjas de color de lo más bajo, morado,
+    a lo más alto, rojo, con su leyenda) o <i>Malla</i> (solo los triángulos); <b>Bordes de los triángulos</b>;
+    <b>Curvas de nivel</b> con su <b>Intervalo</b> (automático: unas 15 curvas; una más marcada cada 5).</li>
 </ul>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
@@ -1598,6 +1648,14 @@ sistema de coordenadas de Civil 3D (por ejemplo <b>CA83VF</b>), escríbelo y el 
 </ol>
 <p>La superficie se ve en el plano como un contorno con su nombre (el plano debe estar <b>georreferenciado</b>).
 En <b>Inventario → Superficies</b> ves cada una con su estado (✔ bien, ⚠ aviso, ✖ error) y, al elegirla, lo que se revisó: archivo guardado, puntos y triángulos, cotas, sistema y si cae sobre la hoja. En <b>Capas ▾ → Superficies</b> la enciendes, la apagas o la quitas (<span class="key">&nbsp;Ctrl+Z&nbsp;</span> la devuelve).</p>
+<p><b>Propiedades:</b> al elegirla en el Inventario, o con un clic en su <b>contorno</b> o en su nombre en el plano, el
+panel derecho muestra la <b>ruta del archivo original</b> (con <span class="btn">Abrir la carpeta del archivo</span>),
+el formato, el sistema de coordenadas y las unidades, y sus estadísticas como en Civil 3D: puntos, triángulos, cotas
+mínima, máxima y media, área 2D y 3D, pendiente media y máxima, lado y área de los triángulos y la extensión. Un clic
+dentro de la superficie no la elige (cubre todo el plano).</p>
+<p><b>Perfil:</b> cada superficie encendida se dibuja en el perfil longitudinal como una línea de terreno de su color,
+con su nombre; donde el recorrido sale de la superficie, la línea se corta. En Civil 3D, el perfil también trae un
+perfil de terreno por cada superficie del dibujo, cada uno con su color.</p>
 <p>Al exportar el DXF, junto a él se crea la carpeta <b>&lt;nombre&gt;_superficies</b> con un LandXML por superficie,
 ya en el sistema de coordenadas de las redes y con las cotas en pies. En Civil 3D, <b>IMPORTAR_RED</b> la crea con los
 <b>mismos puntos y triángulos</b> y lo comprueba en la consola (✔ o ⚠). Lleva esa carpeta siempre junto al DXF.</p>

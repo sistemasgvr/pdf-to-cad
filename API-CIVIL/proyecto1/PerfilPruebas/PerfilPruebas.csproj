@@ -19,5 +19,6 @@
     <Compile Include="..\proyecto1\EnderezarNucleo.cs" />
     <Compile Include="..\proyecto1\ValvulaReceta.cs" />
     <Compile Include="..\proyecto1\SuperficiesNucleo.cs" />
+    <Compile Include="..\proyecto1\AlturaBuzonNucleo.cs" />
   </ItemGroup>
 </Project>

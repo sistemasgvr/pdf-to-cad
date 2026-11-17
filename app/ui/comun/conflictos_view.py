@@ -1,4 +1,4 @@
-"""Número de cada conflicto en el lienzo: una etiqueta «C-n» junto a su marca (tamaño
+"""Número de cada conflicto en el lienzo: una etiqueta «C-n» (u «OC-n», «OU-n»… observación) junto a su marca (tamaño
 fijo en pantalla), con el detalle en el tooltip. La lista sale de `nucleo/conflictos.py`."""
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from traduccion.i18n import t as _tr
 from ui.comun.capa_marcas import duenas, sello
+from ui.comun.capa_marcas_resumen import ACCESORIO, AVISO, CONFLICTO, OBSERVACION, clase  # noqa: F401
 from ui.comun.ui_common import tooltip_bloque
 
 Z_ETIQUETA = 10_000
@@ -41,11 +42,12 @@ def dibujar_iter(scene, conflictos, tol_px=4.0, poner=None, capa_de=None):
         # Arriba a la IZQUIERDA de la marca: a la derecha va la etiqueta del accesorio («Cruz 90°»).
         caja.setTransform(QtGui.QTransform().translate(-r.width() - 9, -r.height() - 9))
         caja.setZValue(Z_ETIQUETA)
-        caja.setToolTip(tooltip_bloque("\n\n".join(f"{k.id} · {_tr(k.titulo)}\n{k.mensaje}" for k in grupo)))
+        caja.setToolTip(tooltip_bloque("\n\n".join(f"{k.id} · {_tr(k.subtipo)}: {_tr(k.titulo)}\n{k.mensaje}" for k in grupo)))
         caja.setData(0, " ".join(k.id for k in grupo))
         if capa_de is not None:
             capas = [capa_de(i) for k in grupo for i in (k.pipes or [None])]
             if all(capas):
                 duenas(caja, capas)
+        clase(caja, CONFLICTO if any(k.es_conflicto for k in grupo) else OBSERVACION, len(grupo))
         (poner or scene.addItem)(caja)
         yield caja

@@ -33,3 +33,7 @@ pyproj==3.8.0
 scikit-image==0.26.0
 contextily==1.7.1
 pyinstaller==6.22.3
+
+# Solo para las comprobaciones de la entrega (scripts/verificar_entrega.py); no va dentro del .exe.
+# Sin version fija: verificar_entorno_build.py solo exige las lineas con «==».
+pytest>=8.3

@@ -117,7 +117,7 @@ def encuadrar(win):
         return
     cv.resetTransform()
     cv.fitInView(cv.sceneRect(), QtCore.Qt.KeepAspectRatio)
-    cv._zoom_level = 1.0
+    cv.fijar_base_zoom()
     cv.viewChanged.emit()
 
 
@@ -126,14 +126,17 @@ def _zoom(win):
     win._flot_zoom.setText(f"{lvl * 100:.0f} %")
 
 
-def refrescar(win, n_conf=None, n_avisos=None):
-    """Hay hoja: la barra se ve; el aviso de conflictos solo si hay alguno."""
+def refrescar(win, n_conf=None, n_avisos=None, n_obs=0):
+    """Hay hoja: la barra se ve; el aviso de conflictos solo si hay alguno (conflictos, observaciones y avisos,
+    cada uno con su nombre: terminología 2026-11-13)."""
     if getattr(win, "barra_plano", None) is None:
         return
     if n_conf is not None:
         partes = []
         if n_conf:
             partes.append(_tr("{n} conflictos").format(n=n_conf) if n_conf != 1 else _tr("1 conflicto"))
+        if n_obs:
+            partes.append(_tr("{n} observaciones").format(n=n_obs) if n_obs != 1 else _tr("1 observación"))
         if n_avisos:
             partes.append(_tr("{n} avisos").format(n=n_avisos) if n_avisos != 1 else _tr("1 aviso"))
         win.chip_conflictos.setText("  " + " · ".join(partes))

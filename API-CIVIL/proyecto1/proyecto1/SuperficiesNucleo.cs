@@ -192,6 +192,23 @@ namespace Civil3DBasico
                 return sr.ReadToEnd();
         }
 
+        /// <summary>Archivo que se le da a Civil 3D para crear la superficie. Civil 3D lo deja REFERENCIADO en la
+        /// definición de la superficie y lo vuelve a leer al reconstruirla: antes era una copia en %TEMP% que se
+        /// borraba y salía «Referenced file … not found» (reporte del usuario 2026-11-13). Si el original ya tiene
+        /// las unidades del dibujo (y no trae &lt;CoordinateSystem&gt;), el ORIGINAL; si no, una copia que se queda
+        /// junto a él: «NOMBRE.civil3d-UNIDAD.xml». Devuelve (ruta, hay que escribirla).</summary>
+        public static (string ruta, bool escribir) ArchivoParaCivil(string rutaOriginal, string textoOriginal,
+                                                                    string textoAjustado, string unidadDibujo)
+        {
+            bool mismaUnidad = string.Equals(UnidadDelArchivo(textoOriginal), unidadDibujo, StringComparison.OrdinalIgnoreCase);
+            if (string.Equals(textoOriginal, textoAjustado, StringComparison.Ordinal) ||
+                (mismaUnidad && textoOriginal.IndexOf("<CoordinateSystem", StringComparison.OrdinalIgnoreCase) < 0))
+                return (rutaOriginal, false);
+            string dir = Path.GetDirectoryName(rutaOriginal) ?? "";
+            string baseNom = Path.GetFileNameWithoutExtension(rutaOriginal);
+            return (Path.Combine(dir, $"{baseNom}.civil3d-{unidadDibujo}.xml"), true);
+        }
+
         /// <summary>Nombre libre: «NAME», si no «NAME (2)», «NAME (3)»…</summary>
         public static string NombreLibre(string nombre, ICollection<string> existentes)
         {

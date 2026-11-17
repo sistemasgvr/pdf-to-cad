@@ -40,6 +40,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from ui.comun.capa_marcas_sellos import (FASES, _caja_local, _caja_rotulo, _hacer_sello, _pintar,  # noqa: F401
                                         sello)
 from ui.comun.capa_marcas_vista import CacheVistaMixin, DespejeMixin
+from ui.comun.capa_marcas_resumen import ResumenMixin, clase  # noqa: F401
 
 def duenas(item, capas):
     """Anota de qué capas de utilidad es la marca: «Capas» la oculta cuando están TODAS apagadas, aunque otra
@@ -59,6 +60,8 @@ class _Capa(CacheVistaMixin, QtWidgets.QGraphicsItem):
         super().__init__()
         self.grupo = grupo
         self.marcas = []
+        self.clases = []                                 # clase de cada marca para el resumen por zona (0 = ninguna)
+        self.pesos = []                                  # y por cuántos cuenta
         self.ids = []                                    # aspecto de cada marca: nº, -1 sin clave, None sin ver
         self._xs, self._ys = [], []
         self._cajas = []                                 # caja de cada marca en px de pantalla
@@ -88,6 +91,8 @@ class _Capa(CacheVistaMixin, QtWidgets.QGraphicsItem):
         x, y = xy
         caja = _caja_local(it)
         self.marcas.append(it)
+        self.clases.append(getattr(it, "_pdfcad_clase", 0))
+        self.pesos.append(getattr(it, "_pdfcad_peso", 1))
         self.ids.append(None)
         self._xs.append(x)
         self._ys.append(y)
@@ -166,6 +171,8 @@ class _Capa(CacheVistaMixin, QtWidgets.QGraphicsItem):
         return True
 
     def paint(self, painter, opcion, widget=None):
+        if self.grupo.en_resumen(widget):                # de lejos: un globo por zona (capa_marcas_resumen)
+            return
         W = QtGui.QTransform(painter.worldTransform())
         escala = max(math.hypot(W.m11(), W.m12()), 1e-9)
         m = self.ext / escala
@@ -287,7 +294,7 @@ class _Capa(CacheVistaMixin, QtWidgets.QGraphicsItem):
         self.setToolTip("")
 
 
-class GrupoMarcas(DespejeMixin):
+class GrupoMarcas(ResumenMixin, DespejeMixin):
     """Las capas de un redibujo: una por Z. `agregar(item)` en lugar de `scene.addItem(item)`."""
 
     def __init__(self, scene, escala, nuevas=None, previo=None):
@@ -403,6 +410,9 @@ class GrupoMarcas(DespejeMixin):
         vista = self._vista_de(self.scene, widget)
         if vista is None:
             return ""
+        if self.en_resumen(widget):                      # de lejos: el globo de la zona
+            hit = self.zona_en(punto, widget)
+            return hit[0].texto(hit[1]) if hit else ""
         W = vista.viewportTransform()
         cursor = W.map(punto)
         escala = max(math.hypot(W.m11(), W.m12()), 1e-9)

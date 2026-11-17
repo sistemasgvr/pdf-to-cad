@@ -28,6 +28,45 @@ def fila_lista(lista, texto="", icono=None):
     return it
 
 
+def filas_lista(lista, textos, iconos=None):
+    """Agrega MUCHAS filas de una vez (2026-11-14, proyecto de 29 000 utilidades: fila por fila eran ~49 000
+    inserciones, cada una avisando a la vista; juntas es una sola). `iconos` = uno por fila (None = sin icono).
+    Las filas las crea Qt, como en `fila_lista`. Deja anotado que la lista quedó sin filas ocultas ni en gris
+    (`_pdfcad_limpia`): quien las recorre para ocultar/atenuar puede saltarse el recorrido si no hay nada que hacer."""
+    textos = list(textos)
+    base = lista.count()
+    lista.addItems(textos)
+    if iconos is not None:
+        item = lista.item
+        for k, ic in enumerate(iconos):
+            if ic is not None:
+                item(base + k).setIcon(ic)
+    if base == 0:
+        lista._pdfcad_limpia = True
+        lista._pdfcad_ocultas = lista._pdfcad_tenues = False
+    return base
+
+
+class GloboDeFila(QtCore.QObject):
+    """El texto completo de la fila como globo, calculado AL PEDIRLO (antes se copiaba a cada fila al llenar la
+    lista: decenas de miles de llamadas). Una fila con su propio globo lo conserva."""
+
+    def __init__(self, lista):
+        super().__init__(lista)
+        self.lista = lista
+        lista.viewport().installEventFilter(self)
+
+    def eventFilter(self, obj, ev):
+        if ev.type() == QtCore.QEvent.ToolTip:
+            it = self.lista.itemAt(ev.pos())
+            if it is not None and not it.toolTip():
+                from PySide6 import QtWidgets
+                QtWidgets.QToolTip.showText(ev.globalPos(), it.text(), self.lista.viewport(),
+                                            self.lista.visualItemRect(it))
+                return True
+        return False
+
+
 ICON_SM = 18
 ICON_MD = 22
 ICON_LG = 28

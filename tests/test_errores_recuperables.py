@@ -28,7 +28,9 @@ def test_excepcion_qt_y_de_hilo_se_registran_y_muestran_sin_salir(app, monkeypat
             raise ValueError("fallo de prueba en capas")
         boton.clicked.connect(fallar)
         boton.click()  # PySide llama sys.excepthook y conserva el bucle de eventos
-        hilo = threading.Thread(target=fallar)
+        def fallar_en_hilo():                     # otro lugar: el MISMO error se avisa una sola vez (2026-11-16)
+            raise ValueError("fallo de prueba en capas")
+        hilo = threading.Thread(target=fallar_en_hilo)
         hilo.start()
         hilo.join()
         app.processEvents()
@@ -42,6 +44,39 @@ def test_excepcion_qt_y_de_hilo_se_registran_y_muestran_sin_salir(app, monkeypat
     finally:
         del app._gestor_errores
         gestor.deleteLater()
+
+
+def test_el_mismo_error_repetido_se_avisa_una_vez_y_no_en_bucle(app, monkeypatch, tmp_path):
+    """Reporte del cliente 2026-11-16: un error al dibujar la Vista 3D salía en cada cuadro y el aviso volvía a
+    aparecer al cerrarlo, en bucle. El mismo error (tipo + lugar) se avisa UNA vez; los demás solo se cuentan."""
+    monkeypatch.setenv("PDFCAD_DIAGNOSTICOS", str(tmp_path))
+    monkeypatch.setattr(sys, "excepthook", sys.excepthook)
+    monkeypatch.setattr(threading, "excepthook", threading.excepthook)
+    vistos = []
+    monkeypatch.setattr(errores.GestorErrores, "_mostrar", lambda self, r, d: vistos.append(r))
+    gestor = errores.instalar(app)
+    try:
+        boton = QtWidgets.QPushButton()
+
+        def pintar():
+            raise OverflowError("int too big to convert")
+        boton.clicked.connect(pintar)
+        for _ in range(50):                       # como un repintado que falla en cada cuadro
+            boton.click()
+        app.processEvents()
+        assert vistos == ["OverflowError: int too big to convert"]
+        log = (tmp_path / f"sesion-{os.getpid()}.log").read_text(encoding="utf-8")
+        assert log.count("Excepción no controlada") == errores.REPETICIONES_REGISTRADAS   # no 50 entradas
+        assert "(repetición 2)" in log
+    finally:
+        del app._gestor_errores
+        gestor.deleteLater()
+
+
+def test_donde_paso_el_error_segun_la_pila():
+    pila = 'Traceback (most recent call last):\n  File "D:\\app\\ui\\comun\\visor3d.py", line 222, in _subir\nOverflowError'
+    assert errores._donde(pila) == "la Vista 3D"
+    assert errores._donde("Traceback\n  File \"x\\otra_cosa.py\", line 1\nValueError") == ""
 
 
 def test_registro_sin_permiso_no_oculta_error_original(monkeypatch):

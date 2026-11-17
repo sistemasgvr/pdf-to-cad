@@ -99,7 +99,15 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         self.lbl_vacio = QtWidgets.QLabel(_tr("Dibuja o importa utilidades para verlas en 3D."))
         self.lbl_vacio.setAlignment(QtCore.Qt.AlignCenter)
         self.lbl_vacio.setWordWrap(True)
-        self.pila.addWidget(self.lbl_vacio)
+        self.lbl_vacio.setMaximumWidth(560)
+        self.lbl_vacio.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)   # (la ruta del registro se copia)
+        # a la derecha de la tarjeta de opciones (flota encima, a la izquierda: 16 + 270 px)
+        pagina = QtWidgets.QWidget()
+        hl = QtWidgets.QHBoxLayout(pagina)
+        hl.setContentsMargins(16 + 270 + 24, 24, 24, 24)
+        hl.addWidget(self.lbl_vacio, 0, QtCore.Qt.AlignCenter)
+        self.pila.addWidget(pagina)
+        self.visor.fallo.connect(self._fallo_visor)
         ll.addWidget(self.pila)
         lay.addWidget(self._lienzo, 1)
         self._flot_barra = self._flotante(self._barra())
@@ -423,6 +431,34 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         self.chk_suelo = fila.interruptor
         self.chk_suelo.toggled.connect(self._suelo)
         f.addRow(fila)
+        fila = R.fila_interruptor("Bordes de los triángulos", encendido=True)   # superficie importada (2026-11-14)
+        self.chk_bordes = fila.interruptor
+        self.chk_bordes.setToolTip(_tr("Dibuja el borde de cada triángulo de la superficie importada, como Civil 3D. "
+                                       "De lejos se desvanecen solos."))
+        self.chk_bordes.toggled.connect(self._suelo)
+        f.addRow(fila)
+        # estilo de la superficie importada (2026-11-14): relieve, cotas en franjas, malla; y curvas de nivel
+        self.cmb_estilo_sup = QtWidgets.QComboBox()
+        for clave, txt in (("relieve", "Relieve"), ("cotas", "Cotas (franjas de color)"), ("malla", "Malla")):
+            self.cmb_estilo_sup.addItem(_tr(txt), clave)
+        self.cmb_estilo_sup.setToolTip(_tr("Relieve: colores del terreno con sombra. Cotas: franjas de color de lo "
+                                           "más bajo (morado) a lo más alto (rojo), como el análisis de elevaciones "
+                                           "de Civil 3D. Malla: solo los triángulos."))
+        self.cmb_estilo_sup.currentIndexChanged.connect(self._suelo)
+        f.addRow(_tr("Estilo"), self.cmb_estilo_sup)
+        fila = R.fila_interruptor("Curvas de nivel", encendido=False)
+        self.chk_curvas = fila.interruptor
+        self.chk_curvas.setToolTip(_tr("Líneas de igual cota sobre la superficie, con una más marcada cada 5."))
+        self.chk_curvas.toggled.connect(self._suelo)
+        f.addRow(fila)
+        self.cmb_intervalo = QtWidgets.QComboBox()
+        self.cmb_intervalo.addItem(_tr("Automático"), 0.0)
+        for pies in (0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0):    # (no `v`: es el layout del panel)
+            self.cmb_intervalo.addItem(_tr("{v} ft").format(v=f"{pies:g}"), pies)
+        self.cmb_intervalo.setToolTip(_tr("Cada cuántos pies va una curva de nivel. Automático: unas 15 curvas en "
+                                          "el desnivel de la superficie."))
+        self.cmb_intervalo.currentIndexChanged.connect(self._suelo)
+        f.addRow(_tr("Intervalo"), self.cmb_intervalo)
         self.sld_suelo = QtWidgets.QSlider(QtCore.Qt.Horizontal); self.sld_suelo.setRange(5, 90)
         self.sld_suelo.setValue(OPACIDAD_SUELO); self.sld_suelo.valueChanged.connect(self._suelo)
         f.addRow(_tr("Opacidad"), self.sld_suelo)
@@ -451,6 +487,11 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         sc.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         return sc
 
+    def _fallo_visor(self, texto):
+        """La tarjeta de video no pudo dibujar la escena: el motivo en la misma ventana, sin avisos que se repitan."""
+        self.lbl_vacio.setText(texto)
+        self.pila.setCurrentIndex(1)
+
     def _tema(self, *_a):
         tk = theme.tokens()
         self.visor.fondo = QtGui.QColor(tk.surface_alt if theme.is_dark() else "#dfe3ea")
@@ -468,7 +509,16 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
     def _suelo(self, *_a):
         self.visor.ver_suelo = self.chk_suelo.isChecked()
         self.visor.opacidad_suelo = self.sld_suelo.value() / 100.0
-        self.sld_suelo.setEnabled(self.chk_suelo.isChecked())
+        self.visor.bordes_superficie = self.chk_bordes.isChecked()
+        self.visor.estilo_superficie = self.cmb_estilo_sup.currentData() or "relieve"
+        self.visor.curvas_nivel = self.chk_curvas.isChecked()
+        self.visor.intervalo_curvas = float(self.cmb_intervalo.currentData() or 0.0)
+        on = self.chk_suelo.isChecked()
+        self.sld_suelo.setEnabled(on)
+        self.chk_bordes.setEnabled(on and self.visor.estilo_superficie != "malla")   # la malla ya son los bordes
+        self.cmb_estilo_sup.setEnabled(on)
+        self.chk_curvas.setEnabled(on)
+        self.cmb_intervalo.setEnabled(on and self.chk_curvas.isChecked())
         self.visor.update()
 
     def restablecer_suelo(self):
@@ -513,6 +563,12 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         try:
             self.sld_suelo.setValue(int(s.value("opacidad_suelo", OPACIDAD_SUELO)))
             self.chk_suelo.setChecked(str(s.value("ver_suelo", "true")) == "true")
+            self.chk_bordes.setChecked(str(s.value("bordes_superficie", "true")) == "true")
+            self.cmb_estilo_sup.setCurrentIndex(max(0, self.cmb_estilo_sup.findData(
+                str(s.value("estilo_superficie", "relieve")))))
+            self.chk_curvas.setChecked(str(s.value("curvas_nivel", "false")) == "true")
+            self.cmb_intervalo.setCurrentIndex(max(0, self.cmb_intervalo.findData(
+                float(s.value("intervalo_curvas", 0.0) or 0.0))))
             self.act_seguir.setChecked(str(s.value("seguir", "true")) == "true")
             geo = s.value("geometria")
             if geo is not None:
@@ -524,6 +580,10 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         s = _ajustes()
         s.setValue("opacidad_suelo", self.sld_suelo.value())
         s.setValue("ver_suelo", "true" if self.chk_suelo.isChecked() else "false")
+        s.setValue("bordes_superficie", "true" if self.chk_bordes.isChecked() else "false")
+        s.setValue("estilo_superficie", self.cmb_estilo_sup.currentData() or "relieve")
+        s.setValue("curvas_nivel", "true" if self.chk_curvas.isChecked() else "false")
+        s.setValue("intervalo_curvas", float(self.cmb_intervalo.currentData() or 0.0))
         s.setValue("seguir", "true" if self.act_seguir.isChecked() else "false")
         s.setValue("geometria", self.saveGeometry())
 

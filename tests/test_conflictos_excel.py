@@ -15,7 +15,8 @@ ESC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "escenarios", "cr
 def test_numerar_en_orden_de_lectura():
     items = [dict(clave="choque", x=500, y=100), dict(clave="cruce", x=10, y=400), dict(clave="exceso", x=20, y=102)]
     cs = conflictos.numerar(items)
-    assert [(c.id, c.clave) for c in cs] == [("C-1", "exceso"), ("C-2", "choque"), ("C-3", "cruce")]
+    # terminología 2026-11-13: conflictos (tuberías que se tocan) C-n y observaciones O-n, cada uno con su numeración
+    assert [(c.id, c.clave) for c in cs] == [("OU-1", "exceso"), ("C-1", "choque"), ("C-2", "cruce")]
     # el mismo cruce visto por varios pares de tramos (en un vértice) es UN conflicto
     dup = [dict(clave="cruce", x=0, y=0, pipes=[1, 2]), dict(clave="cruce", x=0.4, y=0, pipes=[2, 1]),
            dict(clave="cruce", x=0, y=0, pipes=[1, 3])]
@@ -47,9 +48,15 @@ def win(monkeypatch):
 
 def test_conflictos_numerados_en_el_lienzo_y_la_tabla(win):
     cs = win._conflictos
-    assert len(cs) >= 10 and [c.id for c in cs] == [f"C-{n}" for n in range(1, len(cs) + 1)]
+    # conflictos C-1… primero y luego las observaciones (OC, OU, OG, OV), cada código numerado desde 1
+    from nucleo import conflictos as C
+    assert len(cs) >= 10 and cs == C.orden_lista(cs)
+    for pre in C.PREFIJOS_CONFLICTO + C.PREFIJOS_OBSERVACION:
+        ns = [C.numero(c) for c in cs if c.id.startswith(pre + "-")]
+        assert ns == list(range(1, len(ns) + 1)), (pre, ns)
     assert {c.clave for c in cs} >= {"cruce", "exceso", "escalon", "redes", "choque"}
-    etiquetas = [it.data(0) for it in win._overlay if hasattr(it, "data") and str(it.data(0) or "").startswith("C-")]
+    etiquetas = [it.data(0) for it in win._overlay if hasattr(it, "data")
+                 and C.es_codigo(str(it.data(0) or "").split()[0] if it.data(0) else "")]
     assert sorted(i for e in etiquetas for i in e.split()) == sorted(c.id for c in cs)  # cada uno, con su número en 2D
     tb = next(t for t in win._tablas_de_datos() if t.clave == "conflictos")
     assert [f[0] for f in tb.filas] == [c.id for c in cs]
@@ -121,3 +128,14 @@ def test_conflictos_en_la_vista_3d(win):
     dlg._elegido(k)                                                          # clic: ficha del conflicto
     assert dlg.ficha.lbl_titulo.text().startswith(o["codigo"])
     assert dlg.texto_de(k).startswith(o["codigo"])
+
+
+def test_avisos_con_el_mismo_codigo_fijo_en_la_tabla_y_en_la_ia(win):
+    """2026-11-14: la Tabla de datos contaba los avisos 1, 2, 3… y la IA / el informe N-1, N-2… en otro orden; ahora
+    los dos usan el código FIJO del registro del proyecto."""
+    av = next(t for t in win._tablas_de_datos() if t.clave == "avisos")
+    tabla = sorted(f[0] for f in av.filas if f[0])
+    assert tabla and all(str(c).split("-")[0] in ("N", "R") for c in tabla)
+    ia = sorted(f["id"] for f in win._ia_datos().fichas if f["tipo"] in ("aviso", "reconocimiento"))
+    assert tabla == ia
+    assert sorted(f[0] for f in next(t for t in win._tablas_de_datos() if t.clave == "avisos").filas if f[0]) == tabla

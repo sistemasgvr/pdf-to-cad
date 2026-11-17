@@ -172,9 +172,18 @@ namespace Civil3DBasico
             return col.Contains(n) ? col[n] : col.Add(n);
         }
 
-        private static ObjectId AsegurarTerreno(Transaction tr, StylesRoot st, double s, EstilosPerfil est)
+        /// <summary>
+        /// Estilo del perfil de terreno de las OTRAS superficies del dibujo (2026-11-14): el mismo del terreno principal
+        /// con otro color ACI (`aci`), uno por superficie. Null con aviso si no se puede.
+        /// </summary>
+        internal static ObjectId TerrenoColor(Transaction tr, CivilDocument civDoc, double s, EstilosPerfil est, short aci)
         {
-            string nombre = "PDFCAD Perfil Terreno S" + s.ToString("G", INV);
+            return Intentar("terreno C" + aci, () => AsegurarTerreno(tr, civDoc.Styles, s, est, aci));
+        }
+
+        private static ObjectId AsegurarTerreno(Transaction tr, StylesRoot st, double s, EstilosPerfil est, short aci = 8)
+        {
+            string nombre = "PDFCAD Perfil Terreno S" + s.ToString("G", INV) + (aci == 8 ? "" : " C" + aci.ToString(INV));
             ObjectId id = Asegurar(st.ProfileStyles, nombre, tr, out _);
             var ps = (ProfileStyle)tr.GetObject(id, OpenMode.ForWrite);
             foreach (var t in new[] { ProfileDisplayStyleProfileType.Line, ProfileDisplayStyleProfileType.Curve,
@@ -182,7 +191,7 @@ namespace Civil3DBasico
                 Set(nombre, t.ToString(), () =>
                 {
                     var d = ps.GetDisplayStyleProfile(t);
-                    d.Visible = true; d.Color = Aci(8); d.Lineweight = LineWeight.LineWeight025;
+                    d.Visible = true; d.Color = Aci(aci); d.Lineweight = LineWeight.LineWeight025;
                     d.Linetype = est.Linetype; d.LinetypeScale = est.LinetypeEscala;
                 });
             foreach (var t in new[] { ProfileDisplayStyleProfileType.Arrow, ProfileDisplayStyleProfileType.LineExtension,

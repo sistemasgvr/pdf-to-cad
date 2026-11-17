@@ -5,7 +5,7 @@ clase mezcla para que app_window.py no pase de unas 2 000 líneas. `Main` la her
 los menús, atajos y pruebas siguen usando `win.<método>` como antes.
 """
 from ui.ventana.ventana_comun import *  # noqa: F401,F403  (mismos nombres que app_window)
-from ui.comun import capa_marcas, texto_marca
+from ui.comun import capa_marcas, capa_marcas_resumen, texto_marca
 
 
 # Lo que deja `_draw_pipe_conflicts` en la ventana (se retoma tal cual con el mismo modelo).
@@ -54,10 +54,12 @@ class ConflictosMixin:
             if hasattr(self, "lbl_info"):
                 # Deja el texto de info normal (sin el contador de cruces)
                 pass
+            self._avisar_panel_conflictos()             # el panel Resolver tampoco muestra los de antes
             return
         if getattr(self, "_provisional", False):        # el hilo los calcula (calculo_fondo): sin acciones
             for k in _RESULTADOS_CONFLICTOS:
                 setattr(self, k, [])
+            self._avisar_panel_conflictos()
             return
         # Con el MISMO modelo y las mismas conexiones aprobadas, y las marcas de antes vigentes en su capa,
         # los resultados del redibujo anterior siguen valiendo tal cual (2026-10-19: Esc o un clic con
@@ -139,6 +141,8 @@ class ConflictosMixin:
                         circ._pdfcad_caja, circ._pdfcad_rot, t._pdfcad_caja, t._pdfcad_rot = cajas
                     par = self._guardar_marca(clave, (circ, t))
                 circ, t = par
+                if estado != "conflicto":               # sugerencia o aprobada (el conflicto lo cuenta su C-n)
+                    capa_marcas.clase(circ, capa_marcas_resumen.CRUCE)
                 puestas = (self._marca(circ), self._marca(t))
                 circ.setToolTip(globo)
                 if estado not in _cajas:

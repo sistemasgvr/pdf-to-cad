@@ -184,9 +184,13 @@ class DatosProyecto:
             if c["ab"]:
                 s += "; " + t("abandonadas {a}").format(a=c["ab"])
             lineas.append(s + ".")
-        conf = [f for f in self.fichas if f["tipo"] == "conflicto"]
+        conf = [f for f in self.fichas if f["tipo"] == "conflicto" and f.get("categoria", "conflicto") == "conflicto"]
+        obs = [f for f in self.fichas if f["tipo"] == "conflicto" and f.get("categoria") == "observacion"]
         avis = [f for f in self.fichas if f["tipo"] == "aviso"]
-        lineas.append(t("Conflictos (C-n): {n}.").format(n=len(conf)) + (" " + _conteo(conf) if conf else ""))
+        lineas.append(t("Conflictos (C-n: dos o más tuberías se cruzan, chocan o se tocan): {n}.").format(n=len(conf))
+                      + (" " + _conteo(conf) if conf else ""))
+        lineas.append(t("Observaciones (OC-n de cotas, OU-n unión no constructible, OG-n geométricas, OV-n de conexión vertical: lo que Civil 3D no podrá construir tal como está dibujado): {n}.").format(
+            n=len(obs)) + (" " + _conteo(obs) if obs else ""))
         lineas.append(t("Avisos de normativa (N-n): {n} (pendientes {p}, aprobados {a}, informativos {i}).").format(
             n=len(avis), p=sum(1 for f in avis if not f.get("aprobado") and not f.get("info")),
             a=sum(1 for f in avis if f.get("aprobado")), i=sum(1 for f in avis if f.get("info") and not
