@@ -96,6 +96,43 @@ begin
   end;
 end;
 
+// Diagnóstico del equipo (2026-11-17): al terminar de copiar, la app revisa el equipo (Windows, tarjeta de video,
+// OpenGL de la Vista 3D, Civil 3D, carpetas…) y guarda el informe en %LOCALAPPDATA%\pdf-to-cad\diagnosticos.
+// Corre con el usuario que abrió el instalador (no como administrador): así el informe queda en SU carpeta.
+// Código de salida: 0 = todo bien, 1 = avisos, 2 = la Vista 3D no funcionará. Nunca impide instalar.
+procedure DiagnosticoDelEquipo();
+var
+  Codigo: Integer;
+  Resumen: String;
+  Lineas: TArrayOfString;
+  I: Integer;
+  Texto: String;
+begin
+  WizardForm.StatusLabel.Caption := 'Revisando el equipo (tarjeta de video, OpenGL, Civil 3D)...';
+  Resumen := ExpandConstant('{tmp}\diagnostico_resumen.txt');
+  if not ExecAsOriginalUser(ExpandConstant('{app}\{#MyAppExeName}'),
+       '--diagnostico --resumen "' + Resumen + '"', '', SW_HIDE, ewWaitUntilTerminated, Codigo) then
+    Exit;
+  if (Codigo = 1) or (Codigo = 2) then
+  begin
+    Texto := '';
+    if LoadStringsFromFile(Resumen, Lineas) then
+      for I := 0 to GetArrayLength(Lineas) - 1 do
+        Texto := Texto + Lineas[I] + #13#10;
+    if Texto = '' then
+      Texto := 'Revisa el informe en %LOCALAPPDATA%\pdf-to-cad\diagnosticos.';
+    if not WizardSilent() then
+      MsgBox('Asistente C3D se instaló. La revisión del equipo encontró esto:' + #13#10#13#10 + Texto,
+             mbInformation, MB_OK);
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    DiagnosticoDelEquipo();
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';

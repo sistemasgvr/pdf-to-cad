@@ -3610,7 +3610,10 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
 - Rendimiento (quitar esperas): `docs/rendimiento/GUIA.md` = método, patrones y tareas medidas; medidores en
   `scripts/rendimiento/` (`editor.py`, `reconocer.py`, `componer.py`, con `--perfil`, `--foto`, `--comparar`).
   Redirigir su salida a un archivo (con una tubería `editor.py` se cuelga) y uno a la vez.
-- Compilar plugin + exe + instalador: `build_all.bat` (pregunta la versión)
+- Antes de un instalador: `0. Tests instalador.bat` (TODAS las pruebas + arnés del plugin, decenas de minutos;
+  `dist/informe_pruebas.md`). Compilar plugin + exe + instalador: `1. build_all.bat` (pregunta la versión; ya no
+  corre las pruebas, solo anota en `dist/informe_entrega.md` la última corrida de `0.` con su commit y resultado).
+  Los dos usan el Python del `.venv` del proyecto si existe.
 - Quitar el plugin del autoload de C3D (testing): `uninstall_plugin.bat`
 - Compilar solo el plugin C#: `dotnet build -c Release` en
   `API-CIVIL/proyecto1/proyecto1` (baseline: 0 errores, 4 warnings).

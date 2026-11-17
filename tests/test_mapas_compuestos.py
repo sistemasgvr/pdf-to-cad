@@ -316,3 +316,26 @@ def test_phoenix_leyenda_tapada_no_quita_tuberias_de_la_hoja_de_abajo(tmp_path):
     bajo = [pl for pl in res.drawable
             if any(400 + ox <= x <= 460 + ox and 555 + oy <= y <= 615 + oy for x, y in pl.pts_pdf)]
     assert len(bajo) >= 10
+
+
+def test_encabezados_de_leyenda_se_separan_por_pieza_aunque_esten_cerca():
+    """Reporte del cliente 2026-11-17 (Water North + South, 36 mapas, escala de North): las letras de South se
+    agrandan ×1.89 y `GRUPO_HS` × su tamaño pasaba de una hoja a la vecina: las 36 leyendas quedaban en UNA, no se
+    leía ninguna fila y no se asignaba ninguna línea (16/17-24 y 16/17-25 quedaban sin reconocer). En una hoja
+    compuesta cada leyenda es de la pieza que la dibuja."""
+    import numpy as np
+    from types import SimpleNamespace as NS
+
+    def h(x, seq):
+        return NS(origen=(x, 0.0), tam=4.6, glifos=[NS(seqno=seq)])
+    heads = [h(0, 5), h(30, 6), h(470, 105), h(500, 106), h(940, 205)]
+    grupos = lectura._grupos(heads)
+    assert len(grupos) == 1                                      # por cercanía: todas juntas (el error)
+
+    class Pag:
+        inicios = [0, 100, 200]
+
+        def piezas_de(self, seqnos):
+            return np.searchsorted(np.asarray(self.inicios), np.asarray(seqnos), side="right") - 1
+    partes = lectura._partir_por_pieza(grupos, heads, Pag())
+    assert [[heads.index(x) for x in g] for g in partes] == [[0, 1], [2, 3], [4]]

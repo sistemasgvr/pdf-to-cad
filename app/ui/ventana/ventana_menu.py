@@ -182,6 +182,7 @@ class MenuMixin:
         _act(mhelp, "Acerca de…", self.show_about)
         _act(mhelp, "Manual de usuario", self.show_manual)
         _act(mhelp, "Atajos de teclado", self.show_shortcuts)
+        _act(mhelp, "Diagnóstico del equipo…", self.diagnostico_equipo)
         # Cuando el idioma cambie en vivo (desde Opciones…), retraducimos menús
         # y otros textos suscritos.
         _i18n.LANG_BUS.changed.connect(self._retranslate_ui)

@@ -57,6 +57,12 @@ if not "%PSRC%"=="0" (
     exit /b 1
 )
 
+REM ---- Python de compilacion: el del .venv del proyecto si existe (Python 3.14 + requirements-build.txt) ----
+REM Antes habia que activar el venv a mano; con doble clic se usaba el Python global y la comprobacion fallaba.
+set "PY=python"
+if exist "%~dp0.venv\Scripts\python.exe" set "PY=%~dp0.venv\Scripts\python.exe"
+echo Python para compilar: %PY%
+
 REM ---- Buscar ISCC.exe (Inno Setup) ----
 set "ISCC="
 if exist "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" set "ISCC=%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
@@ -76,16 +82,16 @@ echo  Comprobaciones antes de compilar
 echo ========================================
 REM El .exe lleva SU propio Python y bibliotecas: deben ser las mismas que en desarrollo
 REM (requirements-build.txt). Con otras versiones el .exe del cliente fallaba (2026-11-13).
-python scripts\verificar_entorno_build.py
+"%PY%" scripts\verificar_entorno_build.py
 if errorlevel 1 (
     echo.
     echo [ERROR] El entorno de compilacion no coincide con el de desarrollo ^(ver arriba^). No se compila.
     pause
     exit /b 1
 )
-REM Pruebas de la app y arnes del plugin (la regresion con PDF dorados se corre aparte). Si algo falla, no hay
-REM instalador. Informe en dist\informe_entrega.md y la salida de cada paso en dist\entrega\.
-python scripts\verificar_entrega.py fuentes --version "%NEWVER%"
+REM Las pruebas (decenas de minutos) van en "0. Tests instalador.bat" (2026-11-17). Aqui solo se empieza el
+REM informe dist\informe_entrega.md y se anota la ultima corrida de esas pruebas (fecha, commit, resultado).
+"%PY%" scripts\verificar_entrega.py fuentes --version "%NEWVER%"
 if errorlevel 1 (
     echo.
     echo [ERROR] Fallaron las comprobaciones ^(ver arriba y dist\informe_entrega.md^). No se compila.
@@ -116,7 +122,7 @@ REM Limpiar dist previa (solo el exe, no el instalador si ya existe).
 if exist "dist\Asistente C3D.exe" del /q "dist\Asistente C3D.exe" 2>nul
 if exist build rmdir /s /q build 2>nul
 
-python -m PyInstaller --clean -y PDF-a-CAD.spec
+"%PY%" -m PyInstaller --clean -y PDF-a-CAD.spec
 set "PYI_RC=%errorlevel%"
 if not "%PYI_RC%"=="0" (
     echo.
@@ -138,7 +144,7 @@ echo  Verificando que el instalador lleve todo
 echo ========================================
 REM Autoprueba del .exe (modulos, datos, proceso hijo), DLL del plugin, PdfCadMcp, setup.iss y versiones.
 REM Si falla NO se genera el instalador (antes se podia seguir igual y el error lo veia el cliente).
-python scripts\verificar_entrega.py exe
+"%PY%" scripts\verificar_entrega.py exe
 if errorlevel 1 (
     echo.
     echo [ERROR] El .exe o el instalador no pasan la verificacion ^(ver arriba y dist\informe_entrega.md^).
@@ -168,7 +174,7 @@ if not "%ISCC_RC%"=="0" (
 )
 
 set "OUTFILE=dist\AsistenteC3D-Setup-%NEWVER%.exe"
-python scripts\verificar_entrega.py final --instalador "%OUTFILE%"
+"%PY%" scripts\verificar_entrega.py final --instalador "%OUTFILE%"
 
 echo.
 echo =====================================================

@@ -3,9 +3,15 @@ llegue al cliente un error que nadie vio»). Lo corre `1. build_all.bat` en tres
 comprobación falla, el .bat se detiene y NO sale instalador. La regresión con los PDF dorados
 (`scripts/regresion.py`) NO va aquí (pedido del usuario 2026-11-13): se corre aparte.
 
-    python scripts/verificar_entrega.py fuentes --version X.Y.Z   antes de compilar
+Las PRUEBAS (decenas de minutos) van aparte desde 2026-11-17 (pedido del usuario: «build_all tiene
+demasiados tests para armar un instalador»): `0. Tests instalador.bat`.
+
+    python scripts/verificar_entrega.py pruebas                   `0. Tests instalador.bat`
         · pruebas de la app (`scripts/pruebas.py todo`: cada archivo en su proceso)
         · arnés del plugin C# (`API-CIVIL/proyecto1/PerfilPruebas`, `dotnet run -c Release`)
+        · informe en `dist/informe_pruebas.md` y la marca `dist/entrega/pruebas_ultima.txt`
+    python scripts/verificar_entrega.py fuentes --version X.Y.Z   antes de compilar (rápido)
+        · empieza el informe y anota la ÚLTIMA corrida de las pruebas (fecha, commit, resultado)
     python scripts/verificar_entrega.py exe                        después de PyInstaller
         · `scripts/verificar_instalador.py` (autoprueba del .exe, DLL del plugin, PdfCadMcp, setup.iss)
     python scripts/verificar_entrega.py final --instalador RUTA    después de Inno Setup
@@ -38,7 +44,8 @@ PERFIL_PRUEBAS = os.path.join(RAIZ, "API-CIVIL", "proyecto1", "PerfilPruebas")
 
 # (nombre del paso, descripción, comando, carpeta) por fase
 PASOS = {
-    "fuentes": [
+    "fuentes": [],
+    "pruebas": [
         ("pruebas", "Pruebas de la app (pytest, todas)",
          [sys.executable, os.path.join("scripts", "pruebas.py"), "todo"], RAIZ),
         ("plugin", "Arnés del plugin C# (PerfilPruebas)",
@@ -135,9 +142,70 @@ def _sha256(ruta) -> str:
     return h.hexdigest()
 
 
+MARCA = os.path.join(LOGS, "pruebas_ultima.txt")
+INFORME_PRUEBAS = os.path.join(DIST, "informe_pruebas.md")
+
+
+def ultima_corrida() -> str:
+    """Una línea para el informe de entrega: cuándo se corrieron las pruebas, con qué commit y cómo salieron."""
+    try:
+        fecha, commit, sucio, resultado = open(MARCA, encoding="utf-8").read().strip().split("\t")[:4]
+    except (OSError, ValueError):
+        return "- ⚠ Las pruebas no se han corrido en este equipo (`0. Tests instalador.bat`)."
+    actual = _git("rev-parse", "--short", "HEAD") or "?"
+    if commit == actual and sucio == "no" and not _git("status", "--porcelain"):
+        mismo = "el mismo commit"
+    else:
+        mismo = f"commit {commit}{' con cambios sin commit' if sucio == 'sí' else ''} (ahora {actual})"
+    icono = "✔" if resultado == "bien" else "✖"
+    return f"- {icono} Última corrida de `0. Tests instalador.bat`: {fecha}, {mismo}, resultado: {resultado}."
+
+
+def _pruebas() -> int:
+    """`0. Tests instalador.bat`: todas las pruebas; informe propio y la marca que lee `fuentes`."""
+    global INFORME
+    antes, INFORME = INFORME, INFORME_PRUEBAS
+    try:
+        return _pruebas_en_su_informe()
+    finally:
+        INFORME = antes
+
+
+def _pruebas_en_su_informe() -> int:
+    _escribir(["# Pruebas antes de armar el instalador"] + _cabecera("")[1:], nuevo=True)
+    try:
+        import pytest  # noqa: F401
+    except ImportError:
+        msg = ("Falta pytest en el Python de compilación. Instálalo una vez con:\n"
+               "    python -m pip install -r requirements-build.txt")
+        print("\n[ERROR] " + msg)
+        _escribir(["", "**No se corrieron:** " + msg.replace("\n", " ")], nuevo=False)
+        return 1
+    malos = []
+    for nombre, descripcion, comando, carpeta in PASOS["pruebas"]:
+        ok, resumen, dt = correr(nombre, descripcion, comando, carpeta)
+        estado = "✔ bien" if ok else "✖ FALLÓ"
+        _escribir([f"| {descripcion} | {estado} — {resumen.replace('|', '/')} | {dt:.0f} s |"], nuevo=False)
+        if not ok:
+            malos.append((descripcion, nombre))
+    resultado = "bien" if not malos else "FALLÓ (" + "; ".join(d for d, _ in malos) + ")"
+    os.makedirs(LOGS, exist_ok=True)
+    with open(MARCA, "w", encoding="utf-8") as f:
+        f.write("\t".join([time.strftime("%Y-%m-%d %H:%M"), _git("rev-parse", "--short", "HEAD") or "?",
+                           "sí" if _git("status", "--porcelain") else "no", resultado]) + "\n")
+    if malos:
+        _escribir(["", "**Fallaron:** " + "; ".join(f"{d} (detalle en `dist/entrega/{n}.log`)" for d, n in malos)],
+                  nuevo=False)
+        print("\n[ERROR] Falló: " + "; ".join(d for d, _ in malos))
+        print(f"        Detalle en dist\\entrega\\  ·  informe: {INFORME}")
+        return 1
+    print(f"\n[OK] Todas las pruebas pasaron. Informe: {INFORME}")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Lista de entrega del instalador")
-    ap.add_argument("fase", choices=["fuentes", "exe", "final"])
+    ap.add_argument("fase", choices=["pruebas", "fuentes", "exe", "final"])
     ap.add_argument("--version", default="")
     ap.add_argument("--instalador", default="")
     args = ap.parse_args(argv)
@@ -162,15 +230,12 @@ def main(argv=None) -> int:
 
     if args.fase == "fuentes":
         _escribir(_cabecera(args.version), nuevo=True)
-        try:
-            import pytest  # noqa: F401
-        except ImportError:
-            msg = ("Falta pytest en el Python que compila. Instálalo una vez con:\n"
-                   "    python -m pip install -r requirements-build.txt")
-            print("\n[ERROR] " + msg)
-            _escribir(["", "**No se generó el instalador:** " + msg.replace("\n", " ")], nuevo=False)
-            return 1
-    elif not os.path.isfile(INFORME):
+        _escribir(["", "## Pruebas", "", ultima_corrida()], nuevo=False)
+        print("\n" + ultima_corrida())
+        return 0
+    if args.fase == "pruebas":
+        return _pruebas()
+    if not os.path.isfile(INFORME):
         _escribir(_cabecera(args.version), nuevo=True)
 
     malos = []

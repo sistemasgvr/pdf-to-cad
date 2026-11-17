@@ -30,6 +30,7 @@ MODULOS_POR_NOMBRE = (
     "hoja.estilos_sugeridos", "hoja.leyenda_mapa",
     "reconocimiento.lectura_retenida", "reconocimiento.recognition_trabajo", "ui.comun.fondo_trabajo",
     "ui.ventana.calculo_fondo",
+    "diagnostico_equipo", "nucleo.equipo_sistema", "ui.comun.equipo_opengl", "ui.dialogos.diagnostico_dialog",
 )
 # Lo que la ventana necesita para abrir y lo pesado de cada flujo (importarlos detecta un paquete que no viajó).
 MODULOS_APP = (

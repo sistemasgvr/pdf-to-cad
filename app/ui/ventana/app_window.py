@@ -2254,6 +2254,8 @@ def main():
     _theme.apply_theme(app, _theme.load_preference("dark"))
     win = Main(); win.showMaximized()          # siempre maximizada (pedido del usuario 2026-10-30)
     recuperado = win.iniciar_autoguardado()      # copias automáticas + ofrecer recuperar
+    import diagnostico_equipo                    # 1.ª vez de cada versión: informe del equipo, en otro proceso
+    diagnostico_equipo.lanzar_si_falta()
     if len(sys.argv) > 1 and not recuperado:
         win.open_path(sys.argv[1])
     codigo = app.exec()

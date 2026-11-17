@@ -160,6 +160,23 @@ def _grupos(heads) -> List[list]:
     return [[heads[j] for j in g] for g in grupos]
 
 
+def _partir_por_pieza(grupos, heads, pag) -> List[list]:
+    """En una hoja compuesta, cada grupo de encabezados partido por la PIEZA (hoja) que los dibuja, en el orden
+    original. La cercanía de `_grupos` sola no basta: con la escala de una hoja más chica las letras de las otras
+    se agrandan y `GRUPO_HS` × su tamaño pasa de una hoja a la vecina (reporte del cliente 2026-11-17, Water North +
+    South con la escala de North: las 36 leyendas quedaban en una y no se asignaba ninguna línea)."""
+    orden = {id(h): i for i, h in enumerate(heads)}
+    out = []
+    for g in grupos:
+        pz = pag.piezas_de([(h.glifos[0].seqno if h.glifos else -1) for h in g])
+        partes: dict = {}
+        for h, p in zip(g, pz):
+            partes.setdefault(int(p), []).append(h)
+        out += partes.values()
+    out.sort(key=lambda g: orden[id(g[0])])
+    return out
+
+
 def inicios_de_piezas(page) -> Optional[List[int]]:
     """En una hoja COMPUESTA (cada pieza = un XObject que se dibuja seguido), el orden de
     dibujo (`seqno`) donde empieza cada pieza; None en una hoja normal. Así una leyenda y sus
@@ -301,9 +318,12 @@ def _leer(page) -> Optional[LeyendaMapa]:
     heads = [h for h in heads if h.dir == dir_]
     pag = _Pagina(page, corr, simbs, _Marco(dir_), dir_)
     grupos = _grupos(heads)
-    inicios = inicios_de_piezas(page) if len(grupos) > 1 else None
+    inicios = inicios_de_piezas(page)
     if inicios:
         pag.preparar_piezas(inicios)
+        grupos = _partir_por_pieza(grupos, heads, pag)
+    if len(grupos) <= 1:                    # una sola leyenda: como en una hoja suelta
+        inicios = pag.inicios = None
     # una leyenda por hoja: en una compuesta cada hoja trae la suya, con los grosores de SU
     # escala (North y South de Phoenix van a escalas distintas): las filas de todas, sin
     # repetir, y todas sus cajas fuera del mapa

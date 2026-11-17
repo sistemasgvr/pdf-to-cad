@@ -28,6 +28,8 @@ hiddenimports = [
     "ui.ventana.calculo_fondo",
     # Superficies (2.1.0): el lector de GeoTIFF de Pillow se carga por formato, no por import (la autoprueba lo prueba)
     "PIL.TiffImagePlugin",
+    # Diagnóstico del equipo (`--diagnostico`, Ayuda): se importan dentro de funciones
+    "diagnostico_equipo", "nucleo.equipo_sistema", "ui.comun.equipo_opengl", "ui.dialogos.diagnostico_dialog",
 ]
 
 # Iconos SVG MDI (app/icons/mdi/*.svg) — sin esto el exe muestra X rojas

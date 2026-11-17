@@ -76,6 +76,11 @@ class HerramientasMixin:
     def show_shortcuts(self):
         dialogs.show_shortcuts(self)
 
+    def diagnostico_equipo(self):
+        """Ayuda → «Diagnóstico del equipo…» (sistema, tarjeta de video, OpenGL de la Vista 3D…)."""
+        from ui.dialogos import diagnostico_dialog
+        return diagnostico_dialog.abrir(self)
+
     # ─────────────────────────── normativas ───────────────────────────
     def open_normativas(self, en_avisos=False):
         """Ventana de normativas en tablas (normas_dialog.py)."""

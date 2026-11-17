@@ -6106,4 +6106,23 @@ EN: dict[str, str] = {
     'Con otra escala cambian los largos y las medidas en pies de lo que ya está dibujado.':
         'With another scale the lengths and measurements in feet of what is already drawn change.',
     'Dejar la escala de antes': 'Keep the previous scale',
+    # Diagnóstico del equipo (Ayuda, 2026-11-17)
+    'Diagnóstico del equipo…':
+        'Computer diagnostics…',
+    'Diagnóstico del equipo':
+        'Computer diagnostics',
+    'Revisando el equipo…':
+        'Checking the computer…',
+    'Sistema, tarjeta de video y OpenGL':
+        'System, graphics card and OpenGL',
+    'No se pudo hacer el diagnóstico: {e}':
+        'The diagnostics could not be run: {e}',
+    'No se pudo hacer el diagnóstico.':
+        'The diagnostics could not be run.',
+    'Si algo falla, envíanos este informe: dice qué tiene tu equipo y si la Vista 3D podrá funcionar. Se guardó en:':
+        'If something fails, send us this report: it says what your computer has and whether the 3D View will work. It was saved in:',
+    'Copiar informe':
+        'Copy report',
+    'Copiado':
+        'Copied',
 }

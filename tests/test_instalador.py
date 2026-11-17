@@ -99,3 +99,30 @@ def test_verificar_entrega_falla_si_un_paso_falla_y_lo_anota(tmp_path, monkeypat
     inst.write_bytes(b"x" * 10)
     assert E.main(["final", "--instalador", str(inst)]) == 0
     assert "SHA-256" in (tmp_path / "informe_entrega.md").read_text(encoding="utf-8")
+
+
+def test_pruebas_van_en_0_tests_instalador_y_build_all_anota_la_ultima(tmp_path, monkeypatch):
+    """Pedido del usuario 2026-11-17: las pruebas (decenas de minutos) en «0. Tests instalador.bat»; build_all no las
+    corre, solo anota en su informe cuándo se corrieron, con qué commit y cómo salieron."""
+    import verificar_entrega as E
+    tests_bat = (RAIZ / "0. Tests instalador.bat").read_text(encoding="ascii")
+    assert "verificar_entrega.py pruebas" in tests_bat and ".venv" in tests_bat
+    assert E.PASOS["fuentes"] == [] and {n for n, *_r in E.PASOS["pruebas"]} == {"pruebas", "plugin"}
+    for k, v in (("DIST", tmp_path), ("INFORME", tmp_path / "informe_entrega.md"), ("LOGS", tmp_path / "entrega"),
+                 ("MARCA", tmp_path / "entrega" / "pruebas_ultima.txt"),
+                 ("INFORME_PRUEBAS", tmp_path / "informe_pruebas.md")):
+        monkeypatch.setattr(E, k, str(v))
+    assert E.main(["fuentes", "--version", "9.9.9"]) == 0
+    assert "no se han corrido" in (tmp_path / "informe_entrega.md").read_text(encoding="utf-8")
+    py = sys.executable
+    monkeypatch.setitem(E.PASOS, "pruebas", [("mal", "Prueba que falla", [py, "-c", "raise SystemExit(1)"], str(tmp_path))])
+    assert E.main(["pruebas"]) == 1
+    assert E.main(["fuentes", "--version", "9.9.9"]) == 0          # build_all sigue: solo lo anota
+    assert "✖ Última corrida" in (tmp_path / "informe_entrega.md").read_text(encoding="utf-8")
+    monkeypatch.setattr(E, "INFORME", str(tmp_path / "informe_entrega.md"))
+    monkeypatch.setitem(E.PASOS, "pruebas", [("bien", "Prueba que pasa", [py, "-c", "pass"], str(tmp_path))])
+    assert E.main(["pruebas"]) == 0
+    monkeypatch.setattr(E, "INFORME", str(tmp_path / "informe_entrega.md"))
+    E.main(["fuentes", "--version", "9.9.9"])
+    assert "✔ Última corrida" in (tmp_path / "informe_entrega.md").read_text(encoding="utf-8")
+    assert "Prueba que pasa" in (tmp_path / "informe_pruebas.md").read_text(encoding="utf-8")
