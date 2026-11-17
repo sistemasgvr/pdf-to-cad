@@ -174,8 +174,40 @@ def _sobre_tramo(q, pts, tol):
     return False
 
 
+MARCAS_RECONOCIDA = ("reconocida", "reconocida_idx", "reconocida_firma")   # `ventana_importar_parte`
+
+
 def planificar(pipes, filas, base, ft_per_px, permitir_hueco=True):
     """Plan para unir las utilidades `filas` en `base` (índice de `pipes`)."""
+    plan = _planificar(pipes, filas, base, ft_per_px, permitir_hueco)
+    if plan.ok and plan.pipe is not None:
+        _marcas_de_la_unida(plan.pipe, [pipes[i] for i in dict.fromkeys([base, *filas]) if 0 <= i < len(pipes)])
+    return plan
+
+
+def _marcas_de_la_unida(unida, piezas):
+    """La unida es «reconocida» (y «Reemplazar» del panel la quitaría entera) solo si TODAS sus piezas salieron de la
+    misma parte y la misma lectura; ya no es UNA polilínea del reconocimiento, salvo que todas lo fueran."""
+    def marca(p, k):
+        return p.get(k) if k in p else None
+    misma = all(marca(p, "reconocida") is not None for p in piezas) and len(
+        {(marca(p, "reconocida"), marca(p, "reconocida_firma")) for p in piezas}) == 1
+    if len({p.get("origen") for p in piezas}) != 1:
+        # reconocida + dibujada a mano: ya no es «del reconocimiento» tampoco para un proyecto de antes del panel
+        # (`reconocer_estado.de_reconocimiento` mira `origen` cuando no hay marca)
+        unida.pop("origen", None)
+    if not misma:
+        for k in MARCAS_RECONOCIDA:
+            unida.pop(k, None)
+        return
+    unida["reconocida"] = piezas[0]["reconocida"]
+    if "reconocida_firma" in piezas[0]:
+        unida["reconocida_firma"] = piezas[0]["reconocida_firma"]
+    if len({marca(p, "reconocida_idx") for p in piezas}) != 1:
+        unida.pop("reconocida_idx", None)
+
+
+def _planificar(pipes, filas, base, ft_per_px, permitir_hueco=True):
     if not ft_per_px or ft_per_px <= 0:
         return Plan(False, t("El plano no tiene escala: fija la escala antes de unir utilidades."))
     filas = [i for i in dict.fromkeys(filas) if 0 <= i < len(pipes)]

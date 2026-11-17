@@ -82,6 +82,8 @@ _RULES = [
      lambda m: (_pl(_n(m, 2), "guion sin cubrir", "guiones sin cubrir") + " (magenta)" if m.group(2)
                 else f"Cobertura {m.group(1)} %"), "uncovered"),
     (r"^Trazos repetidos[^:]*: (\d+)", INFO, lambda m: f"{_n(m)} trazos repetidos (usados una vez)", ""),
+    (r"^Hoja compuesta: (\d+) estilo\(s\) que solo cambian de grosor", INFO,
+     lambda m: f"{_n(m)} estilos con otro grosor por pieza, unidos", ""),
     (r"^Capas repetidas por otro xref[^:]*: (\d+)", INFO, lambda m: f"{_n(m)} capas repetidas por xref", ""),
     (r"^Se excluyeron (\d+) trazo\(s\) dentro de una vista de PERFIL", INFO,
      lambda m: f"{_n(m)} trazos de la vista de perfil excluidos", ""),

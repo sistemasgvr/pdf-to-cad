@@ -34,6 +34,12 @@ SONDEO_MS = 60
 RECICLAR_MB = 1200           # memoria del trabajador tras un trabajo: más que esto → otro proceso
 TOPE_FRACCION = 0.7          # tope de memoria del trabajador = esta parte de la RAM del equipo
 TOPE_MIN_MB = 2048
+# trabajos que dejan la lectura de la hoja RETENIDA en el proceso (`reconocimiento.lectura_retenida`) y el que la
+# suelta: mientras retiene, el trabajador no se recicla (36 mapas = ~1 GB que el próximo ▶ reusa). SOLO el
+# trabajador `RETENEDOR`: si esos trabajos corren en otro («principal»), ese sigue reciclándose como siempre.
+RETENEDOR = "reconocer"
+RETIENEN = frozenset({"hoja.interpretar_trabajo:interpretar", "reconocimiento.recognition_trabajo:reconocer_parte"})
+SUELTA = "reconocimiento.lectura_retenida:soltar"
 
 
 def activo() -> bool:
@@ -75,6 +81,7 @@ class Trabajador(QtCore.QObject):
     def __init__(self, nombre: str):
         super().__init__()
         self.nombre = nombre
+        self._retiene = False                 # su proceso guarda una lectura de hoja (solo `RETENEDOR`)
         self._proc = None
         self._entrada = self._salida = None
         self._cola: list = []
@@ -112,6 +119,10 @@ class Trabajador(QtCore.QObject):
             self.cancelar(self._actual)
         self._matar()
 
+    def recicla(self) -> bool:
+        """¿Puede reciclarse ahora? No mientras su proceso retiene la lectura de una hoja."""
+        return not self._retiene
+
     # ── proceso ───────────────────────────────────────────────────────
     def _arrancar(self):
         ctx = mp.get_context("spawn")
@@ -122,6 +133,7 @@ class Trabajador(QtCore.QObject):
 
     def _matar(self):
         p, self._proc = self._proc, None
+        self._retiene = False                 # la lectura retenida muere con el proceso
         if p is not None:
             try:
                 p.terminate()
@@ -201,8 +213,12 @@ class Trabajador(QtCore.QObject):
             self._actual = None
             self._hilo = None
             if tipo == "ok":
+                if t.objetivo in RETIENEN and activo() and self.nombre == RETENEDOR:
+                    self._retiene = True
+                elif t.objetivo == SUELTA:
+                    self._retiene = False
                 t._fin(msg[2], "")
-                if msg[3] and msg[3] > RECICLAR_MB:
+                if msg[3] and msg[3] > RECICLAR_MB and self.recicla():
                     self._matar()                 # devuelve la memoria al sistema
             elif tipo == "memoria":
                 self._matar()
@@ -234,13 +250,23 @@ _TRABAJADORES: Dict[str, Trabajador] = {}
 
 def trabajador(nombre: str = "principal") -> Trabajador:
     """«principal» (reconocer, armar la hoja) y «fondo» (composición sugerida): dos procesos,
-    así el análisis de fondo no hace esperar al reconocimiento."""
+    así el análisis de fondo no hace esperar al reconocimiento; «reconocer» (interpretar la hoja y cada ▶ del
+    panel «Reconocer», con la lectura de la hoja retenida: `soltar_lectura`)."""
     if nombre not in _TRABAJADORES:
         _TRABAJADORES[nombre] = Trabajador(nombre)
         app = QtCore.QCoreApplication.instance()
         if app is not None:
             app.aboutToQuit.connect(_TRABAJADORES[nombre].parar)
     return _TRABAJADORES[nombre]
+
+
+def soltar_lectura(nombre: str = RETENEDOR) -> Optional[Tarea]:
+    """Suelta la lectura de hoja retenida en el trabajador `nombre` (un trabajo más, en orden tras los que
+    esperan); al terminar, el trabajador vuelve a poder reciclarse. None si ese trabajador no existe."""
+    tr = _TRABAJADORES.get(nombre)
+    if tr is None:
+        return None
+    return tr.enviar(Tarea(SUELTA))
 
 
 def ejecutar(objetivo: str, *args, nombre: str = "principal", al_avanzar=None, **kwargs):
@@ -269,7 +295,7 @@ def ejecutar(objetivo: str, *args, nombre: str = "principal", al_avanzar=None, *
 def terminar_descendientes(espera_s: float = 5.0) -> int:
     """Al cerrar la app: termina TODOS los procesos que salieron de ésta (trabajadores, teselas y los
     que ellos lanzaron, p. ej. el `ProcessPoolExecutor` de la composición sugerida) y espera a que
-    salgan. En el .exe de un solo archivo, uno vivo deja tomados los archivos de `%TEMP%\_MEI…` y
+    salgan. En el .exe de un solo archivo, uno vivo deja tomados los archivos de `%TEMP%\\_MEI…` y
     PyInstaller avisa «Failed to remove temporary directory». Devuelve cuántos terminó."""
     if os.name != "nt":
         return 0

@@ -56,7 +56,7 @@ from ui.asistente.composite_area_suggest import AreaSugeridaMixin
 from ui.asistente.tool_strip import ToolStrip
 from ui.comun.busy import busy
 from ui.comun.widgets import maximize_on_show
-from ui.asistente.wizard_widgets import NoEscapeClose, StepBar, wizard_header, wizard_footer
+from ui.asistente.wizard_widgets import NoEscapeClose, StepBar, wizard_footer
 from ui.comun import theme as _theme
 
 _ICON = QtCore.QSize(20, 20)
@@ -262,10 +262,10 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         root = QtWidgets.QVBoxLayout(self)
         root.setContentsMargins(16, 12, 16, 12)
         root.setSpacing(10)
-        self.steps = StepBar(0)            # 1 Componer hoja › 2 Capas de la hoja › 3 Vista previa
-        root.addWidget(wizard_header(self.steps))
-        if self.comp.manual:
-            self.steps.hide()
+        # «Componer hoja» es el ÚNICO paso al abrir un PDF (plan 2026-11-16: capas y vista previa viven en el panel
+        # «Reconocer» del editor): sin barra de pasos. `steps` queda (oculto) para quien lo mire.
+        self.steps = StepBar(0)
+        self.steps.hide()
         self.tabs = WorkTabs([("mdi:file-document-outline", _tr("Origen")),
                               ("mdi:vector-rectangle", _tr("Área a tomar")),
                               ("mdi:vector-combine", _tr("Hoja compuesta"))])
@@ -814,9 +814,10 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
             self.nolayers_box.show()
         else:
             self.lbl_nolayers.setText(_tr("Hoja {n} sin capas originales: sus líneas se agrupan por "
-                                          "estilo (color y grosor). En «Capas de la hoja» asigna el "
-                                          "estilo de la red a su utilidad. Si la red está en una "
-                                          "imagen, requiere dibujo manual.").format(n=row + 1))
+                                          "estilo (color y grosor). En el editor, panel Reconocer → "
+                                          "«Capas y estilos…», asigna el estilo de la red a su utilidad. "
+                                          "Si la red está en una imagen, requiere dibujo manual.").format(
+                n=row + 1))
             self.nolayers_box.show()
         # cambiar de hoja a mano = empezar una pieza nueva; salvo si el USUARIO mira (clic,
         # flechas, ‹ ›) una hoja que ya está en la hoja compuesta: su pieza queda en edición

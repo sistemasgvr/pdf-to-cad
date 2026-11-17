@@ -90,6 +90,22 @@ def recognition_key(document, composite, page_index, *, hidden_ocgs=(), utilitie
     )
 
 
+def clave_parte(firma_hoja, parte, firma_parte, zoom=1.0, scale_ft_per_pt=None, previas=()) -> tuple:
+    """Clave de UNA parte del panel «Reconocer» (plan 2026-11-16): la lectura de la hoja (`firma_hoja`), la parte,
+    su `reconocer_estado.firma_parte` (capas ocultas, roles, letras, escala, «unir tramos»), el zoom y la escala.
+    Válvulas, diámetros y rótulos dependen además de las utilidades ya reconocidas: `previas` = (utilidad, firma)
+    de cada una (otra utilidad reconocida = otra clave)."""
+    return (
+        "parte",
+        str(firma_hoja),
+        str(parte),
+        str(firma_parte),
+        float(zoom),
+        None if scale_ft_per_pt is None else float(scale_ft_per_pt),
+        freeze(tuple(previas or ())),
+    )
+
+
 class RecognitionCache:
     """Los últimos `max_entries` reconocimientos, por clave (el más viejo sale)."""
 

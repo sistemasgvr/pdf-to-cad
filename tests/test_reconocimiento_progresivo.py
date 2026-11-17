@@ -38,7 +38,8 @@ def test_card_is_in_corner_without_veil_and_restores_controls(win, app):
     assert not enabled.isEnabled() and not disabled.isEnabled()
     assert QtWidgets.QApplication.overrideCursor() is None
     card.step(detail="Capa 2 de 4", done=2, total=4)
-    assert card.bar.value() == 500
+    # la barra es la de TODA la carga, de 0 a 100 % (2026-11-16): ya no la cuenta de una sola etapa
+    assert 0 <= card.bar.value() < 1000 and card.bar.maximum() == 1000 and "%" in card.note.text()
     assert card.detail() == "Capa 2 de 4"
     card.end()
     assert not card.active and not card.isVisible()
@@ -167,71 +168,79 @@ def test_real_recognition_streams_before_utility_finishes_and_result_is_identica
     assert baseline[0].drawable
 
 
-class _Worker(QtCore.QObject):
-    done = QtCore.Signal(object, str)
-    progress = QtCore.Signal(int, int, str)
-    layer = QtCore.Signal(int, int, str, int, int)
-    partial = QtCore.Signal(str, object)
-    strokes = QtCore.Signal(str, object)
-    stage = QtCore.Signal(str, object, object)
+class _Retenedor:
+    """El trabajador «reconocer» de mentira: guarda cada ▶ sin terminarlo (la prueba decide qué llega)."""
 
-    def __init__(self, pdf, page, **kw):
-        super().__init__()
-        self.page_index = page
+    def __init__(self):
+        self.tareas = []
 
-    def start(self):
-        pass
+    def enviar(self, t):
+        self.tareas.append(t)
+        t._dueno = self
+        return t
 
-    def cancel(self):
-        self.done.emit(None, "")
+    def cancelar(self, t):
+        t._fin(None, "cancelado")
+
+
+def _play_alcantarillado(win):
+    e = win._rec_estado()
+    e.filas["ALCANTARILLADO"].estado = "pendiente"
+    e.filas["ALCANTARILLADO"].motivo = None
+    win.reconocer_parte("ALCANTARILLADO")
 
 
 def test_main_ignores_strokes_from_previous_session_and_never_imports_preview(win, pdfs, monkeypatch):
+    """▶ cancelado y otro ▶: lo que llega tarde del primero no se dibuja ni se importa; la vista provisional
+    (trazos) nunca entra al editor (flujo desde el editor, plan 2026-11-16)."""
     import test_agregar_utilidad as TA
-    from ui.ventana import app_window
+    from ui.comun import proceso
     TA._editor_con_agua(win, pdfs[0])
-    monkeypatch.setattr(app_window, "RecognitionWorker", _Worker)
-    completed = []
-    monkeypatch.setattr(win, "_recognition_done", lambda *a: completed.append(a))
+    falso = _Retenedor()
+    monkeypatch.setattr(proceso, "trabajador", lambda nombre="principal": falso)
     before = copy.deepcopy(win.pipes)
-    win._start_recognition(0)
-    old = win._recog_worker
-    old.strokes.emit("AGUA", [[(0, 0), (1, 0)]])
+    _play_alcantarillado(win)
+    old = falso.tareas[-1]
+    old.avance.emit(("trazos", 0, 1, "AGUA", [[(0, 0), (1, 0)]]))
     assert win._recog_dibujo.queue
-    win._end_recognition_busy()
-    win._start_recognition(0)
-    new = win._recog_worker
-    old.strokes.emit("AGUA", [[(10, 0), (20, 0)]])
-    old.done.emit([], "")
-    assert not win._recog_dibujo.queue and not completed
-    new.strokes.emit("AGUA", [[(30, 0), (40, 0)]])
+    win.cancelar_reconocer()
+    _play_alcantarillado(win)
+    new = falso.tareas[-1]
+    assert new is not old
+    old.avance.emit(("trazos", 0, 1, "AGUA", [[(10, 0), (20, 0)]]))
+    old._fin([], "")
+    assert not win._recog_dibujo.queue
+    new.avance.emit(("trazos", 0, 1, "AGUA", [[(30, 0), (40, 0)]]))
     win._recog_dibujo._tick()
     assert _segments(win._recog_dibujo) == [((30., 0.), (40., 0.))]
     assert win.pipes == before
-    win._end_recognition_busy()
+    win.cancelar_reconocer()
+    assert win.pipes == before and win._rec_actual is None
+
+
+def _trazos_en_hilo(ruta, hoja, paso, firma, progreso=None, **_kw):
+    """Objetivo del ▶ en la prueba de abajo: avisa trazos desde el hilo del trabajador y no reconoce nada."""
+    progreso("trazos", 0, 1, "AGUA", [[(0, 0), (1, 0)]])
+    return []
 
 
 def test_thread_worker_delivers_strokes_on_gui_thread(win, pdfs, app, monkeypatch):
+    """Sin proceso (PDFCAD_PROCESO=0) el ▶ corre en un hilo: sus trazos se dibujan en el hilo de la ventana."""
+    import time
     import test_agregar_utilidad as TA
-    from ui.ventana import app_window
-    from ui.comun.workers import RecognitionWorker
-
-    class ThreadWorker(RecognitionWorker):
-        def start(self):
-            QtCore.QThread.start(self)
-
-        def run(self):
-            self.strokes.emit("AGUA", [[(0, 0), (1, 0)]])
-
+    from ui.ventana import ventana_reconocer_cola as cola
     TA._editor_con_agua(win, pdfs[0])
-    monkeypatch.setattr(app_window, "RecognitionWorker", ThreadWorker)
+    monkeypatch.setenv("PDFCAD_PROCESO", "0")
+    monkeypatch.setattr(cola, "OBJETIVO", "test_reconocimiento_progresivo:_trazos_en_hilo")
     threads = []
     monkeypatch.setattr(win, "_recognition_strokes", lambda *a: threads.append(QtCore.QThread.currentThread()))
-    win._start_recognition(0)
-    assert win._recog_worker.wait(5000)
-    app.processEvents()
+    _play_alcantarillado(win)
+    fin = time.time() + 30
+    while win._rec_actual is not None and time.time() < fin:
+        app.processEvents()
+        time.sleep(0.01)
+    assert win._rec_actual is None
     assert threads == [app.thread()]
-    win._end_recognition_busy()
 
 
 class _Arrastre:
@@ -290,16 +299,14 @@ def test_el_filtro_de_eventos_solo_vive_mientras_reconoce(win, app):
 
 
 def test_escape_muestra_que_se_esta_cancelando(win, monkeypatch):
+    """Esc en el lienzo durante un ▶ (flujo desde el editor): la tarjeta dice «Cancelando…» y el ▶ se cancela."""
     llamadas = []
-
-    class Trabajo:
-        def cancel(self):
-            llamadas.append(1)
-
+    monkeypatch.setattr(win, "cancelar_reconocer", lambda: llamadas.append(1))
     card = win._recog_busy = ProgresoReconocimiento(win)
-    win._recog_worker = Trabajo()
+    win._rec_actual = {"parte": "AGUA"}
     card.begin("Reconociendo…", cancel=win._cancel_recognition)
     win._cancel_recognition()                            # lo que hace Esc en el lienzo
+    win._rec_actual = None
     assert llamadas == [1]
     assert not card.cancel_button.isEnabled() and card.cancel_button.text() == "Cancelando…"
     card.end()

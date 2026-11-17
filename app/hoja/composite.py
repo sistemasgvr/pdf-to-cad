@@ -374,10 +374,45 @@ def cover_rects(piece: Piece, page_size: Tuple[float, float],
     return out
 
 
+_LADOS_POLIGONO = {"top": (0, 1), "right": (1, 2), "bottom": (2, 3), "left": (3, 0)}
+
+
+def cover_quads(piece: Piece, page_size: Tuple[float, float],
+                out_pt: float = COVER_OUT_PT) -> List[List[Pt]]:
+    """Franjas blancas en coords de la hoja origen visible (pt), como cuadriláteros. Pieza
+    rectangular = `cover_rects`. Pieza con `polygon` (marco inclinado de un atlas borde con borde,
+    2026-11-14): una franja por lado con `covers` que sigue ESE lado del cuadrilátero, desde `w` por
+    dentro hasta `out_pt` por fuera (antes una pieza con polígono no tapaba nada: el marco de cada
+    hoja quedaba dibujado en cada costura)."""
+    if not piece.polygon:
+        return [[(x0, y0), (x1, y0), (x1, y1), (x0, y1)] for x0, y0, x1, y1 in cover_rects(piece, page_size, out_pt)]
+    W, H = page_size
+    pts = [(x * W, y * H) for x, y in piece.polygon]
+    if len(pts) != 4:
+        return []
+    cx, cy = sum(p[0] for p in pts) / 4.0, sum(p[1] for p in pts) / 4.0
+    out = []
+    for side, w in piece.covers.items():
+        if side not in _LADOS_POLIGONO or float(w) <= 0:
+            continue
+        i, j = _LADOS_POLIGONO[side]
+        (ax, ay), (bx, by) = pts[i], pts[j]
+        L = math.hypot(bx - ax, by - ay)
+        if L <= 0:
+            continue
+        nx, ny = -(by - ay) / L, (bx - ax) / L               # normal; que apunte hacia AFUERA
+        if (cx - ax) * nx + (cy - ay) * ny > 0:
+            nx, ny = -nx, -ny
+        o, w = float(out_pt), float(w)
+        out.append([(ax + o * nx, ay + o * ny), (bx + o * nx, by + o * ny),
+                    (bx - w * nx, by - w * ny), (ax - w * nx, ay - w * ny)])
+    return out
+
+
 def cover_polygons(piece: Piece, page_size: Tuple[float, float], target_scale: float) -> List[List[Pt]]:
-    """Las franjas de `cover_rects` como polígonos en coords de la hoja compuesta."""
+    """Las franjas de `cover_quads` como polígonos en coords de la hoja compuesta."""
     fn = piece_map(piece, page_size, target_scale)
-    return [[fn(x0, y0), fn(x1, y0), fn(x1, y1), fn(x0, y1)] for x0, y0, x1, y1 in cover_rects(piece, page_size)]
+    return [[fn(x, y) for x, y in q] for q in cover_quads(piece, page_size)]
 
 
 def piece_layout(comp: Composite, page_sizes, names: Optional[Sequence[str]] = None

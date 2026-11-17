@@ -27,10 +27,13 @@ capa desaparece con el último `end`.
 from __future__ import annotations
 
 import contextlib
+import threading
+import time
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from ui.comun import theme as _theme
+from ui.comun import tiempos_carga, vigia_carga
 from traduccion.i18n import t as _tr
 
 _TICK_MS = 33              # ~30 fps de la barra sin avance conocido
@@ -38,6 +41,7 @@ _CARD_MAX_W = 340          # como la tarjeta del reconocimiento
 _MARGEN = 14               # de la tarjeta a la esquina
 _PAD = 12
 _BAR_H = 5
+_PCT_W = 44                # sitio del «100 %» a la derecha de la barra
 _BTN_H = 26
 ANCLA_PIE = "piePasos"     # pie de un paso del asistente: la tarjeta va encima (no tapa sus botones)
 _INPUT_EVENTS = {
@@ -72,6 +76,11 @@ class BusyOverlay(QtWidgets.QWidget):
         self._cancel_rect = None
         self._prev_focus = None
         self._foto = None              # modo «foto» (`begin(foto=True)`): lo tapado, sin volver a dibujarlo
+        self._seg = None               # la barra de 0 a 100 % de la carga en curso (`avance_aprendido.Seguidor`)
+        self._mil = -1                 # lo último pintado de la barra, en milésimas
+        self.latido = 0.0              # cuándo se pintó la tarjeta por última vez (`vigia_carga`)
+        self._bombeando = False
+        self._nivel = 0                # bucles de eventos anidados al empezar la carga
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
         self.setMouseTracking(True)
         self.hide()
@@ -91,17 +100,26 @@ class BusyOverlay(QtWidgets.QWidget):
     def detail(self) -> str:
         return self._stack[-1]["detail"] if self._stack else ""
 
-    def begin(self, text: str, detail: str = "", cancel=None, cursor: bool = True, foto: bool = False):
+    def begin(self, text: str, detail: str = "", cancel=None, cursor: bool = True, foto: bool = False,
+              modelo: bool = False, **_kw):
         """Muestra (o apila) un mensaje y pinta la capa en el acto. `cancel` = función:
         la tarjeta lleva «Cancelar» (trabajo en otro proceso, que se puede cortar).
         `cursor=False`: sin el reloj de arena en TODA la aplicación (la capa tapa solo su
         widget y lo demás sigue usable, p. ej. la Vista 3D armándose en otro hilo).
         `foto=True` (barras que avanzan seguido, 2026-10-20): al empezar se toma UNA imagen de lo tapado y se
         pinta esa; si no, cada repintado de la capa (semitransparente) volvía a dibujar debajo el plano entero
-        (~0.09 s con 16 761 utilidades). Solo para trabajo que no cambia lo de abajo mientras dura."""
+        (~0.09 s con 16 761 utilidades). Solo para trabajo que no cambia lo de abajo mientras dura.
+        La barra va SIEMPRE de 0 a 100 % (pedido 2026-11-16): con `modelo=True` la pone quien llama con
+        `step(done=, total=)` (`barra_pesada`, costos medidos); si no, se reparte sola con lo que duró cada etapa
+        la vez anterior y el «i de n» de cada aviso (`nucleo/avance_aprendido`)."""
         self._stack.append({"text": text, "detail": detail, "done": None, "total": None,
-                            "cancel": cancel})
+                            "cancel": cancel, "modelo": bool(modelo)})
         if len(self._stack) == 1:
+            self._seg = None if modelo else tiempos_carga.seguidor(text)
+            self._mil = -1
+            self._nivel = self._nivel_de_bucles()
+            self.latido = time.perf_counter()
+            vigia_carga.vigilar(self)
             self.setGeometry(self._host.rect())
             if foto and self._host.isVisible():
                 self._foto = self._host.grab()
@@ -116,11 +134,13 @@ class BusyOverlay(QtWidgets.QWidget):
             self._cursor_global = cursor
             if cursor:
                 QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        if len(self._stack) > 1 and self._seg is not None:
+            self._seg.etapa(text + (" · " + detail if detail else ""))
         self.raise_()                 # por si se agregaron hijos al host después
         self.pump()
 
     def step(self, text: str | None = None, detail: str | None = None,
-             done: int | None = None, total: int | None = None, pump: bool = True):
+             done: int | None = None, total: int | None = None, pump: bool = True, clave: str | None = None):
         """Cambia el mensaje / avance del nivel actual y repinta. `pump=False`
         cuando el trabajo va en otro hilo (el bucle de eventos ya repinta; un
         processEvents aquí adentro podría entregar el «terminado» a mitad)."""
@@ -133,6 +153,11 @@ class BusyOverlay(QtWidgets.QWidget):
             top["detail"] = detail
         if total is not None:
             top["done"], top["total"] = done or 0, total
+        if self._seg is not None and (text is not None or detail is not None or total is not None):
+            # una etapa de la carga: su texto (sin números) la reconoce; `clave` = la misma etapa aunque el
+            # texto cambie (p. ej. el nombre de cada capa)
+            self._seg.etapa(top["text"] + (" · " + top["detail"] if top["detail"] else ""),
+                            done if total else None, total, clave=clave)
         if pump:
             self._angle = (self._angle + 40.0) % 360.0
             self.pump()
@@ -144,8 +169,14 @@ class BusyOverlay(QtWidgets.QWidget):
             return
         self._stack.pop()
         if self._stack:
+            if self._seg is not None:
+                top = self._stack[-1]
+                self._seg.etapa(top["text"] + (" · " + top["detail"] if top["detail"] else ""))
             self.pump()
             return
+        seg, self._seg = self._seg, None
+        if seg is not None:
+            tiempos_carga.guardar(seg)        # lo que duró cada etapa: la barra de la próxima vez
         self._timer.stop()
         self._caja = None
         self.hide()
@@ -164,15 +195,59 @@ class BusyOverlay(QtWidgets.QWidget):
     def pump(self):
         """Pinta ya (se usa entre pasos de un trabajo que bloquea la UI). La
         entrada del usuario queda en cola: no puede lanzar otra cosa a medias."""
-        if not self.isVisible():
+        if not self.isVisible() or self._bombeando:
             return
-        self.repaint(self._region())
-        QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
+        self._bombeando = True
+        try:
+            self.repaint(self._region())
+            QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
+        finally:
+            self._bombeando = False
+
+    def _nivel_de_bucles(self) -> int:
+        try:
+            return int(self.thread().loopLevel())
+        except (AttributeError, RuntimeError):
+            return 0
+
+    def fraccion(self) -> float:
+        """Cuánto va la carga, de 0 a 1 (lo que marca la barra)."""
+        if not self._stack:
+            return 0.0
+        if self._seg is not None:
+            return self._seg.fraccion()
+        top = self._stack[-1]
+        if top["total"]:
+            return max(0.0, min(1.0, float(top["done"]) / float(top["total"])))
+        return 0.0
 
     def _tick(self):
         self._angle = (self._angle + 12.0) % 360.0
-        if self._stack and not self._stack[-1]["total"]:      # con avance conocido no se mueve sola
+        if self._stack and int(self.fraccion() * 1000) != self._mil:      # la barra avanzó
             self.update(self._region())
+
+    # ── el vigía: pintar la tarjeta aunque el trabajo no avise ───────────
+    def vigilada(self) -> bool:
+        return bool(self._stack)
+
+    def pintar_desde_el_vigia(self):
+        """Lo llama `vigia_carga` en el hilo de la ventana, entre dos instrucciones de un trabajo que lleva un
+        rato sin avisar. SOLO pinta la tarjeta (sin atender eventos), y solo si la ventana no está ya pintando,
+        bombeando ni dentro de otro bucle de eventos (ahí la tarjeta se pinta sola)."""
+        if not self._stack or self._bombeando or not self.isVisible():
+            return
+        if time.perf_counter() - self.latido < vigia_carga.QUIETA_S:
+            return
+        if threading.current_thread() is not threading.main_thread() or self._nivel_de_bucles() != self._nivel:
+            return
+        if self.testAttribute(QtCore.Qt.WA_WState_InPaintEvent) or vigia_carga.pintando_en_la_pila():
+            return
+        self._bombeando = True
+        try:
+            self.repaint(self._region())
+        finally:
+            self._bombeando = False
+            self.latido = time.perf_counter()
 
     # ── eventos: tapar el host y bloquear la entrada ─────────────────────
     def eventFilter(self, obj, ev):
@@ -239,13 +314,13 @@ class BusyOverlay(QtWidgets.QWidget):
         alto_d = (QtGui.QFontMetrics(f_detalle).boundingRect(
             QtCore.QRect(0, 0, ancho, 1000), QtCore.Qt.TextWordWrap, top["detail"]).height() if top["detail"] else 0)
         boton = top.get("cancel") is not None
-        h = (_PAD + alto_t + (4 + alto_d if alto_d else 0) + 8 + _BAR_H + (8 + _BTN_H if boton else 0) + _PAD)
+        h = (_PAD + alto_t + (4 + alto_d if alto_d else 0) + 10 + _BAR_H + 2 + (8 + _BTN_H if boton else 0) + _PAD)
         card = QtCore.QRectF(zona.right() - _MARGEN - w, zona.bottom() - _MARGEN - h, w, h)
         x, y = card.left() + _PAD, card.top() + _PAD
         r_titulo = QtCore.QRectF(x, y, ancho, alto_t)
         r_detalle = QtCore.QRectF(x, y + alto_t + 4, ancho, alto_d)
-        y += alto_t + (4 + alto_d if alto_d else 0) + 8
-        r_barra = QtCore.QRectF(x, y, ancho, _BAR_H)
+        y += alto_t + (4 + alto_d if alto_d else 0) + 10
+        r_barra = QtCore.QRectF(x, y, ancho - _PCT_W, _BAR_H)
         r_boton = None
         if boton:
             bw = QtGui.QFontMetrics(self.font()).horizontalAdvance(_tr("Cancelar")) + 24
@@ -289,20 +364,19 @@ class BusyOverlay(QtWidgets.QWidget):
             p.setPen(QtGui.QColor(t.text_muted)); p.setFont(f_detalle)
             p.drawText(r_detalle, QtCore.Qt.TextWordWrap, top["detail"])
 
-        # la barra: el avance si se conoce; si no, un trozo que se mueve (la app sigue trabajando)
+        # la barra: siempre de 0 a 100 %, con su cifra al lado
+        frac = self.fraccion()
+        self._mil = int(frac * 1000)
+        self.latido = time.perf_counter()
         p.setPen(QtCore.Qt.NoPen)
         p.setBrush(QtGui.QColor(t.border_soft)); p.drawRoundedRect(bar, 2.5, 2.5)
         p.setBrush(QtGui.QColor(t.accent))
-        if top["total"]:
-            frac = max(0.0, min(1.0, float(top["done"]) / float(top["total"])))
-            if frac > 0:
-                p.drawRoundedRect(QtCore.QRectF(bar.left(), bar.top(), bar.width() * frac, bar.height()), 2.5, 2.5)
-        else:
-            trozo = bar.width() * 0.3
-            x = bar.left() + (bar.width() + trozo) * (self._angle / 360.0) - trozo
-            p.setClipRect(bar)
-            p.drawRoundedRect(QtCore.QRectF(x, bar.top(), trozo, bar.height()), 2.5, 2.5)
-            p.setClipping(False)
+        if frac > 0:
+            p.drawRoundedRect(QtCore.QRectF(bar.left(), bar.top(), max(bar.height(), bar.width() * frac),
+                                            bar.height()), 2.5, 2.5)
+        p.setPen(QtGui.QColor(t.text_muted)); p.setFont(f_detalle)
+        p.drawText(QtCore.QRectF(bar.right(), bar.center().y() - 9, _PCT_W, 18),
+                   QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter, _tr("{p} %").format(p=int(frac * 100)))
 
         self._cancel_rect = r_boton
         if r_boton is not None:                           # «Cancelar», abajo: el texto va a todo el ancho

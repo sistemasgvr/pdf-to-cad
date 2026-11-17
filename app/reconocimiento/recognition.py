@@ -1041,6 +1041,26 @@ def transformador_mupdf(m):
     return girar
 
 
+def px_de_hoja(page, zoom: float, visual_crop=None):
+    """`px(punto)` de `recognize_page`: punto de la hoja (pt, sin girar) → px de la vista (girada, × zoom, desde
+    el recorte visual; sin recorte, la hoja entera). Memorizado por punto. Lo usa también la parte «ROTULOS» de
+    `recognition_trabajo.reconocer_parte`."""
+    if visual_crop is None:
+        visual_crop = crop_page_rect(page, None)
+    girar = transformador_mupdf(page.rotation_matrix)
+    crop_x, crop_y = visual_crop.x0 * zoom, visual_crop.y0 * zoom
+    px_cache: dict = {}
+
+    def px(point):
+        key = (point[0], point[1])
+        got = px_cache.get(key)
+        if got is None:
+            x, y = girar(point[0], point[1])
+            got = px_cache[key] = (x * zoom - crop_x, y * zoom - crop_y)
+        return got
+    return px
+
+
 def _region_hit(bb, regions) -> bool:
     if bb is None or not regions:
         return False
@@ -1286,6 +1306,18 @@ def recognize_page(
             roles = leyenda_mod.roles_con_leyenda(asig, utility, roles)
             lineas_set, buzones_set, use_roles = set(roles[ROLE_LINEAS]), set(roles[ROLE_BUZONES]), True
             roles_leyenda = bool(lineas_set or buzones_set)
+        # Hoja COMPUESTA sin capas: el mismo estilo de línea sale con otro grosor en cada pieza (su
+        # escala). Los gemelos de un estilo elegido (`pdf_styles.gemelos`) también son líneas y se
+        # reconocen como ESE estilo: si no, la red de las piezas de otro grosor no se reconocía o se
+        # cortaba en cada costura (reporte 2026-11-14, Southwest Gas). Hoja suelta: nada cambia.
+        gemelos_map: Dict[str, str] = {}
+        if (use_roles and any((n or "").startswith(pdf_styles.PREFIX) for n in lineas_set)
+                and len(lectura_mod.inicios_de_piezas(page) or ()) > 1):
+            fam = pdf_styles.familias(Counter(d.get("layer") or "" for d in pdf_styles.drawings(page)))
+            elegidas = {fam[n] for n in lineas_set if n in fam}
+            gemelos_map = {n: r for n, r in fam.items() if r in elegidas and n not in buzones_set}
+            lineas_set = lineas_set | set(gemelos_map)
+            gemelos_map = {n: r for n, r in gemelos_map.items() if n != r}
 
         # Capas que se reconocen por las LETRAS de sus líneas (el nombre no lo dice o
         # las letras lo contradicen): ver `letter_uses`. Los roles manuales mandan.
@@ -1327,17 +1359,7 @@ def recognize_page(
         # la matriz de giro de la hoja UNA vez y cada punto una vez: pedirla a PyMuPDF en
         # cada punto costaba 20 s en un mapa SIG de 180 trazos (`_through_dirs` convierte
         # todas las polilíneas por cada punta). Misma cuenta, mismo resultado.
-        girar = transformador_mupdf(page.rotation_matrix)
-        crop_x, crop_y = visual_crop.x0 * zoom, visual_crop.y0 * zoom
-        px_cache: dict = {}
-
-        def px(point):
-            key = (point[0], point[1])
-            got = px_cache.get(key)
-            if got is None:
-                x, y = girar(point[0], point[1])
-                got = px_cache[key] = (x * zoom - crop_x, y * zoom - crop_y)
-            return got
+        px = px_de_hoja(page, zoom, visual_crop)
         al_polilinea = (lambda pl: al_trazo([px(p) for p in pl.pts])) if al_trazo is not None else None
         by_ocg: dict[str, List[dict]] = defaultdict(list)
         # Hoja COMPUESTA de mapas: la misma línea de la leyenda con otro estilo en cada pieza
@@ -1349,12 +1371,16 @@ def recognize_page(
         n_alias: set = set()
         for pth in line_paths:
             ocg = pth.get("layer") or ""
+            ocg = gemelos_map.get(ocg, ocg)
             if alias and ocg in lineas_set:
                 comun = alias.get((piezas_mod.pieza_de(inicios, pth.get("seqno")), ocg))
                 if comun is not None and comun in lineas_set:
                     n_alias.add(ocg)
                     ocg = comun
             by_ocg[ocg].append(pth)
+        if gemelos_map:
+            warnings.append(_tr("Hoja compuesta: {n} estilo(s) que solo cambian de grosor por la escala de su "
+                                "pieza se reconocen junto con el estilo elegido.").format(n=len(gemelos_map)))
         if n_alias:
             warnings.append(_tr("Hoja compuesta: {n} estilo(s) de las piezas se reconocen junto con el mismo tipo "
                                 "de tubería de las demás (la leyenda de cada hoja dice que es la misma línea).").format(
@@ -3047,7 +3073,8 @@ def pipes_from_recognition(result: RecognitionResult, layer: str = UTILITY_HINT,
     from nucleo.model import PIPE_DIAMETERS_IN, DEFAULT_PIPE_MATERIAL
 
     out = []
-    for pl in result.drawable:
+    parte = str(getattr(result, "utility", None) or layer)
+    for idx, pl in enumerate(result.drawable):
         pts = [(float(x), float(y)) for x, y in pl.pts_pdf]
         if len(pts) < 2:
             continue
@@ -3064,6 +3091,10 @@ def pipes_from_recognition(result: RecognitionResult, layer: str = UTILITY_HINT,
             "material": DEFAULT_PIPE_MATERIAL,
             "vertex_kinds": list(pl.kinds) if len(pl.kinds) == len(pts) else [],
             "origen": "reconocido",
+            # de qué parte del panel «Reconocer» salió y cuál de sus polilíneas es (`result.drawable[idx]`): para
+            # reemplazar solo lo reconocido y aplicar después los diámetros (`ventana_importar_parte`). No va al DXF.
+            "reconocida": parte,
+            "reconocida_idx": idx,
             # acometida de un mapa sin capas: en gravedad/conductos sus nodos son nulos
             # (`nucleo.acometidas`)
             **({"acometida": True} if acometidas_mapa.es_capa(getattr(pl, "layer_ocg", "") or "") else {}),

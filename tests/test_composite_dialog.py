@@ -53,7 +53,7 @@ def _two_sheet_pdf():
 
 
 def test_reabrir_composicion_manual_en_flujo_completo(app, tmp_path):
-    """La acción normal recupera hojas/áreas y continúa a Capas, aunque antes se usara escaneo."""
+    """La acción normal recupera hojas/áreas y continúa al editor, aunque antes se usara escaneo."""
     sources = [{"name": "a.pdf", "data": _two_sheet_pdf()}]
     comp = C.Composite([C.Piece(0, 0, [0, 0, 1, 1])], manual=True, bridges=False)
     dlg = composite_dialog.CompositeDialog(None, sources, comp, {}, manual=False)
@@ -61,7 +61,7 @@ def test_reabrir_composicion_manual_en_flujo_completo(app, tmp_path):
         dlg.show()
         app.processEvents()
         assert not dlg.comp.manual and comp.manual  # editar no modifica la hoja del editor
-        assert dlg.steps.isVisible()
+        assert not dlg.steps.isVisible()      # «Componer hoja» es el único paso: sin barra de pasos
         assert dlg.columna_hojas.isVisible()
         assert dlg.lst_pages.count() == 2
         assert dlg.btn_ok.text() == "Continuar"

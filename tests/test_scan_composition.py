@@ -82,12 +82,14 @@ def test_manual_flow_skips_layers_and_recognition(monkeypatch):
     monkeypatch.setattr(app_window.composite_dialog, "compose_sheet", lambda *a, **kw: (comp, [], {}))
     def unexpected(*args, **kwargs):
         pytest.fail("Manual composition must skip layers and recognition")
-    monkeypatch.setattr(app_window.layer_dialog, "choose_sheet_layers", unexpected)
+    from ui.asistente import layer_dialog
+    monkeypatch.setattr(layer_dialog, "choose_sheet_layers", unexpected)
     win = SimpleNamespace(src_pdfs=[], composite=None, hidden_ocgs_by_source={}, page_idx=1,
-                          _apply_composite=lambda: None, _info=lambda msg: None,
-                          _start_recognition=unexpected)
+                          canvas=SimpleNamespace(pixmap_item=None), _respaldo=None,
+                          _apply_composite=lambda: None, _info=lambda msg: None, _soltar_pasos=lambda: None,
+                          _refrescar_panel_reconocer=lambda: None, _interpretar_hoja=unexpected)
     assert Main._wizard_sheet_flow(win, 1, manual=True)
-    assert win._dirty and not win._recog_ready
+    assert win._dirty and win._reconocer_escaneo          # el panel «Reconocer» dice que es un escaneo
 
 
 def test_detected_scan_opens_manual_compositor(monkeypatch):

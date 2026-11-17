@@ -180,3 +180,14 @@ def test_avisos_de_normativa_con_numero_fijo():
     assert C.numerar_avisos([a1, a3, rec, nuevo], reg)[id(a3)] == "N-3"
     assert [reg.codigo(e) for e in reg.resueltos("avisos")] == ["N-2"]
     assert reg.resueltos() == []                                             # «Resolver» no lista avisos
+
+
+def test_coordenadas_no_finitas_no_tumban_la_numeracion():
+    """Unión con dev_santos_v2 (2026-11-16): con las celdas, un conflicto con x/y inf o NaN daba OverflowError/
+    ValueError en math.floor; ahora queda solo (nunca está a ≤ tol de otro) y los demás se agrupan igual."""
+    inf, nan = float("inf"), float("nan")
+    items = [_it(10, 10, [1, 2]), _it(10.5, 10, [1, 2]), _it(inf, 5, [1, 2]), _it(nan, nan, [3, 4])]
+    cs = C.numerar(items)
+    assert len(cs) == 3                                    # los dos de (10, 10) son uno; los no finitos quedan
+    grupos = C.agrupar(cs + [C.numerar([_it(10.2, 10, [5, 6])])[0]], 2.0)
+    assert sorted(len(g) for g in grupos) == [1, 1, 2]

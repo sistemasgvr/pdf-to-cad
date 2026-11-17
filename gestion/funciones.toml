@@ -621,6 +621,15 @@ estado = "probado"
 aprobado = "Deyvy (draw.io)"
 desde = "2.0.0"
 
+[[funcion]]
+id = "app.reconocimiento-automatico.reconocer-desde-el-editor"
+grupo = "app.reconocimiento-automatico"
+nombre = "Reconocer desde el editor, por partes"
+propuesto = "falta_probar"
+propuesto_por = "Claude"
+propuesto_nota = "Nuevo en 2.1.0: panel Reconocer con ▶ por utilidad, válvulas, diámetros y rótulos; igual al flujo anterior en DU06 (0 diferencias)"
+desde = "2.1.0"
+
 # ── app.agregar-utilidad-y-capas ──
 
 [[funcion]]

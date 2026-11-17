@@ -53,13 +53,22 @@ def _centro(a: dict) -> Pt:
     return ((c[0] + c[2]) / 2.0, (c[1] + c[3]) / 2.0)
 
 
-def senala(a: dict, pipes: Sequence[dict], tol_px: float = SENALA_PX) -> Optional[int]:
+def senala(a: dict, pipes: Sequence[dict], tol_px: float = SENALA_PX, cerca=None) -> Optional[int]:
     """Índice de la utilidad a la que señala la anotación (la más cercana a una punta de su guía, ≤ tol; sin guía,
-    la más cercana a su centro, ≤ 3×tol), o None."""
+    la más cercana a su centro, ≤ 3×tol), o None. `cerca(x, y, r)` (`indice_plano.IndiceUtilidades.cerca`) = solo
+    las utilidades con un tramo a ≤ r de cada punto, en orden: las demás quedan más lejos que el límite y nunca
+    ganan (exportar Southwest, 7 mil rótulos × 14 mil utilidades: ~15 minutos, 2026-11-16)."""
     puntos = list(a.get("puntas") or ()) or [_centro(a)]
     lim = tol_px if a.get("puntas") else 3.0 * tol_px
+    indices = range(len(pipes))
+    if cerca is not None:
+        try:
+            indices = sorted({i for q in puntos for i in cerca(float(q[0]), float(q[1]), lim)})
+        except (ValueError, OverflowError, TypeError):        # un punto sin coordenada finita: todas, como siempre
+            indices = range(len(pipes))
     mejor = None
-    for i, p in enumerate(pipes):
+    for i in indices:
+        p = pipes[i]
         pts = p.get("pts") or []
         for q in puntos:
             d = min((_dist_seg(q, s, e) for s, e in zip(pts, pts[1:])), default=math.inf)

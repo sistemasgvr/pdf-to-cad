@@ -185,12 +185,13 @@ reacomodan, así nunca hace falta desplazarse hacia los lados.</p>
 dibujarlas. Al abrirlo, la app mira si es un plano de CAD o un escaneo; si no está segura, te lo
 pregunta. Un escaneo (o un plano calcado sin texto ni capas) pasa por «Componer hoja» y luego
 al dibujo a mano (ver «PDF imagen o escaneo» más abajo).</p>
-<p>El asistente tiene <b>3 pasos</b>. Arriba de cada pantalla verás
-<b>1 Componer hoja › 2 Capas de la hoja › 3 Vista previa</b>: el paso actual va resaltado y los
-pasos anteriores se pueden pulsar para <b>volver atrás</b> sin perder lo hecho. Abajo, en todo el
-ancho, están las opciones de la vista (como <b>Opacidad</b>) y los botones
-<span class="btn">Cancelar</span> y <span class="btn">Continuar</span>. La tecla <b>Esc</b> no
-cierra estas ventanas (solo quita un resaltado): para salir usa <span class="btn">Cancelar</span>.</p>
+<p>Al abrir el PDF solo hay <b>un paso</b>: <b>Componer hoja</b>. Al aceptarlo entras <b>directo al
+editor</b> con la hoja a la vista y puedes trabajar enseguida. Mientras tanto la app <b>interpreta la hoja
+en segundo plano</b> (capas, leyenda, letras de las líneas, estilos, símbolos y rótulos; una tarjeta chica
+abajo a la derecha dice la etapa) y llena el panel <b>Reconocer</b> del riel izquierdo. <b>Nada se reconoce
+solo</b>: tú eliges qué reconocer y cuándo, con el botón ▶ de cada fila (ver «Reconocer desde el editor» más
+abajo). En «Componer hoja» la tecla <b>Esc</b> no cierra la ventana (solo quita un resaltado): para salir usa
+<span class="btn">Cancelar</span>.</p>
 <p>Cuando un paso tarda unos segundos (hojas grandes, varias piezas, muchas utilidades), aparece una
 <b>tarjeta en la esquina inferior derecha</b> con lo que la app está haciendo, la etapa y una barra de
 avance (por ejemplo «Armando la hoja compuesta… · Pieza 3 de 12»). El plano se sigue viendo debajo y,
@@ -200,8 +201,8 @@ terminar.</p>
 <b>proceso aparte</b>, con prioridad baja: el equipo y la ventana siguen respondiendo, y al
 terminar la memoria vuelve al sistema. Al reconocer, el avance va en una tarjeta en la esquina del
 plano, sin atenuar la ventana: dice la utilidad y la capa que va leyendo («Agua (1 de 2) · capa 3 de
-8»), las líneas se van trazando sobre la hoja (son provisionales: lo que se importa es lo de la vista
-previa) y se puede acercar y desplazar el plano; lo demás queda en pausa hasta que termina.
+8»), las líneas se van trazando sobre la hoja (son provisionales: al terminar entra al editor lo
+reconocido) y se puede acercar y desplazar el plano; lo demás queda en pausa hasta que termina.
 <span class="btn">Cancelar</span> o <b>Esc</b> lo cortan al instante. Si una hoja necesita más memoria de la
 que hay libre, la app lo avisa: compón menos hojas o reconoce menos utilidades a la vez. Todas las
 utilidades se reconocen en el mismo proceso, que lee la hoja una sola vez.
@@ -298,7 +299,7 @@ pregunta antes de agregarlo. Los PDF escaneados no tienen sugerencia: se compone
     36"×24"), el editor la muestra a menos resolución y, al acercarte, la parte que ves se vuelve a
     dibujar nítida; todo lo demás funciona igual. Armarla y leer sus capas tarda unos segundos por
     hoja. El zoom es fluido a cualquier tamaño: lo nítido se dibuja por cuadros en segundo plano.</li>
-<li><span class="btn">Continuar</span> pasa al paso 2.</li>
+<li><span class="btn">Continuar</span> carga la hoja en el editor; la interpretación sigue en segundo plano.</li>
 </ol>
 
 <h2>PDF imagen o escaneo: componer a mano</h2>
@@ -342,7 +343,12 @@ editor para dibujar a mano o reconocerla de todos modos.</p>
 </ul>
 <p>La regla y el transportador son ayudas: no aparecen en la hoja del editor ni en el DXF.</p>
 
-<h2>2. Capas de la hoja</h2>
+<h2>2. Capas y estilos</h2>
+<p>Ya no es un paso obligatorio: se abre desde el panel <b>Reconocer</b> con
+<span class="btn">Capas y estilos…</span> (o desde el menú ⋯ de una fila, que la abre en esa utilidad) y
+ocupa el centro de la ventana. Muestra lo mismo que antes «Capas de la hoja»; con
+<span class="btn">Aplicar</span> los cambios quedan en la hoja y las filas que cambian lo dicen
+(«Cambió · reconocer de nuevo»). Lo que sigue describe sus partes.</p>
 <ul>
 <li><b>Reconocer:</b> marca qué utilidades quieres que la app lea (Eléctrico, Drenaje, Agua,
     Alcantarillado, Gas y Telecomunicaciones). Vienen todas marcadas; <b>Todas</b> las marca o
@@ -488,12 +494,13 @@ editor para dibujar a mano o reconocerla de todos modos.</p>
     muestran u ocultan todas las capas que se ven en la lista.</li>
 <li><b>Opacidad</b> aclara el plano (y cambia el fondo a blanco o negro), igual que en el editor.</li>
 <li>Si la hoja tiene varias páginas, <b>◀ Hoja N / M ▶</b> cambia de hoja sin salir.</li>
-<li>Para volver al paso 1, pulsa <b>1 Componer hoja</b> en la barra de arriba;
-    <span class="btn">Continuar</span> reconoce la hoja y abre el paso 3. Si cancelas aquí, la hoja se carga en el editor sin
-    reconocer, para que dibujes a mano.</li>
+<li><span class="btn">Aplicar</span> deja los cambios en la hoja (nada se reconoce solo: después pulsa ▶ en la fila); cerrar sin aplicar no cambia nada.</li>
 </ul>
 
-<h2>3. Vista previa del reconocimiento</h2>
+<h2>3. Vista previa de una fila</h2>
+<p>Tampoco es obligatoria: el botón del <b>ojo</b> de cada fila del panel Reconocer la abre con lo
+reconocido de esa parte. Sirve para revisar antes de importar o después, con sus puntos
+<b>Para verificar</b>.</p>
 <p>En redes de agua, las tomas perpendiculares de medidores se conectan en T aunque
 coincidan con el borde de un hueco del trazado: la tubería principal sigue continua.
 Para aplicar esta corrección a una hoja reconocida anteriormente, vuelve a reconocerla.</p>
@@ -531,9 +538,7 @@ Para aplicar esta corrección a una hoja reconocida anteriormente, vuelve a reco
     <span class="btn">Ajustar capas…</span> solo hace falta si el plano usa otros nombres de capa:
     ahí indicas cuáles son líneas y cuáles bóvedas (también si no estás de acuerdo con una línea que
     se reconoció por sus letras: lo que elijas ahí manda).</li>
-<li><span class="btn">Continuar e importar al editor</span> las agrega al proyecto como tuberías;
-    <span class="btn">Cancelar</span> deja la hoja en el editor, sin líneas (si ya tenías líneas en
-    el editor y volviste a componer, lo deja como estaba).</li>
+<li>Lo que muestra entra al editor con el ▶ de su fila (o ya entró, si la abriste después): encima de lo que ya hay, en un solo paso de Deshacer.</li>
 <li>Las líneas <b>abandonadas</b> se importan marcadas como <b>(AB)</b>: las de la capa «-A»
     con marcas «/», y cualquier línea con marcas dobles «//».</li>
 <li>Los <b>codos</b> curvos del plano se importan con su radio real, también las curvas muy
@@ -586,13 +591,34 @@ Para aplicar esta corrección a una hoja reconocida anteriormente, vuelve a reco
     postes y estructuras propuestas.</li>
 </ul>
 
-<h2>Reconocer más capas sin perder lo dibujado</h2>
-<p>Con las tuberías ya importadas y el lienzo avanzado, usa <b>Hoja y PDF → Reconocer más capas de esta
-hoja…</b> (o el menú Herramientas) para reconocer otras capas de la misma hoja. El asistente empieza en
-<b>Capas de la hoja</b>, con marcadas las utilidades que aún no están en el editor. Al importar, lo
-reconocido entra <b>encima</b> de lo que ya hay: lo dibujado o editado a mano no cambia y las líneas que ya
-están dibujadas no se repiten. Se deshace con Ctrl+Z, y Cancelar en cualquier paso deja el editor como
-estaba. Para otra hoja o composición usa <b>Componer hoja de trabajo…</b>.</p>
+<h2>Reconocer desde el editor</h2>
+<p>El panel <b>Reconocer</b> (riel izquierdo) tiene una fila por cosa que la app puede leer de la hoja:
+<b>Eléctrico, Drenaje, Agua, Alcantarillado, Gas, Telecomunicaciones</b>, <b>Válvulas</b>,
+<b>Diámetros</b> y <b>Rótulos del plano</b>. Cada fila dice su estado: <b>pendiente</b> (lista para
+reconocer), <b>no disponible</b> con el motivo (por ejemplo «No hay capas de esta utilidad en la hoja» o
+«Todas sus capas están ocultas»), <b>Reconociendo…</b>, <b>Reconocida · N</b> o
+<b>Cambió · reconocer de nuevo</b> si después cambiaste sus capas o estilos.</p>
+<ul>
+<li><b>▶ Reconocer</b> lee esa parte <b>en segundo plano</b> y la importa <b>encima</b> de lo que ya hay:
+    lo dibujado o editado a mano no cambia y las líneas que ya están dibujadas no se repiten. Cada ▶ es
+    un paso de Deshacer (Ctrl+Z). <span class="btn">Cancelar</span> o <b>Esc</b> lo cortan y el editor queda
+    como estaba.</li>
+<li><span class="btn">Reconocer todo</span> hace todas las filas disponibles en orden: utilidades, válvulas,
+    diámetros y rótulos.</li>
+<li>Una utilidad ya reconocida se puede reconocer otra vez: la app pregunta si <b>reemplazar</b> (quita solo
+    las líneas de esa utilidad que vinieron del reconocimiento, nunca las dibujadas a mano) o <b>agregar</b>.</li>
+<li><b>Válvulas</b> necesita antes las líneas de su red. <b>Diámetros</b> usa los rótulos y los perfiles de
+    las utilidades ya reconocidas; su fila dice cuáles faltan y, después, cuántas tuberías quedaron
+    <b>dudosas</b> o <b>sin dato</b>. <b>Rótulos del plano</b> trae los rótulos con guía; su menú ⋯ ofrece
+    <b>Leer rótulos ilegibles con la IA…</b>.</li>
+<li>El ⋯ de cada fila abre <b>Capas y estilos…</b> en esa utilidad, <b>Ajustar capas…</b> y <b>Unir
+    tramos</b>. El ojo abre su vista previa; <b>N por verificar</b> junta los puntos a revisar.</li>
+<li>La hoja se lee <b>una sola vez</b>: cada ▶ reutiliza esa lectura, así que reconocer por partes da
+    exactamente lo mismo que reconocer todo de una vez.</li>
+<li>El estado del panel se guarda en el proyecto. Un proyecto de una versión anterior abre con lo ya
+    importado como «reconocida» y el botón <span class="btn">Interpretar la hoja</span> para leer el resto.
+    Una hoja escaneada no tiene nada que reconocer: se dibuja a mano.</li>
+</ul>
 
 <h2>Agregar otra utilidad desde su propio PDF</h2>
 <p>A veces cada utilidad llega en sus propios PDF (por ejemplo los mapas de Phoenix: dos PDF de
@@ -606,11 +632,12 @@ ofrece agregar también el otro de la misma utilidad.</p>
     otro orden o girada. La hoja nueva se arma <b>calcada</b> sobre la del editor: misma área, mismo
     lugar, mismo tamaño.</li>
 <li>Como al abrir un PDF, se abre <b>Componer hoja</b> con las hojas ubicadas ya marcadas: desmarca
-    las que no quieras o toma solo un área, y sigue con <b>Capas de la hoja</b> y <b>Vista previa</b>.
-    Cada hoja vuelve sola a su lugar. Las utilidades que ya están en el editor no vienen marcadas.</li>
-<li>Al importar, la hoja del editor pasa a mostrar <b>los dos PDF juntos</b> y lo reconocido entra
-    junto a lo que ya tenías. Lo de antes <b>no se mueve ni cambia</b> (líneas, buzones, Deshacer,
-    georreferencia). <span class="btn">Cancelar</span> en cualquier paso deja el editor como estaba.</li>
+    las que no quieras o toma solo un área. Cada hoja vuelve sola a su lugar.</li>
+<li>Al aceptar, la hoja del editor pasa a mostrar <b>los dos PDF juntos</b>, se interpreta la hoja nueva y
+    sus filas aparecen en el panel <b>Reconocer</b>: cada ▶ reconoce en la hoja del PDF nuevo y lo
+    reconocido entra junto a lo que ya tenías. Lo de antes <b>no se mueve ni cambia</b> (líneas, buzones,
+    Deshacer, georreferencia). <span class="btn">Cancelar</span> en «Componer hoja» deja el editor como
+    estaba.</li>
 <li>Si vuelves a <b>Componer hoja</b> en este modo, eliges qué hojas y qué áreas usar; el lugar
     de cada hoja lo pone su mapa base (moverla a mano no cambia dónde cae).</li>
 <li>Si el PDF no dibuja el mismo mapa base que la hoja del editor (otra cartografía, otra zona),
@@ -632,16 +659,12 @@ apaga; clic derecho → <b>Ver solo esta</b> o <b>Encender todas</b>.</p>
 apagadas.</p>
 
 <h2>Volver a componer más tarde</h2>
-<p><b>Hoja y PDF → Componer hoja de trabajo…</b> abre otra vez el paso 1, en el PDF y la hoja donde
-estabas trabajando, y repite los pasos 2 y 3 con la hoja nueva. Todo se guarda en el proyecto
-(.digproj), también los PDF de origen.</p>
-<p>Si sigues sin cambiar nada (ni la composición, ni las capas, ni las utilidades), la vista previa
-se abre al instante con el reconocimiento anterior: queda en memoria mientras el proyecto está
-abierto. Basta un cambio en cualquiera de esos pasos para que se reconozca de nuevo.</p>
-<p>Lo que ya tienes en el editor no se pierde hasta que importas: <span class="btn">Cancelar</span> en
-cualquiera de los tres pasos (o un error al reconocer) deja el editor <b>exactamente como estaba</b>,
-con la misma hoja, sus líneas, Deshacer y los cambios sin guardar. Solo
-<span class="btn">Continuar e importar al editor</span> reemplaza lo que había.</p>
+<p><b>Hoja y PDF → Componer hoja de trabajo…</b> abre otra vez «Componer hoja», en el PDF y la hoja donde
+estabas trabajando; al aceptar con otra composición, la hoja nueva se carga y se interpreta, y el panel
+Reconocer vuelve a empezar. Todo se guarda en el proyecto (.digproj), también los PDF de origen.</p>
+<p>Si aceptas sin cambiar nada, el editor queda como estaba (lo reconocido y el panel no se pierden), y un ▶
+sin cambios en la hoja ni en sus capas usa al instante el reconocimiento anterior.
+<span class="btn">Cancelar</span> deja el editor <b>exactamente como estaba</b>.</p>
 <table width="100%" cellspacing="0" cellpadding="12"><tr>
 <td width="6" bgcolor="{{tip_border}}"></td><td bgcolor="{{tip}}">
 <b>Consejo:</b> si algo no se reconoce, siempre puedes dibujarlo a mano (capítulo siguiente).

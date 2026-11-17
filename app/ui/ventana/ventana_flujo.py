@@ -346,8 +346,13 @@ class FlujoMixin(PerfilFlujoMixin, TramosFlujoMixin):
             return
         apagadas = self._lineas_apagadas() if hasattr(self, "_lineas_apagadas") else set()
         llegadas = set()
-        for i, p in enumerate(self.pipes):
-            if p.get("world") or not FL.aplica(p) or not FL.tiene(p) or p.get("layer") in apagadas or i == en_tramos:
+        # las que tienen el sentido indicado dependen solo del modelo: se buscan una vez por modelo, no en cada clic
+        con_flujo = self._memo(("flujo_indicado",), lambda: [i for i, p in enumerate(self.pipes)
+                                                           if not p.get("world") and FL.aplica(p) and FL.tiene(p)],
+                               copiar=False)
+        for i in con_flujo:
+            p = self.pipes[i]
+            if p.get("layer") in apagadas or i == en_tramos:
                 continue
             col = layer_qcolor(p.get("layer"))
             dibujo = self._memo(("dibujo", i), lambda p=p: self._pipe_display_pts(p), copiar=False)

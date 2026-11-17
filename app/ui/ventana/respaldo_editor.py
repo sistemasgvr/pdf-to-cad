@@ -27,7 +27,7 @@ from hoja import composite as composite_mod
 # Lo que cambian el asistente, `_apply_composite` y `_load_page`: la hoja de trabajo…
 _HOJA = ("doc", "work_pdf_path", "_tmp_composite", "src_pdfs", "composite",
          "hidden_ocgs_by_source", "hidden_ocgs", "_scale_override", "_composite_layout",
-         "page_idx", "_recog_ready", "_recognition_utilities", "_letters_off",
+         "page_idx", "_recognition_utilities", "_letters_off",
          "_layer_roles_by_utility", "_layer_roles_hoja", "_join_routes",
          "scale", "rot", "W", "H", "derot", "pageH_px", "leader_hpx", "gray", "_vista_fondo", "_fondo_apagado")
 # …lo que vacía `_reset_model`…
@@ -38,7 +38,10 @@ _MODELO = ("cur_pts", "pipes", "leaders", "text_marks", "erase_regions", "_erase
 # …y la marca de cambios sin guardar (se repone SIN el setter de `_dirty`: borraría
 # la copia automática y tomaría como «guardado» lo que no lo está).
 _CAMBIOS = ("_dirty_flag", "_clean_sig", "_forzar_cambios")
-CLAVES = _HOJA + _MODELO + _CAMBIOS
+# …y el panel «Reconocer» (`ventana_reconocer_cola`): `_reset_model` lo vacía al cargar otra hoja; se REEMPLAZAN (nunca
+# se cambian en su lugar mientras el asistente corre), así que guardarlos por referencia basta.
+_RECONOCER = ("reconocer_estado", "_resultados_partes", "_cache_partes", "_interpretacion", "_reconocer_escaneo")
+CLAVES = _HOJA + _MODELO + _CAMBIOS + _RECONOCER
 # Trabajo que «Cancelar» no debe perder. Sin nada de esto el asistente sigue como
 # siempre (cancelar en «Capas» deja cargada la hoja nueva, para dibujar a mano).
 _TRABAJO = ("pipes", "structures", "leaders", "text_marks", "erase_regions",
@@ -156,6 +159,8 @@ def reponer(win, r: Respaldo) -> None:
     win._refresh_lists(); win._update_ui(); win._redraw(); win._update_geo_status()
     win._update_page_label(); win._refresh_scale_label()
     win._update_undo_tooltips(); win._update_title()
+    if hasattr(win, "_refrescar_panel_reconocer"):
+        win._refrescar_panel_reconocer()
     # Al vaciar el modelo, el setter de `_dirty` dejó pendiente tomar la «huella de
     # guardado» del contenido (`_take_clean_sig`): si corriera ahora, lo repuesto sin
     # guardar pasaría por guardado. Esto va DESPUÉS en la cola y deja la de antes.

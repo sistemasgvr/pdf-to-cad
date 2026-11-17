@@ -3,18 +3,22 @@
 Pedido del usuario 2026-10-23: los mapas llegan en un PDF por utilidad (Phoenix: dos de agua,
 dos de alcantarillado, dos de drenaje). Con una utilidad ya importada, desde el editor se
 elige el PDF de la siguiente, se pasa por el mismo flujo que al abrir un PDF (2026-10-26: «Componer
-hoja» con las hojas ubicadas ya marcadas → Capas de la hoja → vista previa) y al importar queda junto
-a la anterior, en su lugar; su plano y sus utilidades se encienden y apagan en «Capas».
+hoja» con las hojas ubicadas ya marcadas) y queda junto a la anterior, en su lugar; su plano y sus
+utilidades se encienden y apagan en «Capas».
 
 Cómo: la hoja de la utilidad nueva se arma CALCADA sobre la del editor (`hoja.hoja_calcada`,
 en el proceso trabajador): cada hoja del PDF nuevo se ubica sobre su pieza del editor por el
 mapa base que comparten, con la misma área y el mismo `marco`, así lo que se reconoce en ella
-cae en las coordenadas del editor sin mover nada. Al importar, la hoja del editor pasa a ser
-las piezas de antes + las nuevas (fundidas) y solo cambia la imagen de fondo
-(`canvas.cambiar_imagen`): lo dibujado, el deshacer y la georreferencia no se tocan.
+cae en las coordenadas del editor sin mover nada.
 
-Todo el asistente corre con el respaldo del editor (`respaldo_editor`): cualquier salida sin
-importar lo deja como estaba. `self._agregando` = el modo (None fuera de él).
+Flujo desde el editor (plan 2026-11-16, Tarea 9): al aceptar «Componer hoja» la hoja del editor pasa a
+ser las piezas de antes + las nuevas (fundidas) y solo cambia la imagen de fondo
+(`canvas.cambiar_imagen`): lo dibujado, el deshacer y la georreferencia no se tocan. Se INTERPRETA
+solo la hoja calcada (la del PDF nuevo: en mapas sin capas los estilos de los dos PDF se mezclarían en
+la combinada) y sus filas aparecen en el panel «Reconocer»; cada ▶ reconoce en ESA hoja
+(`Main._rec_hoja`, `ventana_interpretar`) y lo reconocido entra encima de lo que hay. Nada se reconoce
+solo. Mientras el compositor está abierto corre el respaldo del editor (`respaldo_editor`): cancelar
+lo deja como estaba. `self._agregando` = el modo (None fuera de él).
 """
 from ui.ventana.ventana_comun import *  # noqa: F401,F403  (mismos nombres que app_window)
 
@@ -125,9 +129,9 @@ class AgregarUtilidadMixin:
             return None
         return out.get("r")
 
-    def _empezar_agregado(self, editor, nuevas, res, elegir=False):
-        """Respaldo del editor, la hoja calcada como hoja de trabajo y el asistente desde «Capas»
-        (`elegir`: desde «Componer hoja», con las hojas ubicadas ya marcadas)."""
+    def _empezar_agregado(self, editor, nuevas, res, elegir=True):
+        """Respaldo del editor, la hoja calcada como hoja de trabajo y «Componer hoja» con las hojas ubicadas ya
+        marcadas (`elegir`; sin él se arma la hoja calcada tal cual y se sigue igual)."""
         from hoja import hoja_calcada
         calco = composite_mod.Composite.from_dict(res["comp"])
         docs = [fitz.open(stream=e["data"], filetype="pdf") for e in self.src_pdfs]
@@ -152,14 +156,13 @@ class AgregarUtilidadMixin:
         self._layer_roles_by_utility = {}
         self._layer_roles_hoja = None
         self._letters_off = set()
-        self._recog_ready = False
         # «agregar OTRA utilidad»: las que ya están en el editor no se marcan (se pueden marcar)
         self._recognition_utilities = tuple(u for u in _recognition.SUPPORTED_UTILITIES if u not in en_editor) \
             or _recognition.DEFAULT_UTILITIES
         if elegir:
             # el flujo de siempre desde «Componer hoja»: al aceptar, cada hoja va a su lugar
-            # (`_agregando_recolocar`) y la hoja se arma entonces
-            if not self._wizard_sheet_flow(self.page_idx, start_step=0):
+            # (`_agregando_recolocar`), la hoja se arma y queda junto a la del editor (`_agregado_compuesto`)
+            if not self._wizard_sheet_flow(self.page_idx):
                 self._cancelar_asistente(_tr("Agregar utilidad cancelado — el editor queda como estaba."))
             return
         try:
@@ -169,11 +172,7 @@ class AgregarUtilidadMixin:
                 _tr("No se pudo armar la hoja compuesta:\n\n{e}").format(e=exc))
             self._cancelar_asistente(_tr("Agregar utilidad cancelado — el editor queda como estaba."))
             return
-        n, total = len(calco.pieces), len(editor.pieces)
-        self._info(_tr("{n} de {t} hojas de la hoja del editor ubicadas en «{pdf}» por su mapa base.").format(
-            n=n, t=total, pdf=", ".join(e["name"] for e in nuevas)))
-        if not self._wizard_sheet_flow(self.page_idx, start_step=1):
-            self._cancelar_asistente(_tr("Agregar utilidad cancelado — el editor queda como estaba."))
+        self._agregado_compuesto()
 
     # ─────────────────────────── en el asistente ───────────────────────────
     def _agregando_recolocar(self, comp, sources):
@@ -199,44 +198,61 @@ class AgregarUtilidadMixin:
             return None
         return nuevo
 
-    def _importar_agregando(self, results):
-        """«Importar» en este modo: el editor como estaba, su hoja pasa a ser la combinada (solo
-        cambia la imagen de fondo) y lo reconocido entra ENCIMA de lo que hay."""
-        ag, self._agregando = self._agregando, None
+    def _agregado_compuesto(self):
+        """Tras «Componer hoja» en este modo (la hoja calcada ya es la hoja de trabajo): el editor como estaba, su
+        hoja pasa a ser la combinada (solo cambia la imagen de fondo) y se interpreta la hoja calcada para el panel
+        «Reconocer». → True, o False si la hoja combinada no se pudo armar (el editor queda como estaba)."""
+        import hashlib
+        ag = self._agregando
         nuevas, calco, ocultas = self.src_pdfs, self.composite, self.hidden_ocgs_by_source
+        ruta, tmp, hoja = self.work_pdf_path, self._tmp_composite, int(self.page_idx)
+        firma = hashlib.sha1(repr(("agregado", recognition_cache.composition_signature(calco),
+                                   recognition_cache.freeze(self._src_fingerprints(nuevas)), hoja,
+                                   tuple(sorted(self.hidden_ocgs or ())))).encode("utf-8")).hexdigest()
+        self._tmp_composite = None                        # la hoja calcada queda para interpretar y reconocer
+        if self.doc is not None:
+            self.doc.close()                              # (se lee en el trabajador, desde su archivo)
+            self.doc = None
         r, self._respaldo = self._respaldo, None
-        # El editor se redibuja con lo importado, no antes al reponerlo ni al cambiar su hoja (12 + 12
-        # mapas: ~1.5 s menos de ventana quieta). Mientras la hoja combinada se arma en el proceso la
-        # ventana atiende eventos: la copia automática espera (`_importando`) a que tenga su hoja nueva.
+        # El editor se redibuja una vez, al final. Mientras la hoja combinada se arma en el proceso la ventana
+        # atiende eventos: la copia automática espera (`_importando`) a que tenga su hoja nueva.
         previo, self._importando = getattr(self, "_importando", False), True
         try:
             with self._redibujo_diferido():
-                utils = [u for u in dict.fromkeys(getattr(x, "utility", None) for x in results) if u]
-                fallo = self._combinar_hojas(r, ag, nuevas, calco, ocultas, utils)
+                fallo = self._combinar_hojas(r, ag, nuevas, calco, ocultas, [])
         finally:
             self._importando = previo
         if fallo is not None:
+            if tmp and os.path.isfile(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
             QtWidgets.QMessageBox.warning(self, _tr("Agregar utilidad"),
                 _tr("No se pudo armar la hoja con las dos utilidades:\n\n{e}").format(e=fallo))
             self._reponer_respaldo(_tr("Agregar utilidad cancelado — el editor queda como estaba."))
             return False
-        self._origen_desde_fuente = len(self.src_pdfs) - len(nuevas)   # datos extendidos: la pieza NUEVA
-        try:
-            with _busy_mod.busy(self, _tr("Importando al editor…")):
-                imported = self._import_recognized_pipes(results)
-        finally:
-            self._origen_desde_fuente = None
-        if not imported:
-            self._reponer_respaldo(_tr("No hay tramos reconocidos para importar — el editor queda como estaba."))
-            return False
         self._soltar_respaldo()
-        self.capas_apagadas = {c for c in self.capas_apagadas if "/" not in c or c.split("/")[0] not in utils}
-        if self.capas_apagadas & set(utils):               # lo agregado se ve («Capas», ventana_capas)
-            self.capas_apagadas -= set(utils)
-            self._aplicar_capas()
+        self._soltar_rec_hoja()
+        self._rec_hoja = dict(ruta=ruta, hoja=hoja, firma=firma, tmp=tmp, desde=len(self.src_pdfs) - len(nuevas),
+                              grupo=max(p.grupo for p in self.composite.pieces))
         self._dirty = True
-        _busy_mod.toast(self, "✔ " + _tr("Utilidad agregada a la hoja del editor"))
+        self._info(_tr("«{pdf}» quedó junto a la hoja del editor. Reconoce su utilidad desde el panel "
+                       "Reconocer.").format(pdf=", ".join(e["name"] for e in nuevas)))
+        self._interpretar_hoja()
         return True
+
+    def _agregado_utilidad(self, ov, utilidad):
+        """Una utilidad reconocida en la hoja agregada: nombra su plano de fondo (`ventana_planos`)."""
+        comp = self.composite
+        if comp is None:
+            return
+        nombres = dict(comp.utilidades_grupo or {})
+        lista = list(nombres.get(ov["grupo"]) or [])
+        if utilidad not in lista:
+            lista.append(utilidad)
+        nombres[ov["grupo"]] = lista
+        comp.utilidades_grupo = nombres
 
     def _combinar_hojas(self, r, ag, nuevas, calco, ocultas, utilidades=()):
         """El editor como estaba (respaldo `r`) y su hoja pasa a ser la combinada: sus piezas + las

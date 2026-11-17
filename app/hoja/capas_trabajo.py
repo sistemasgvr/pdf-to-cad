@@ -18,18 +18,38 @@ from typing import Sequence
 
 def leer(ruta: str, hoja: int, ons: Sequence = (), estilos_ocultos: Sequence[str] = (),
          progreso=None) -> dict:
-    """{layers, leyenda (o None), visibles (nombres de capa con algo que se ve)}."""
+    """{layers, leyenda (o None), visibles (nombres de capa con algo que se ve)[, sugeridos]}."""
     import fitz
-    from hoja import leyenda_mapa, leyenda_trazos, pdf_layers, pdf_styles
+    from hoja import pdf_styles
     with fitz.open(ruta) as doc:
-        pdf_layers.poner_encendidas(doc, ons)
-        doc._pdf_style_hidden = set(estilos_ocultos or ())       # como `set_hidden` en la ventana
-        page = doc[int(hoja)]
         with pdf_styles.lectura_unica(doc):
-            layers = pdf_layers.page_layers(doc, int(hoja))
-            ley = None
-            if any(L.get("source") == "style" for L in layers) and leyenda_mapa.aplica(page):
-                ley = leyenda_mapa.leer(doc, page)
-            pdf_layers.set_hidden(doc, ())                       # todas encendidas: `_all_drawings`
-            visibles = leyenda_trazos.capas_visibles(page)
-    return {"layers": layers, "leyenda": ley, "visibles": sorted(visibles)}
+            return leer_doc(doc, hoja, ons, estilos_ocultos, progreso)
+
+
+def leer_doc(doc, hoja: int, ons: Sequence = (), estilos_ocultos: Sequence[str] = (),
+             progreso=None) -> dict:
+    """`leer` sobre un documento YA abierto, dentro de su `pdf_styles.lectura_unica` (la usa también
+    `interpretar_trabajo`). Al volver, todas las capas quedan encendidas (como las deja `leer`)."""
+    from hoja import leyenda_mapa, leyenda_trazos, pdf_layers
+    pdf_layers.poner_encendidas(doc, ons)
+    doc._pdf_style_hidden = set(estilos_ocultos or ())           # como `set_hidden` en la ventana
+    page = doc[int(hoja)]
+    layers = pdf_layers.page_layers(doc, int(hoja))
+    ley = None
+    if any(L.get("source") == "style" for L in layers) and leyenda_mapa.aplica(page):
+        ley = leyenda_mapa.leer(doc, page)
+    pdf_layers.set_hidden(doc, ())                               # todas encendidas: `_all_drawings`
+    visibles = leyenda_trazos.capas_visibles(page)
+    # sin capas ni leyenda: qué estilos son la red (`estilos_sugeridos`, 2026-11-14)
+    sugeridos, con_sugeridos = None, False
+    if any(L.get("source") == "style" for L in layers) and not (ley is not None and ley.filas):
+        from hoja import estilos_sugeridos
+        con_sugeridos = True
+        try:
+            sugeridos = estilos_sugeridos.sugerir(page)
+        except Exception:                                      # noqa: BLE001 — la ventana lo intenta
+            con_sugeridos = False
+    out = {"layers": layers, "leyenda": ley, "visibles": sorted(visibles)}
+    if con_sugeridos:
+        out["sugeridos"] = sugeridos
+    return out

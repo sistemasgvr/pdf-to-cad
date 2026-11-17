@@ -74,9 +74,42 @@ def _segmentos(paths, m) -> List[Tuple[float, float, float, float, float]]:
     return out
 
 
+def _hoja_leida(page: fitz.Page) -> Optional[dict]:
+    """Lo que ya se preparó de ESTA hoja para dibujar sus franjas: {"dl": lista de dibujo, "franjas": {…}}.
+    `page.get_pixmap(clip=)` vuelve a interpretar la hoja ENTERA en cada llamada (es
+    `get_displaylist()` + `dl.get_pixmap()`): con cuatro lados, cuatro veces, y otra vez cuatro al armar
+    (Southwest Gas, 54 hojas: 32 de los 50 s de la composición sugerida, 2026-11-15). La lista se arma
+    una vez y cada franja se dibuja de ella: los MISMOS píxeles. Solo la última hoja (se recorren de a
+    una): no crece con el PDF. None = sin dónde guardarla (se dibuja como siempre)."""
+    doc = page.parent
+    try:
+        capas = tuple(bool(c.get("on")) for c in doc.layer_ui_configs())
+    except Exception:
+        capas = ()
+    clave = (page.number, page.rotation, capas)
+    try:
+        hecho = doc.__dict__.get("_pdfcad_franjas")
+        if hecho is None or hecho["clave"] != clave:
+            hecho = doc.__dict__["_pdfcad_franjas"] = {"clave": clave, "dl": None, "franjas": {}}
+        return hecho
+    except Exception:
+        return None
+
+
 def franja(page: fitz.Page, lado: str, rect: Rect, banda: float):
     """Píxeles con tinta (u a lo largo del lado, v a través; pt de la hoja visible) de la franja
-    del área pegada a ese lado, de ancho `banda` + 1 pt: se dibuja UNA vez por lado."""
+    del área pegada a ese lado, de ancho `banda` + 1 pt: se dibuja UNA vez por lado (y por hoja:
+    `_hoja_leida`)."""
+    hecho = _hoja_leida(page)
+    if hecho is None:
+        return _franja(page, lado, rect, banda, None)
+    clave = (lado, tuple(float(v) for v in rect), float(banda))
+    if clave not in hecho["franjas"]:
+        hecho["franjas"][clave] = _franja(page, lado, rect, banda, hecho)
+    return hecho["franjas"][clave]
+
+
+def _franja(page: fitz.Page, lado: str, rect: Rect, banda: float, hecho: Optional[dict]):
     import numpy as np
     x0, y0, x1, y1 = rect
     horiz = lado in ("top", "bottom")
@@ -87,14 +120,21 @@ def franja(page: fitz.Page, lado: str, rect: Rect, banda: float):
     caja = fitz.Rect(x0, lo_v, x1, hi_v) if horiz else fitz.Rect(lo_v, y0, hi_v, y1)
     vacio_ = (np.zeros(0), np.zeros(0))
     try:
-        pix = page.get_pixmap(matrix=fitz.Matrix(ZOOM, ZOOM), clip=caja * page.derotation_matrix,
-                              alpha=False)
+        if hecho is None:
+            pix = page.get_pixmap(matrix=fitz.Matrix(ZOOM, ZOOM), clip=caja * page.derotation_matrix,
+                                  alpha=False)
+        else:                               # lo mismo que hace `page.get_pixmap`, con la lista ya armada
+            if hecho["dl"] is None:
+                hecho["dl"] = page.get_displaylist(annots=True)
+            pix = hecho["dl"].get_pixmap(matrix=fitz.Matrix(ZOOM, ZOOM), colorspace=fitz.csRGB, alpha=False,
+                                         clip=caja * page.derotation_matrix)
     except Exception:
         return None
     if pix.width == 0 or pix.height == 0:
         return vacio_
     img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
-    ys, xs = np.nonzero(img[:, :, :3].min(axis=2) < OSCURO)
+    # (algún canal por debajo de OSCURO = el mínimo de los tres por debajo; así, sin armar el mínimo)
+    ys, xs = np.nonzero((img[:, :, 0] < OSCURO) | (img[:, :, 1] < OSCURO) | (img[:, :, 2] < OSCURO))
     px = caja.x0 + (xs + 0.5) / ZOOM                  # centro del píxel, hoja visible
     py = caja.y0 + (ys + 0.5) / ZOOM
     return (px, py) if horiz else (py, px)
@@ -119,6 +159,13 @@ def _linea_de_lado(lado: str, rect: Rect, segs, tinta_de: Callable,
                    giro_min: float = GIRO_MIN_DEG) -> Optional[Tuple[Pt, Pt]]:
     """La línea que hace de borde en ese lado (coords de la hoja), corrida hacia afuera medio grosor
     + `MARGEN_PT` (la línea del marco queda ENTERA dentro), o None."""
+    r = _linea_y_grosor(lado, rect, segs, tinta_de, giro_min)
+    return None if r is None else r[0]
+
+
+def _linea_y_grosor(lado: str, rect: Rect, segs, tinta_de: Callable,
+                    giro_min: float = GIRO_MIN_DEG) -> Optional[Tuple[Tuple[Pt, Pt], float]]:
+    """`_linea_de_lado` + el grosor de la raya del marco (pt)."""
     x0, y0, x1, y1 = rect
     horiz = lado in ("top", "bottom")
     largo = (x1 - x0) if horiz else (y1 - y0)
@@ -153,7 +200,7 @@ def _linea_de_lado(lado: str, rect: Rect, segs, tinta_de: Callable,
         if vacio(tinta, lado, p_lo, p_hi, w / 2.0 + HOLGURA_PT):
             d = afuera * (w / 2.0 + MARGEN_PT)
             (ua, va), (ub, vb) = (p_lo[0], p_lo[1] + d), (p_hi[0], p_hi[1] + d)
-            return ((ua, va), (ub, vb)) if horiz else ((va, ua), (vb, ub))
+            return (((ua, va), (ub, vb)) if horiz else ((va, ua), (vb, ub))), float(w)
     return None
 
 
@@ -167,10 +214,14 @@ def _cruce(p1: Pt, p2: Pt, q1: Pt, q2: Pt) -> Optional[Pt]:
     return p1[0] + t * d1x, p1[1] + t * d1y
 
 
-def cuadrilatero(page: fitz.Page, rect: Rect, paths=None, segs=None) -> Optional[List[Pt]]:
+def cuadrilatero(page: fitz.Page, rect: Rect, paths=None, segs=None, anchos: Optional[dict] = None,
+                 rectos: bool = False) -> Optional[List[Pt]]:
     """Esquinas (sup-izq, sup-der, inf-der, inf-izq) del área con sus bordes inclinados, o None.
     `segs` = rectas ya leídas (x0, y0, x1, y1, grosor, …) en la hoja visible (la composición
-    sugerida pasa las de los bordes de su ficha); si no, se leen de `paths` o de la hoja."""
+    sugerida pasa las de los bordes de su ficha); si no, se leen de `paths` o de la hoja.
+    `anchos` (dict, salida): grosor de la raya del marco de cada lado hallado. `rectos` = el marco
+    también vale si NINGÚN lado va inclinado (atlas borde con borde, 2026-11-14: hay que saber dónde
+    está la raya del marco para taparla en la costura); entonces se exigen los cuatro lados."""
     if segs is None:
         if paths is None:
             paths = page.get_drawings(extended=True)
@@ -189,19 +240,21 @@ def cuadrilatero(page: fitz.Page, rect: Rect, paths=None, segs=None) -> Optional
         if lado not in franjas:
             franjas[lado] = franja(page, lado, rect, banda)
         return franjas[lado]
-    hallados = {}
+    hallados, gros = {}, {}
     for lado in ("top", "right", "bottom", "left"):
-        ln = _linea_de_lado(lado, rect, segs, tinta_de)
-        if ln is not None:
-            hallados[lado] = ln
-    if not hallados:
+        r = _linea_y_grosor(lado, rect, segs, tinta_de)
+        if r is not None:
+            hallados[lado], gros[lado] = r
+    if not hallados and not rectos:
         return None                       # ningún borde inclinado: el rectángulo de siempre
     # con un borde inclinado, los demás lados del MISMO marco aunque vayan paralelos al lado
     for lado in ("top", "right", "bottom", "left"):
         if lado not in hallados:
-            ln = _linea_de_lado(lado, rect, segs, tinta_de, giro_min=0.0)
-            if ln is not None:
-                hallados[lado] = ln
+            r = _linea_y_grosor(lado, rect, segs, tinta_de, giro_min=0.0)
+            if r is not None:
+                hallados[lado], gros[lado] = r
+    if rectos and len(hallados) < 4:
+        return None
     lineas.update(hallados)
     pts = []
     for a, b in (("left", "top"), ("top", "right"), ("right", "bottom"), ("bottom", "left")):
@@ -210,7 +263,7 @@ def cuadrilatero(page: fitz.Page, rect: Rect, paths=None, segs=None) -> Optional
             return None
         pts.append(p)
     esquinas = ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
-    if all(math.hypot(p[0] - c[0], p[1] - c[1]) < MUEVE_MIN_PT for p, c in zip(pts, esquinas)):
+    if not rectos and all(math.hypot(p[0] - c[0], p[1] - c[1]) < MUEVE_MIN_PT for p, c in zip(pts, esquinas)):
         return None
     # cada esquina a ≤ SALE_MAX_PT del rectángulo. Lo poco que se sale por correr la línea medio
     # grosor hacia afuera se DEJA: llevarla al borde cortaba la propia línea del marco en la esquina,
@@ -218,7 +271,25 @@ def cuadrilatero(page: fitz.Page, rect: Rect, paths=None, segs=None) -> Optional
     t = SALE_MAX_PT
     if not all(x0 - t <= p[0] <= x1 + t and y0 - t <= p[1] <= y1 + t for p in pts):
         return None
+    if anchos is not None:
+        anchos.update(gros)
     return pts
+
+
+def marco_calculado(page: fitz.Page, rect: Rect, segs) -> dict:
+    """Todo lo que la composición sugerida le pide al marco de una hoja, de una vez (mientras sus franjas
+    están dibujadas): {"rect", "q", "anchos", "q_recto", "anchos_recto"} = `cuadrilatero(page, rect,
+    segs=segs, anchos=…)` y, si no hay borde inclinado, lo mismo con `rectos=True`. La ficha lo guarda y
+    `composicion_sugerida.armar` lo usa en vez de dibujar las cuatro franjas otra vez (2026-11-15)."""
+    anchos: dict = {}
+    q = cuadrilatero(page, rect, segs=segs, anchos=anchos)
+    out = {"rect": tuple(float(v) for v in rect), "q": q, "anchos": dict(anchos),
+           "q_recto": None, "anchos_recto": {}}
+    if not q:
+        anchos = {}
+        out["q_recto"] = cuadrilatero(page, rect, segs=segs, anchos=anchos, rectos=True)
+        out["anchos_recto"] = dict(anchos)
+    return out
 
 
 def normalizado(pts: Sequence[Pt], tam: Tuple[float, float]) -> List[List[float]]:

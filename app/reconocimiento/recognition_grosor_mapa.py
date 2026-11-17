@@ -171,16 +171,22 @@ def a_px(rots: Sequence[RotuloMapa], px: Callable[[Pt], Pt], zoom: float) -> Lis
     return out
 
 
-def _cerca(r: RotuloMapa, pts: Sequence[Pt]) -> Optional[Tuple[float, float, float, bool, int]]:
+def _cerca(r: RotuloMapa, pts: Sequence[Pt], tramos: Optional[Sequence[int]] = None
+           ) -> Optional[Tuple[float, float, float, bool, int]]:
     """(distancia del centro del rótulo a la polilínea, distancia de COSTADO, |cos| con el tramo
     más cercano, ¿alineado?, lado). De costado = la distancia, salvo pasada una punta (el texto no
     alcanza la línea): ahí, la distancia a la recta del último tramo, y solo está «alineado» (en
     su prolongación) si es ≤ `COLINEAL` × letra. Lado = de qué lado del texto queda la línea (±1;
-    0 si pasa por él)."""
+    0 si pasa por él).
+
+    `tramos` = solo esos tramos (en orden creciente): los que el índice da a ≤ su alcance del centro. El más
+    cercano está siempre entre ellos si queda a ese alcance, y si no quien llama descarta la línea igual: mismo
+    resultado sin medir los cientos de tramos de una ruta larga (Southwest, 2026-11-15)."""
     c, d = r.centro, r.dir
     best = None
     n = len(pts)
-    for i, (a, b) in enumerate(zip(pts, pts[1:])):
+    for i in (range(n - 1) if tramos is None else tramos):
+        a, b = pts[i], pts[i + 1]
         vx, vy = b[0] - a[0], b[1] - a[1]
         L = math.hypot(vx, vy)
         if L < 1e-9:
@@ -201,6 +207,14 @@ def _cerca(r: RotuloMapa, pts: Sequence[Pt]) -> Optional[Tuple[float, float, flo
     return best
 
 
+def tramos_por_linea(cerca) -> Dict[int, List[int]]:
+    """{línea: sus tramos, en orden} de lo que da `IndiceTramos.cerca` (pares (línea, tramo) ordenados)."""
+    out: Dict[int, List[int]] = {}
+    for k, j in cerca:
+        out.setdefault(k, []).append(j)
+    return out
+
+
 def asignar(lineas: Sequence, rots: Sequence[RotuloMapa], es_acometida: Callable[[object], bool],
             diam_acometida_in: Optional[float] = None):
     """({k: rótulos de la línea k}, {k: rótulos que quizá son de k}, {id(rótulo): líneas a su alcance
@@ -219,10 +233,11 @@ def asignar(lineas: Sequence, rots: Sequence[RotuloMapa], es_acometida: Callable
     for r in rots:
         lim = DIST_MAX * r.tam
         cand, sueltas, cruzadas = [], [], []
-        for k in sorted({k for k, _j in indice.cerca(r.centro)}):
+        de_k = tramos_por_linea(indice.cerca(r.centro))
+        for k in sorted(de_k):
             if (not acometida[k] and r.acometida) or (acometida[k] and r.pulg > tope_plano and not r.acometida):
                 continue
-            got = _cerca(r, pts[k])
+            got = _cerca(r, pts[k], de_k[k])            # (lim ≤ alcance del índice)
             if got is None or got[0] > lim:
                 continue
             alcance_de.setdefault(id(r), []).append(k)

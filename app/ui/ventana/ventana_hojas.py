@@ -123,9 +123,12 @@ class HojasEditorMixin:
         if not lay or len(lay) < 2:
             return []
         z = self.zoom or 1.0
-        labels = [label for _r, label in lay]
+        labels = tuple(label for _r, label in lay)
+        cortas = getattr(self, "_etiquetas_cortas_memo", None)   # (las mismas hojas en cada redibujo)
+        if cortas is None or cortas[0] != labels:
+            cortas = self._etiquetas_cortas_memo = (labels, etiquetas_cortas(list(labels)))
         return [(QtCore.QRectF(x0 * z, y0 * z, (x1 - x0) * z, (y1 - y0) * z), corta, label)
-                for ((x0, y0, x1, y1), label), corta in zip(lay, etiquetas_cortas(labels))]
+                for ((x0, y0, x1, y1), label), corta in zip(lay, cortas[1])]
 
     # ── al redibujar ──────────────────────────────────────────────────────
     def _refrescar_hojas(self):

@@ -182,10 +182,18 @@ def _piezas(page):
     try:
         if page.read_contents().count(b"/fzFrm") >= 2:
             starts, cajas, nuevo, caja = [], [], False, None
-            for d in page.get_cdrawings(extended=True):
-                # cada pieza abre con su recorte en el nivel 0; la FUNDIDA («Fundir bordes»,
-                # `composite_fundir`), con su grupo de transparencia
-                if d.get("type") in ("clip", "group") and d.get("level") == 0:
+            dibujos = page.get_cdrawings(extended=True)
+            # cada pieza abre con su recorte en el nivel de las piezas (0); la FUNDIDA («Fundir
+            # bordes», `composite_fundir`), con su grupo de transparencia. Si la página entera va
+            # dentro de UN grupo (hoja de origen con transparencia, 2026-11-14 Southwest Gas), las
+            # piezas quedan un nivel más adentro: el primer nivel con ≥2 recortes/grupos
+            por_nivel: dict = {}
+            for d in dibujos:
+                if d.get("type") in ("clip", "group"):
+                    por_nivel[d.get("level")] = por_nivel.get(d.get("level"), 0) + 1
+            nivel = next((n for n in (0, 1, 2) if por_nivel.get(n, 0) >= 2), 0)
+            for d in dibujos:
+                if d.get("type") in ("clip", "group") and d.get("level") == nivel:
                     nuevo, caja = True, None
                 if nuevo and d.get("type") == "clip" and d.get("scissor"):
                     caja = tuple(float(v) for v in d["scissor"])     # el último: el más interior

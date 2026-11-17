@@ -193,7 +193,7 @@ class HerramientasMixin:
         if hasattr(self, "_actualizar_revision"):          # panel «Revisión» del riel (2.0.0)
             self._actualizar_revision(n_nor, n_rec)
         if hasattr(self, "_filtrar_inventario"):            # avisos por utilidad en el Inventario
-            self._filtrar_inventario()
+            self._filtrar_inventario_si_cambio()
         if self._normas_dlg is not None:
             self._normas_dlg.refrescar()
         if getattr(self, "lbl_normas_pipe", None) is not None:

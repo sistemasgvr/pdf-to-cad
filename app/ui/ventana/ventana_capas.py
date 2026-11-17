@@ -55,6 +55,16 @@ class CapasMixin:
     # ── lo que muestra el panel ───────────────────────────────────────────
     def _capas_utilidad(self):
         """{capa: nº de utilidades dibujadas} en el orden de `TIPOS` (y las demás después)."""
+        vs = getattr(self, "valvulas", None) or ()
+        if not getattr(self, "_en_redibujo", False):
+            return self._capas_utilidad_calc()
+        from nucleo import memo_modelo                  # en el redibujo: una vez por modelo y válvulas
+        lugares = getattr(self, "_valv_lugares", None) or ()
+        return dict(self._memo(("capas_utilidad", memo_modelo.firma(vs) if vs else b"",
+                                tuple((l.ok, l.pipe) for l in lugares) if vs else ()),
+                               self._capas_utilidad_calc, copiar=False))
+
+    def _capas_utilidad_calc(self):
         n = Counter(p.get("layer") for p in self.pipes if p.get("pts") and p.get("layer"))
         for s in self.structures:                       # cajas sueltas de una utilidad sin líneas
             if s.get("standalone") and s.get("utility") and not s.get("world"):

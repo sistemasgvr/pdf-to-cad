@@ -149,6 +149,9 @@ def _sin_repetidos(items):
     for c in items:
         clave = (c["clave"], frozenset(i for i in c.get("pipes") or [] if i is not None))
         x, y = float(c["x"]), float(c["y"])
+        if not (math.isfinite(x) and math.isfinite(y)):      # (nunca está a ≤ MISMO_PX de otro)
+            out.append(c)
+            continue
         ci, cj = math.floor(x / MISMO_PX), math.floor(y / MISMO_PX)
         if any((ox - x) ** 2 + (oy - y) ** 2 <= r2
                for i in (ci - 1, ci, ci + 1) for j in (cj - 1, cj, cj + 1)
@@ -328,27 +331,33 @@ def numerar_avisos(avisos, registro, clase_reconocimiento="grosor"):
 
 def agrupar(conflictos, tol):
     """Los conflictos en el MISMO lugar (≤ tol px) juntos, para una sola etiqueta «C-10 · OC-3»
-    (si no, una tapa a la otra). Devuelve [[Conflicto, …]] en el orden de numeración."""
-    # Mismo resultado que mirar todos los grupos en orden (va al PRIMER grupo cuyo primer conflicto está a ≤ tol),
-    # pero buscando solo en las celdas vecinas: con decenas de miles de conflictos (proyecto de 29 mil utilidades,
-    # 2026-11-13) mirar todos dejaba la ventana congelada ~16 s y Windows la mostraba en blanco.
+    (si no, una tapa a la otra). Devuelve [[Conflicto, …]] en el orden de numeración. Cada uno va al PRIMER grupo
+    cuyo primero está a ≤ tol: se buscan en las celdas vecinas (de lado tol) y gana el de menor índice (con
+    decenas de miles de conflictos, mirar todos dejaba la ventana congelada ~16 s)."""
     grupos = []
-    celda = max(float(tol), 1e-9)
-    celdas = {}
-    t2 = tol * tol
+    if not tol or tol <= 0 or not math.isfinite(tol):
+        for c in conflictos or []:
+            g = next((g for g in grupos if (g[0].x - c.x) ** 2 + (g[0].y - c.y) ** 2 <= tol * tol), None)
+            if g is None:
+                grupos.append([c])
+            else:
+                g.append(c)
+        return grupos
+    celdas = {}                                       # (un primero sin coordenada finita no recibe a nadie)
     for c in conflictos or []:
-        cx, cy = int(c.x // celda), int(c.y // celda)
-        mejor = None
-        for i in range(cx - 1, cx + 2):
-            for j in range(cy - 1, cy + 2):
-                for k in celdas.get((i, j), ()):
-                    if (mejor is None or k < mejor) and (grupos[k][0].x - c.x) ** 2 + (grupos[k][0].y - c.y) ** 2 <= t2:
-                        mejor = k
-        if mejor is None:
-            celdas.setdefault((cx, cy), []).append(len(grupos))
-            grupos.append([c])
+        if math.isfinite(c.x) and math.isfinite(c.y):
+            kx, ky = math.floor(c.x / tol), math.floor(c.y / tol)
+            dentro = [k for dx in (-1, 0, 1) for dy in (-1, 0, 1) for k in celdas.get((kx + dx, ky + dy), ())
+                      if (grupos[k][0].x - c.x) ** 2 + (grupos[k][0].y - c.y) ** 2 <= tol * tol]
         else:
-            grupos[mejor].append(c)
+            kx = ky = None
+            dentro = []
+        if dentro:
+            grupos[min(dentro)].append(c)
+        else:
+            if kx is not None:
+                celdas.setdefault((kx, ky), []).append(len(grupos))
+            grupos.append([c])
     return grupos
 
 

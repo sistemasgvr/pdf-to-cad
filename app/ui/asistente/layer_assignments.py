@@ -9,9 +9,10 @@ from PySide6 import QtWidgets
 from hoja import acometidas_mapa, leyenda_mapa, pdf_layers
 from reconocimiento import recognition as rec
 from traduccion.i18n import t as _tr
+from ui.asistente.layer_sugeridos import EstilosSugeridosMixin
 
 
-class LayerAssignmentsMixin:
+class LayerAssignmentsMixin(EstilosSugeridosMixin):
     def _init_assignments(self, roles):
         self._base_roles = {u: {k: list(v) if isinstance(v, (list, tuple, set)) else v for k, v in r.items()}
                             for u, r in (roles or {}).items()}
@@ -29,7 +30,15 @@ class LayerAssignmentsMixin:
         # utilidad → capas que asignó la leyenda de ESTA hoja (None: la hoja no tiene leyenda
         # de mapa); viaja en los roles (`leyenda_mapa.CLAVE_LEYENDA`) para no llevarlas a otra hoja
         self._ley_por_utilidad = None
+        self._sugeridos = None
         self._apply_map_legend()
+        if self._map_legend is None and self._ley_por_utilidad is None:
+            # sin leyenda de mapa: lo que dicen el texto y los rótulos del plano (2026-11-14)
+            if self._roles_de_esta_hoja():
+                self._ley_por_utilidad = {u: list(r.get(leyenda_mapa.CLAVE_LEYENDA) or ())
+                                          for u, r in self._base_roles.items() if leyenda_mapa.CLAVE_LEYENDA in r}
+            else:
+                self._apply_estilos_sugeridos()
 
     def _roles_de_esta_hoja(self) -> bool:
         """¿Los roles previos se eligieron en ESTA hoja (volver de la vista previa)? Los de otra
@@ -73,22 +82,30 @@ class LayerAssignmentsMixin:
     def _legend_for_new_sheet(self):
         """◀ ▶ a otra hoja de un mapa con leyenda: su leyenda decide sus estilos (lo elegido a
         mano en la anterior sigue). Sin leyenda de mapa en la nueva, todo queda como estaba."""
-        page = self._doc[self._page_index]
-        if not (any(L.get("source") == "style" for L in self._layers_raw) and leyenda_mapa.aplica(page)
-                and leyenda_mapa.leer(self._doc, page).filas):
+        if not any(L.get("source") == "style" for L in self._layers_raw):
             return
+        # con leyenda, la suya; sin ella, lo que dicen su texto y sus rótulos (`layer_sugeridos`)
         self._init_assignments(leyenda_mapa.roles_de_otra_hoja(self.roles_by_utility()))
+        self._poner_resumen_leyenda()
+
+    def _poner_resumen_leyenda(self):
         lbl = getattr(self, "lbl_map_legend", None)
-        if lbl is not None:
-            texto, detalle = self._map_legend_summary()
-            lbl.setText(texto)
-            lbl.setToolTip(detalle)
-            lbl.setVisible(bool(texto))
+        if lbl is None:
+            return
+        texto, detalle = self._map_legend_summary()
+        lbl.setText(texto)
+        lbl.setToolTip(detalle)
+        lbl.setVisible(bool(texto))
+        from ui.comun import theme as _theme
+        t = _theme.tokens()
+        aviso = (not self._map_legend) and self._sugeridos_summary()[2]
+        lbl.setStyleSheet(f"color:{t.warning}; font-weight:bold;" if aviso else "")
 
     def _map_legend_summary(self):
         """(texto corto, detalle para el tooltip) de lo que asignó la leyenda; ("", "") sin ella."""
         if not self._map_legend:
-            return "", ""
+            texto, detalle, _aviso = self._sugeridos_summary()
+            return texto, detalle
         ley, asig, amb = self._map_legend
         if not asig:
             return (_tr("Leyenda del plano leída, pero ningún estilo es solo de una red: asígnalos abajo."), "")
@@ -128,6 +145,7 @@ class LayerAssignmentsMixin:
         self.lbl_map_legend.setToolTip(detalle)
         self.lbl_map_legend.setVisible(bool(texto))
         layout.addWidget(self.lbl_map_legend)
+        self._poner_resumen_leyenda()
         self.assignment_label = QtWidgets.QLabel(_tr("Selecciona una capa para asignar su utilidad."))
         self.assignment_label.setWordWrap(True)
         layout.addWidget(self.assignment_label)
@@ -184,12 +202,14 @@ class LayerAssignmentsMixin:
         if original:
             self._touched_utilities.update(u for u in rec.SUPPORTED_UTILITIES
                 if _suggest_role(original, u) != rec.ROLE_IGNORAR)
-        if utility:
-            self._automatic_names.discard(name)
-            self._assignments[name] = (utility, rec.ROLE_IGNORAR if utility == pdf_layers.UTILITY_OTHER else role)
-        else:
-            self._assignments.pop(name, None)
-            self._automatic_names.add(name)
+        # el mismo estilo con otro grosor (otra pieza de la hoja compuesta) va con él
+        for nombre in [name] + self._gemelos_de(name):
+            if utility:
+                self._automatic_names.discard(nombre)
+                self._assignments[nombre] = (utility, rec.ROLE_IGNORAR if utility == pdf_layers.UTILITY_OTHER else role)
+            else:
+                self._assignments.pop(nombre, None)
+                self._automatic_names.add(nombre)
         self._assignments_changed = True
         hidden = set(self.hidden_names())
         self._layers = [dict(L, on=L['name'] not in hidden) for L in self._effective_layers()]

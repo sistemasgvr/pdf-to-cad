@@ -57,6 +57,7 @@ from ui.asistente.layer_dialog_recog import (RecogCardMixin, card as _card, util
 from ui.asistente.wizard_widgets import NoEscapeClose, StepBar, OpacityButton, wizard_header, wizard_footer
 from ui.asistente.layer_assignments import LayerAssignmentsMixin
 from ui.asistente.layer_dialog_scale import ScaleCalibrationMixin
+from ui.asistente.layer_dialog_editor import ModoEditorMixin
 
 # Zoom del render PDF (matriz PyMuPDF). El lienzo principal usa ~3.5; aquí
 # 3.0 da nitidez al acercar con la rueda sin ralentizar demasiado el
@@ -80,7 +81,7 @@ _ROLE_SUB = QtCore.Qt.UserRole + 2         # subgrupo («lineas», «valvulas»�
 LAYERS_BACK = "back"
 
 
-class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoMixin, RecogCardMixin,
+class SheetLayersDialog(ModoEditorMixin, ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoMixin, RecogCardMixin,
                         NoEscapeClose, QtWidgets.QDialog):
     """Mostrar/ocultar capas OCG de una hoja con vista previa en vivo; a la izquierda,
     las capas que se toman por las LETRAS de su línea y la leyenda del PDF
@@ -89,8 +90,9 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
     def __init__(self, parent, doc: fitz.Document, page_index: int, layers=None, layout=None,
                  recognition_utilities=None, can_go_back: bool = False, letters_off=None,
                  legend_sources=None, legend_cache=None, roles_by_utility=None,
-                 scale_ft_per_pt=None, previa=None, en_proceso=False):
+                 scale_ft_per_pt=None, previa=None, en_proceso=False, editor=False):
         super().__init__(parent)
+        self._editor = bool(editor)        # «Capas y estilos…» del editor (`layer_dialog_editor`)
         self._doc = doc
         self._page_index = page_index
         # hoja compuesta grande: lo pesado ya se leyó en el proceso trabajador (`capas_previas`)
@@ -109,6 +111,7 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         self._layers_raw = layers if layers is not None else pdf_layers.page_layers(doc, page_index)
         # capas que el usuario decidió NO tomar por las letras de su línea (panel izquierdo)
         self._letters_off = set(letters_off or ())
+        self._fuentes_texto = legend_sources        # texto de las hojas de origen (`layer_sugeridos`)
         self._init_assignments(roles_by_utility)
         self._layers = self._effective_layers()
         self._pix_item = None
@@ -134,7 +137,8 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         root.setSpacing(10)
         self.steps = StepBar(1, back_enabled=can_go_back)
         self.steps.stepClicked.connect(lambda _i: self._go_back())
-        root.addWidget(wizard_header(self.steps))
+        self._cabecera = wizard_header(self.steps)
+        root.addWidget(self._cabecera)
         self.view = ZoomPanView()
         from ui.asistente.layer_style_pick import StylePicker
         self._style_picker = StylePicker(self)
@@ -211,6 +215,7 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
                                 "Las casillas excluyen estilos del reconocimiento; el PDF conserva "
                                 "su imagen. Calibra la escala antes de importar."))
         hint.setWordWrap(True)
+        self._hint_capas = hint
         hint.setStyleSheet(f"color:{t.text_muted}; font-size:12px;")
         lay.addWidget(hint)
         self.search = QtWidgets.QLineEdit()
@@ -269,6 +274,8 @@ class SheetLayersDialog(ScaleCalibrationMixin, LayerAssignmentsMixin, LayerInfoM
         self._fill_list()
         self._refresh_recog_checks()
         self._update_sheet_widgets()
+        if self._editor:
+            self._modo_editor()
         self._render(first=True)
 
     def showEvent(self, e):

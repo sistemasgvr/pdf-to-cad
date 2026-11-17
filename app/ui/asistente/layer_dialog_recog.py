@@ -123,6 +123,7 @@ class RecogCardMixin:
         self.lbl_recog_hidden.hide()
         lay.addWidget(self.lbl_recog_hidden)
         panel.addWidget(box)
+        self._recog_box = box
 
     def _flat_sheet(self) -> bool:
         """Hoja SIN capas: sus capas son virtuales, por estilo (`pdf_styles`)."""
@@ -180,7 +181,8 @@ class RecogCardMixin:
                                           else f"color:{t.danger}; font-weight:bold;")
         self.lbl_recog_warn.setVisible(not ok)
         hidden = self._check_recog_hidden()
-        self.btn_ok.setEnabled(ok and not hidden)
+        # en el editor («Capas y estilos…») las filas del panel «Reconocer» dicen lo que falta: siempre se aplica
+        self.btn_ok.setEnabled((ok and not hidden) or getattr(self, "_editor", False))
         self._sync_switches()
 
     def _sync_switches(self):

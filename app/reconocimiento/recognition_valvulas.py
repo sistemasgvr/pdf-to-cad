@@ -27,12 +27,12 @@ from hoja import pdf_styles
 from nucleo import valvulas as V
 from reconocimiento import recognition as rec
 from reconocimiento import recognition_geom as geom
+from reconocimiento import recognition_valvulas_tinta as tinta
 
 MIN_PT = 1.2                # más chico = el plano índice de la hoja, a otra escala (DU06 h.2: 0.3 pt)
 TOCA_PT = 0.25              # trazos de la misma capa a menos de esto = un mismo símbolo (DU06 h.13: dos válvulas a 0.6 pt)
 MISMA_PT = 0.5              # el mismo símbolo en dos capas
 ASTILLA_PT = 1.0            # un símbolo recortado que quedó más delgado que esto no se ubica bien
-TINTA_TOL = 150             # suma de diferencias RGB: el suavizado del borde aclara el color del glifo
 RAMAL_PUNTA_PT = 1.0        # las puntas de un ramal: sobre la válvula y sobre su tubería
 RAMAL_MAX_PT = 30.0         # más largo ya no es un ramal que el reconocimiento descartó por corto
 FORMA_MIN_PT, FORMA_MAX_PT = 2.0, 9.0
@@ -64,6 +64,11 @@ def estado_de(texto: str) -> str:
 def es_capa_valvula(ocg: Optional[str]) -> bool:
     short = rec.standard_short_name(ocg)
     return bool(_CAPA.search(short)) and not any(t in short for t in _NO_CAPA)
+
+
+def es_fila_valvula(texto: Optional[str]) -> bool:
+    """¿La fila de la leyenda del mapa dice válvula? (la misma regla de `_de_leyenda`)."""
+    return bool(_FILA.search(texto or ""))
 
 
 def utilidad_de_capa(ocg: Optional[str]) -> str:
@@ -216,45 +221,77 @@ def _de_leyenda(page) -> List[dict]:
     return out
 
 
-def _se_dibuja(lista, page, caja, color) -> bool:
-    """¿Se ve tinta del color del glifo en su lugar? El SIG deja glifos fuera del marco del mapa, tapados por su recorte
-    (Southwest 37 (425, 247)): el texto sigue ahí, pero en la hoja no hay nada."""
+def _recuadro(page, caja):
+    """La caja del glifo (coords sin girar de `get_texttrace`) como recorte de la lista de dibujo: lo de siempre."""
     girar = rec.transformador_mupdf(page.rotation_matrix)
     a, b = girar(caja[0], caja[1]), girar(caja[2], caja[3])
-    pix = lista.get_pixmap(matrix=fitz.Matrix(10, 10), clip=fitz.Rect(min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]),
-                                                                    max(a[1], b[1])), alpha=False)
-    rgb = [int(round(c * 255)) for c in (tuple(color) + (0, 0, 0))[:3]] if len(color) == 3 else [0, 0, 0]
-    px = pix.samples
-    n = pix.n
-    return any(abs(px[i] - rgb[0]) + abs(px[i + 1] - rgb[1]) + abs(px[i + 2] - rgb[2]) < TINTA_TOL
-               for i in range(0, len(px) - n + 1, n))
+    return min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]), max(a[1], b[1])
+
+
+def _candidatos_imagen(page, ley):
+    """Los glifos de la leyenda en imagen que no tapa el recorte de su pieza, en orden, y su pedido de «¿se ve?»
+    (recuadro, color). Una vez por hoja dentro de `lectura_unica`: `adelantar` y `_de_imagen` piden lo mismo."""
+    def calcular():
+        from hoja import leyenda_mapa_lectura
+        inicios = leyenda_mapa_lectura.inicios_de_piezas(page)
+        recortes = leyenda_mapa_lectura.recortes_de_piezas(page)
+        candidatos = []
+        for sp in page.get_texttrace():
+            fuente = (sp.get("font") or "").split("+")[-1]
+            for ch in sp.get("chars") or ():
+                s = ley.simbolos.get((fuente, ch[0]))
+                if s is None:
+                    continue
+                caja = tuple(float(v) for v in ch[3])
+                c = ((caja[0] + caja[2]) / 2.0, (caja[1] + caja[3]) / 2.0)
+                if _se_ve(c, sp.get("seqno") or 0, inicios, recortes):
+                    candidatos.append((sp, s, caja, c))
+        pedidos = [(_recuadro(page, caja), tinta.rgb_de(sp.get("color") or ())) for sp, _s, caja, _c in candidatos]
+        return candidatos, pedidos
+    return pdf_styles.memo(page, "valvulas_imagen", calcular)
 
 
 def _de_imagen(page, ley) -> List[dict]:
-    """Los glifos que la leyenda en imagen dice que son válvulas (`dir` = cómo va el símbolo, para su estado)."""
-    from hoja import leyenda_mapa_lectura
-    inicios = leyenda_mapa_lectura.inicios_de_piezas(page)
-    recortes = leyenda_mapa_lectura.recortes_de_piezas(page)
-    lista = page.get_displaylist()
+    """Los glifos que la leyenda en imagen dice que son válvulas (`dir` = cómo va el símbolo, para su estado).
+    Primero los candidatos (en orden), luego «¿se ve?» de todos juntos (`recognition_valvulas_tinta.se_ven`: con
+    muchos, en varios procesos, quizá ya lanzados por `adelantar`) y al final la MISMA pasada de siempre."""
+    candidatos, pedidos = _candidatos_imagen(page, ley)
+    ven = tinta.se_ven(page, None, pedidos)
     out: List[dict] = []
-    for sp in page.get_texttrace():
-        fuente = (sp.get("font") or "").split("+")[-1]
-        for ch in sp.get("chars") or ():
-            s = ley.simbolos.get((fuente, ch[0]))
-            if s is None:
-                continue
-            caja = tuple(float(v) for v in ch[3])
-            c = ((caja[0] + caja[2]) / 2.0, (caja[1] + caja[3]) / 2.0)
-            if not _se_ve(c, sp.get("seqno") or 0, inicios, recortes) \
-                    or any(math.dist(c, o["c"]) <= MISMA_PT for o in out) \
-                    or not _se_dibuja(lista, page, caja, sp.get("color") or ()):
-                continue
-            h = dict(c=c, caja=caja, utilidad=ley.utilidad, tipo=s.tipo, capa=s.texto, origen=V.LEYENDA, certeza=V.SEGURA)
-            if s.por_rumbo:
-                d = sp.get("dir") or (1.0, 0.0)
-                h["dir"] = math.degrees(math.atan2(d[1], d[0]))
-            out.append(h)
+    for (sp, s, caja, c), se_ve in zip(candidatos, ven):
+        if any(math.dist(c, o["c"]) <= MISMA_PT for o in out) or not se_ve:
+            continue
+        h = dict(c=c, caja=caja, utilidad=ley.utilidad, tipo=s.tipo, capa=s.texto, origen=V.LEYENDA, certeza=V.SEGURA)
+        if s.por_rumbo:
+            d = sp.get("dir") or (1.0, 0.0)
+            h["dir"] = math.degrees(math.atan2(d[1], d[0]))
+        out.append(h)
     return out
+
+
+def _camino(page):
+    """(con capas, con leyenda leída, leyenda en imagen conocida): de dónde salen las válvulas de esta hoja."""
+    def calcular():
+        from hoja import leyenda_mapa, leyendas_imagen
+        con_capas = any((p.get("layer") or "") and not p["layer"].startswith(pdf_styles.PREFIX)
+                        for p in pdf_styles.drawings(page) if p.get("type") not in ("clip", "group"))
+        leyenda = not con_capas and leyenda_mapa.aplica(page)
+        imagen = None if con_capas or leyenda else leyendas_imagen.conocida(page)
+        return con_capas, leyenda, imagen
+    return pdf_styles.memo(page, "valvulas_camino", calcular)
+
+
+def adelantar(page) -> None:
+    """Al EMPEZAR el reconocimiento: si la hoja lee sus válvulas de una leyenda en imagen, lanza ya los dibujos de
+    «¿se ve?» en otros procesos; corren mientras se reconocen las líneas (no dependen de ellas ni del estado de las
+    capas, que el reconocimiento no toca) y `_de_imagen` recoge sus respuestas. Llamar dentro de
+    `pdf_styles.lectura_unica` y soltar con `recognition_valvulas_tinta.soltar(doc)`. Nunca falla."""
+    try:
+        _con_capas, _leyenda, imagen = _camino(page)
+        if imagen is not None:
+            tinta.adelantar(page, _candidatos_imagen(page, imagen)[1])
+    except Exception:                                  # noqa: BLE001
+        pass
 
 
 def _de_forma(page, hidden) -> List[dict]:
@@ -278,11 +315,7 @@ def _manuales(page, hidden, roles_by_utility) -> List[dict]:
 
 def leer_hoja(page, zoom, hidden=(), roles_by_utility=None) -> List[dict]:
     """Candidatas de la hoja (px de la vista); `completar` las cruza con las líneas."""
-    from hoja import leyenda_mapa, leyendas_imagen
-    con_capas = any((p.get("layer") or "") and not p["layer"].startswith(pdf_styles.PREFIX)
-                    for p in pdf_styles.drawings(page) if p.get("type") not in ("clip", "group"))
-    leyenda = not con_capas and leyenda_mapa.aplica(page)
-    imagen = None if con_capas or leyenda else leyendas_imagen.conocida(page)
+    con_capas, leyenda, imagen = _camino(page)
     hallazgos = _de_capas(page, hidden) if con_capas else _de_leyenda(page) if leyenda else \
         _de_imagen(page, imagen) if imagen else _de_forma(page, hidden)
     hallazgos += [m for m in _manuales(page, hidden, roles_by_utility)

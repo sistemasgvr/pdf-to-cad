@@ -144,6 +144,26 @@ def test_capas_de_la_hoja_no_amontona(app, hoja, idioma, ancho, alto):
 
 
 @pytest.mark.parametrize("ancho,alto", TAMANOS)
+@pytest.mark.parametrize("idioma", ["es", "en"])
+@pytest.mark.parametrize("hoja", [_hoja_sin_capas, _hoja_con_capas], ids=["sin_capas", "con_capas"])
+def test_capas_y_estilos_del_editor_no_amontona(app, hoja, idioma, ancho, alto):
+    """El mismo diálogo en modo editor («Capas y estilos…» del panel «Reconocer»): sin pasos ni tarjeta «Reconocer»."""
+    i18n.set_lang(idioma)
+    doc = hoja()
+    dlg = layer_dialog.SheetLayersDialog(None, doc, 0, editor=True)
+    try:
+        _colocar(app, dlg, ancho, alto)
+        dlg._apply_side_width()
+        app.processEvents()
+        assert amontonados(dlg) == []
+    finally:
+        dlg.reject()
+        dlg.deleteLater()
+        app.processEvents()
+        doc.close()
+
+
+@pytest.mark.parametrize("ancho,alto", TAMANOS)
 def test_el_arbol_de_capas_siempre_deja_ver_filas(app, ancho, alto):
     """Lo principal del panel: en una laptop chica se desplaza el panel, nunca se encoge la lista."""
     doc = _hoja_sin_capas()

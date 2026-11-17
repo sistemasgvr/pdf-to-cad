@@ -260,5 +260,7 @@ def nombre_archivo(nombre: str) -> str:
 
 def area_xy(puntos, triangulos) -> float:
     t = np.asarray(puntos)[np.asarray(triangulos)]
-    return float(np.abs(np.cross(t[:, 1, :2] - t[:, 0, :2], t[:, 2, :2] - t[:, 0, :2])).sum() / 2.0)
+    a, b = t[:, 1, :2] - t[:, 0, :2], t[:, 2, :2] - t[:, 0, :2]
+    # producto cruz 2D a mano (= lo que daba `np.cross` con vectores 2D, que numpy 2.x ya no acepta)
+    return float(np.abs(a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]).sum() / 2.0)
 

@@ -162,6 +162,9 @@ def test_dialogo_configurar_ia_recuerda_modelo_y_clave_por_proveedor(qtbot=None)
     assert win._config_ia()["modelo"] == "qwen3-vl:8b"
     for k in ("proveedor", "modelo", "modelo_gemini", "clave_gemini"):
         s.remove("ia/" + k)
+    import shiboken6                                   # borrar las ventanas AHORA: si las borra el recolector al
+    shiboken6.delete(dlg)                              # cerrar pytest, PySide se cae (código 127)
+    shiboken6.delete(win)
 
 
 def test_saturado_un_reintento_y_luego_mensaje_claro(servidor, monkeypatch):

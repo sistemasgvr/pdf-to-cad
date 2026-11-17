@@ -74,6 +74,78 @@ def style_width(name):
         return None
 
 
+GEMELO_TOL = 0.06            # grosor (y guiones) que cambia hasta esto: el mismo estilo en otra pieza
+GEMELO_TOL_PT = 0.015
+
+
+def _partes(name):
+    try:
+        k = json.loads(name[len(PREFIX):])
+    except (ValueError, TypeError):
+        return None
+    return k if isinstance(k, list) and len(k) >= 5 and k[0] != "sym" else None
+
+
+def _casi(a: float, b: float) -> bool:
+    return abs(a - b) <= max(GEMELO_TOL_PT, GEMELO_TOL * max(abs(a), abs(b)))
+
+
+def _guiones(dash: str):
+    import re
+    nums = [float(v) for v in re.findall(r"-?\d+(?:\.\d+)?", dash or "")]
+    return nums
+
+
+def gemelos(elegidos, nombres) -> dict:
+    """{estilo de la hoja: estilo elegido} de los estilos que son el MISMO que uno elegido salvo el
+    grosor (y el largo de sus guiones) por ≤ `GEMELO_TOL` — hoja compuesta: cada pieza va a su escala
+    y la misma red de un SIG sale en 0.48, 0.47 y 0.46 pt (reporte 2026-11-14, Southwest Gas: se
+    asignaba uno y las piezas del otro grosor quedaban sin reconocer, o cortadas en la costura).
+    Mismo tipo, color, relleno y opacidades; los elegidos se mapean a sí mismos. Un estilo gemelo de
+    DOS elegidos distintos no se toma (ambiguo)."""
+    elegidos = [e for e in elegidos if (e or "").startswith(PREFIX) and _partes(e)]
+    out = {e: e for e in elegidos}
+    ambiguos = set()
+    for n in nombres:
+        if n in out and out[n] == n or not (n or "").startswith(PREFIX):
+            continue
+        pn = _partes(n)
+        if pn is None:
+            continue
+        for e in elegidos:
+            pe = _partes(e)
+            if (pe[0], pe[1], pe[4], pe[5:]) != (pn[0], pn[1], pn[4], pn[5:]):
+                continue
+            if not _casi(float(pe[2] or 0), float(pn[2] or 0)):
+                continue
+            ge, gn = _guiones(pe[3]), _guiones(pn[3])
+            if len(ge) != len(gn) or not all(_casi(a, b) for a, b in zip(ge, gn)):
+                continue
+            if n in out and out[n] != e:
+                ambiguos.add(n)
+            out.setdefault(n, e)
+    for n in ambiguos:
+        out.pop(n, None)
+    return out
+
+
+def familias(cuenta) -> dict:
+    """{estilo: estilo de su familia} — los gemelos (`gemelos`) de una hoja compuesta van juntos;
+    representa a la familia el más usado (`cuenta`: {estilo: nº de trazos})."""
+    rep: dict = {}
+    nombres = sorted((n for n in cuenta if (n or "").startswith(PREFIX)), key=lambda n: (-cuenta[n], n))
+    for n in nombres:
+        if n in rep:
+            continue
+        if _partes(n) is None:
+            rep[n] = n
+            continue
+        for m in gemelos([n], [m for m in nombres if m not in rep]):
+            rep[m] = n
+        rep.setdefault(n, n)
+    return rep
+
+
 _ETIQUETAS: dict = {}
 
 
@@ -214,7 +286,9 @@ def _drawings(page, extended, cache):
         out.extend(dict(p) for p in leyenda_mapa.simbolos_capas(page))
     else:                                              # sin leyenda: glifos de fuentes de símbolos, para asignar a mano
         from hoja import simbolos_fuente
-        out.extend(simbolos_fuente.capas(page))
+        # (una vez por hoja dentro de `lectura_unica`: las dos formas de la lectura —con y sin recortes— piden
+        # los mismos glifos; en una compuesta de 54 mapas son 49 mil círculos, ~3 s cada vez)
+        out.extend(dict(p) for p in memo(page, "simbolos_fuente", lambda: simbolos_fuente.capas(page)))
     return out
 
 

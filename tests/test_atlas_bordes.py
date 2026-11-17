@@ -95,3 +95,28 @@ def test_southwest_gas_las_54_hojas_en_un_grupo():
     an = G.analizar([fs])
     assert [len(g.nodos) for g in an.grupos] == [54]
     assert an.grupos[0].residuo < 3.0
+
+
+def test_atlas_2x2_la_raya_del_marco_no_queda_en_las_costuras():
+    """Reporte 2026-11-14 (Southwest Gas): la hoja compuesta dejaba el marco de cada hoja dibujado
+    en cada costura. Cada lado que se junta con otra hoja lleva su franja blanca sobre la raya del
+    marco (también las vecinas que no fueron la costura que unió el grupo, y con marco recto)."""
+    import numpy as np
+    from hoja import composite as C
+    doc = _atlas([(14, 6), (14, 7), (15, 6), (15, 7)])
+    an = G.analizar([F.fichas(doc, 0)])
+    g = an.grupos[0]
+    comp = G.armar(g, an, [doc], lambda d, h: 1.0)
+    por = {(p.page): p for p in comp.pieces}
+    # 14-6 (hoja 0) tiene a 14-7 a la derecha y a 15-6 arriba; 15-7 (hoja 3) abajo y a la izquierda
+    assert set(por[0].covers) == {"right", "top"} and set(por[3].covers) == {"bottom", "left"}
+    assert all(w > 2.0 for p in comp.pieces for w in p.covers.values())        # raya de 2 pt entera
+    out = C.build_document(comp, [doc])[0]
+    # una fila a través de 14-6 | 14-7 (y otra columna a través de 14-6 / 15-6): solo los dos bordes
+    # de afuera del grupo conservan su raya; la costura del medio queda en blanco
+    for clip in (fitz.Rect(0, 300, out.rect.width, 301), fitz.Rect(300, 0, 301, out.rect.height)):
+        pix = out.get_pixmap(clip=clip, colorspace=fitz.csGRAY)
+        v = np.frombuffer(pix.samples, np.uint8)
+        oscuros = np.flatnonzero(v < 80)
+        grupos = np.split(oscuros, np.flatnonzero(np.diff(oscuros) > 3) + 1)
+        assert len(grupos) == 2, grupos                   # antes: 3 (la raya de la costura)
