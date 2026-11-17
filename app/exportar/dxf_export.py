@@ -147,7 +147,7 @@ def _merge_into_modelo(win, doc, marks=True):
     _db_pipe_idxs = {i for db in getattr(win, "duct_banks", []) or []
                      for i in _db_assigned(db)}
     for pipe_idx, p in enumerate(win.pipes):
-        avance.avisar("fusionar", pipe_idx + 1, len(win.pipes))   # (barra de la exportación; sin efecto)
+        avance.avisar("fusionar", pipe_idx, len(win.pipes))   # (barra de la exportación; lo YA hecho)
         layer = p["layer"]; VP.ensure_layer(doc, layer)
         att = {"layer": layer}
         if p.get("world") and p.get("wstart") and p.get("wend"):
@@ -197,6 +197,8 @@ def _merge_into_modelo(win, doc, marks=True):
             (1000, f"NET_NAME_DEFAULT={model_ops.nombre_por_defecto(p, pipe_idx)}"),
         ] + [(1000, item) for item in xdata.dxf_items(p)]        # datos extendidos (XD_*/XDU_*)
           + _items_normas(p))                                  # tipo y amperaje (Property Set)
+    if win.pipes:
+        avance.avisar("fusionar", len(win.pipes), len(win.pipes))
     _export_structures(win, doc, msp)
     _export_duct_banks(win, doc, msp)
     _export_cross_connects(win, doc, msp)

@@ -165,8 +165,11 @@ def test_aceptar_otra_hoja_la_carga_e_interpreta_y_suelta_la_de_antes(win, app, 
     _editor_con_lineas(win, tmp_path, AREA)
     doc_antes, tmp_antes = win.doc, win._tmp_composite
     _stubs(monkeypatch, win, [C.Composite([C.Piece(0, 2, HOJA)])])
+    preguntas = []                                   # otra hoja (no solo agrega): se pregunta AL FINAL
+    monkeypatch.setattr(win, "_preguntar_reemplazar_hoja", lambda: preguntas.append(1) or "reemplazar")
     win.compose_sheet()
     app.processEvents()
+    assert preguntas == [1]
     assert win.pipes == []                           # hoja nueva: lo reconocido se pide con el ▶ del panel
     assert win.page_idx == 2 and not win.doc.is_closed
     assert doc_antes.is_closed and not os.path.isfile(tmp_antes)
@@ -212,6 +215,7 @@ def test_escaneo_sin_cambios_no_borra_lo_dibujado(win, app, tmp_path, monkeypatc
 
 
 def test_escaneo_con_otra_hoja_la_carga(win, app, tmp_path, monkeypatch):
+    monkeypatch.setattr(_aw.Main, "_preguntar_reemplazar_hoja", lambda self: "reemplazar")   # hay líneas: se pregunta al final
     _editor_con_lineas(win, tmp_path, HOJA, manual=True)
     doc_antes = win.doc
     otra = C.Composite([C.Piece(0, 1, AREA)], manual=True, bridges=False)
@@ -263,6 +267,7 @@ def test_abrir_pdf_vectorial_compone_e_interpreta_sin_capas_ni_vista_previa(win,
 def test_componer_sin_cambios_no_rearma_ni_recarga(win, app, tmp_path, monkeypatch):
     """Pedido del usuario 2026-10-28: volver a «Componer hoja» y seguir sin cambiar nada no vuelve a armar la
     hoja compuesta ni a cargarla (ni a interpretarla). Si la hoja compuesta cambia, sí se rearma."""
+    monkeypatch.setattr(_aw.Main, "_preguntar_reemplazar_hoja", lambda self: "reemplazar")   # hay líneas: se pregunta al final
     _editor_con_lineas(win, tmp_path, AREA)
     misma = C.Composite.from_dict(win.composite.to_dict())
     _stubs(monkeypatch, win, [misma])
@@ -281,6 +286,7 @@ def test_componer_sin_cambios_no_rearma_ni_recarga(win, app, tmp_path, monkeypat
 
 
 def test_recomponer_con_cambios_interpreta_y_sin_cambios_no(win, app, tmp_path, monkeypatch):
+    monkeypatch.setattr(_aw.Main, "_preguntar_reemplazar_hoja", lambda self: "reemplazar")   # hay líneas: se pregunta al final
     from ui.ventana import app_window
     _editor_con_lineas(win, tmp_path, HOJA, manual=True)
     llamadas = []
@@ -339,3 +345,67 @@ def test_cancelar_conserva_el_panel_reconocer(win, app, tmp_path, monkeypatch):
     assert win._resultados_partes["AGUA"][0] is resultado
     assert win._rec_cache().get(("clave",)) is not None
     assert win._interpretacion == interp
+
+
+# ── «Componer hoja» con la hoja ya en el editor: sin preguntar al entrar, agregar hojas conserva todo
+# (pedido del usuario 2026-11-17) ──────────────────────────────────────────────────────────────────
+
+def _dos_hojas(win, tmp_path):
+    """Hoja compuesta de dos piezas (hojas 1 y 2, una al lado de la otra) con una línea dibujada."""
+    win._open_pdf_path(_pdf(tmp_path / "plano.pdf"))
+    win.composite = C.Composite([C.Piece(0, 0, list(HOJA), 0.0, 0.0), C.Piece(0, 1, list(HOJA), 600.0, 0.0)])
+    win._apply_composite()
+    QtWidgets.QApplication.instance().processEvents()
+    win._push()
+    win.pipes.append(dict(LINEA))
+    win._refresh_lists(); win._redraw()
+
+
+def _mas(win, x, y):
+    piezas = [C.Piece.from_dict(p.to_dict()) for p in win.composite.pieces]
+    return C.Composite(piezas + [C.Piece(0, 2, list(HOJA), x, y)])
+
+
+def test_entrar_al_compositor_no_pregunta_guardar(win, tmp_path, monkeypatch):
+    _dos_hojas(win, tmp_path)
+    win._dirty = True
+    preguntas = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: preguntas.append(a) or QtWidgets.QMessageBox.Cancel)
+    _stubs(monkeypatch, win, [None])
+    win.compose_sheet()
+    assert preguntas == []
+    assert win.pipes and win.pipes[-1]["pts"] == LINEA["pts"]
+
+
+@pytest.mark.parametrize("donde", ["derecha", "abajo"])
+def test_agregar_una_hoja_conserva_lo_dibujado_sin_preguntar(win, tmp_path, monkeypatch, donde):
+    _dos_hojas(win, tmp_path)
+    W, H = win.canvas.tam_hoja()
+    lineas, undo = json.dumps(win.pipes, default=str), len(win._undo)
+    nuevo = _mas(win, 1200.0, 0.0) if donde == "derecha" else _mas(win, 0.0, 400.0)
+    _stubs(monkeypatch, win, [nuevo])
+    monkeypatch.setattr(win, "_preguntar_reemplazar_hoja", lambda: pytest.fail("no debe preguntar"))
+    assert win.compose_sheet() is None or True
+    assert len(win.composite.pieces) == 3
+    assert json.dumps(win.pipes, default=str) == lineas and len(win._undo) == undo
+    W2, H2 = win.canvas.tam_hoja()
+    assert (W2 > W) if donde == "derecha" else (H2 > H)
+    assert _INTERPRETADAS                                   # el área nueva se interpreta
+
+
+def test_hoja_a_la_izquierda_pregunta_y_volver_al_compositor_no_pierde_nada(win, tmp_path, monkeypatch):
+    _dos_hojas(win, tmp_path)
+    lineas = json.dumps(win.pipes, default=str)
+    izquierda = _mas(win, -600.0, 0.0)
+    vistos = []
+    from ui.ventana import app_window
+
+    def compose(parent, sources, comp, hidden, **kw):
+        vistos.append(comp.to_dict() if comp else None)
+        return (izquierda, list(sources), dict(hidden or {})) if len(vistos) == 1 else None
+    monkeypatch.setattr(app_window.composite_dialog, "compose_sheet", compose)
+    respuestas = ["volver"]
+    monkeypatch.setattr(win, "_preguntar_reemplazar_hoja", lambda: respuestas.pop(0))
+    win.compose_sheet()
+    assert vistos[1] == izquierda.to_dict()                 # vuelve al compositor con lo que había elegido
+    assert json.dumps(win.pipes, default=str) == lineas and len(win.composite.pieces) == 2

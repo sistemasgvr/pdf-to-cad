@@ -159,16 +159,14 @@ def test_cancelar_la_vista_no_toca_el_editor(win, espia):
 
 
 @needs_pdf
-def test_ajustar_capas_de_la_vista_pide_los_roles_de_esa_utilidad(win, espia, monkeypatch):
+def test_ajustar_capas_de_la_vista_abre_capas_y_estilos_de_esa_utilidad(win, espia, monkeypatch):
     _listo(win, "AGUA")
     pedidos = []
-    monkeypatch.setattr(win, "_ajustar_roles_de", lambda u, i: pedidos.append((u, i)) or False)
+    monkeypatch.setattr(win, "abrir_capas_estilos", lambda parte=None: pedidos.append(parte))
     espia.accion = espia.rd.PREVIEW_ADJUST_LAYERS
     win.ver_parte("AGUA")
-    _esperar(lambda: espia.dialogos)
-    espia.accion = espia.rd.PREVIEW_CANCEL
-    _esperar(lambda: len(espia.dialogos) >= 2)               # vuelve a abrirla (sin cambio: la misma, de la caché)
-    assert pedidos == [("AGUA", HOJA)]
+    _esperar(lambda: pedidos)
+    assert pedidos == ["AGUA"]
 
 
 @needs_pdf
@@ -223,3 +221,18 @@ def test_ojo_de_valvulas_muestra_sus_por_verificar_en_el_panel(win):
     assert win.panel_reconocer.caja_verificar.layout().count() == 2          # su título y su punto
     win.ver_parte("ROTULOS")
     assert avisos                                                           # sin nada por verificar: lo dice
+
+
+@needs_pdf
+def test_play_despues_de_la_vista_previa_no_reconoce_otra_vez(win, espia, monkeypatch):
+    """Pedido 2026-11-17: lo que reconoció la vista previa sirve al ▶ (Cancelar en la vista y luego ▶)."""
+    e = _listo(win, "AGUA")
+    win.ver_parte("AGUA")
+    _esperar(lambda: espia.dialogos)
+    _esperar(lambda: win._rec_actual is None)
+    tareas = []
+    orig = proceso.Tarea
+    monkeypatch.setattr(proceso, "Tarea", lambda *a, **k: tareas.append(a) or orig(*a, **k))
+    win.reconocer_parte("AGUA")
+    _esperar(lambda: e.filas["AGUA"].estado == "reconocida")
+    assert tareas == [] and win.pipes

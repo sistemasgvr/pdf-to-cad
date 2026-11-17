@@ -140,10 +140,13 @@ class BusyOverlay(QtWidgets.QWidget):
         self.pump()
 
     def step(self, text: str | None = None, detail: str | None = None,
-             done: int | None = None, total: int | None = None, pump: bool = True, clave: str | None = None):
+             done: int | None = None, total: int | None = None, pump: bool = True, clave: str | None = None,
+             estimado: bool | None = None):
         """Cambia el mensaje / avance del nivel actual y repinta. `pump=False`
         cuando el trabajo va en otro hilo (el bucle de eventos ya repinta; un
-        processEvents aquí adentro podría entregar el «terminado» a mitad)."""
+        processEvents aquí adentro podría entregar el «terminado» a mitad).
+        `estimado=True` (barra con `modelo`, `barra_pesada`): la etapa de ahora no tiene cuenta y la barra la
+        estima; la cifra lo dice («≈ 42 %», `medida`)."""
         if not self._stack:
             return
         top = self._stack[-1]
@@ -153,6 +156,8 @@ class BusyOverlay(QtWidgets.QWidget):
             top["detail"] = detail
         if total is not None:
             top["done"], top["total"] = done or 0, total
+        if estimado is not None:
+            top["estimado"] = bool(estimado)
         if self._seg is not None and (text is not None or detail is not None or total is not None):
             # una etapa de la carga: su texto (sin números) la reconoce; `clave` = la misma etapa aunque el
             # texto cambie (p. ej. el nombre de cada capa)
@@ -220,6 +225,15 @@ class BusyOverlay(QtWidgets.QWidget):
         if top["total"]:
             return max(0.0, min(1.0, float(top["done"]) / float(top["total"])))
         return 0.0
+
+    def medida(self) -> str:
+        """Cómo se mide la cifra: "cuenta" (real) o una estimación ("perfil"/"tiempo"; `avance_aprendido`)."""
+        if not self._stack:
+            return "tiempo"
+        if self._seg is not None:
+            return self._seg.medida()
+        top = self._stack[-1]
+        return "cuenta" if top["total"] and not top.get("estimado") else "tiempo"
 
     def _tick(self):
         self._angle = (self._angle + 12.0) % 360.0
@@ -376,7 +390,7 @@ class BusyOverlay(QtWidgets.QWidget):
                                             bar.height()), 2.5, 2.5)
         p.setPen(QtGui.QColor(t.text_muted)); p.setFont(f_detalle)
         p.drawText(QtCore.QRectF(bar.right(), bar.center().y() - 9, _PCT_W, 18),
-                   QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter, _tr("{p} %").format(p=int(frac * 100)))
+                   QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter, cifra(frac, self.medida()))
 
         self._cancel_rect = r_boton
         if r_boton is not None:                           # «Cancelar», abajo: el texto va a todo el ancho
@@ -418,6 +432,12 @@ def busy(host, text: str, detail: str = ""):
             yield ov
     finally:
         ov.end()
+
+
+def cifra(frac: float, medida: str) -> str:
+    """«42 %» si lo mide una cuenta real; «≈ 42 %» si es una estimación (`avance_aprendido.Seguidor.medida`)."""
+    p = int(max(0.0, min(1.0, frac)) * 100)
+    return _tr("{p} %").format(p=p) if medida == "cuenta" else _tr("≈ {p} %").format(p=p)
 
 
 def detalle_de(texto: str, i=None, n=None) -> str:

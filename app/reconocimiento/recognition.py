@@ -1185,7 +1185,7 @@ def inject_vault_vertices(
     # un tramo en dos sobre la misma recta: el índice sigue valiendo.
     indice = IndiceUtilidades(pipes) if len(vault_pts) > 1 else None
     for k_av, (vx, vy) in enumerate(vault_pts):
-        avance.avisar(_tr("Poniendo cada bóveda en su línea…"), k_av + 1, len(vault_pts))
+        avance.avisar(_tr("Poniendo cada bóveda en su línea…"), k_av, len(vault_pts))   # (lo YA hecho)
         best = None  # (dist, pipe_idx, seg_idx, qx, qy)
         for pi in (indice.cerca(vx, vy, max_dist) if indice is not None else range(len(pipes))):
             p = pipes[pi]
@@ -1221,6 +1221,8 @@ def inject_vault_vertices(
         if pipe.get("fillets"):
             pipe["fillets"] = {(k + 1 if k > si else k): v for k, v in pipe["fillets"].items()}
         snapped += 1
+    if vault_pts:
+        avance.avisar(_tr("Poniendo cada bóveda en su línea…"), len(vault_pts), len(vault_pts))
     return snapped, skipped
 
 
@@ -1270,6 +1272,9 @@ def recognize_page(
         `scale_ft_per_pt`: escala fija (hoja compuesta); None = leerla del texto.
     `letters`: `page_letters` de esta hoja ya leído (el worker lo lee una vez para
     todas las utilidades); None = leerlo aquí. Con `layer_roles` no se usa.
+    `avance(k, m, hechos, total)`: al empezar cada capa (k = capas YA hechas de m) y al terminar la última
+    (m de m); `hechos`/`total` = trazos de las capas hechas / de todas: la barra pesa cada capa por su
+    trabajo (una capa de 9 000 trazos no vale lo mismo que una de 3). No cambia nada del resultado.
     """
     utility = (utility or UTILITY_HINT).strip().upper()
     line_kind = utility_line_kind(utility)
@@ -1461,12 +1466,15 @@ def recognize_page(
         # hoja COMPUESTA: dónde empieza cada pieza (costuras de `recognition_ink_lines`; None en una suelta)
         piezas_inicio = lectura_mod.inicios_de_piezas(page) if any(
             style_nodes_mod.is_style_layer(o) for o in by_ocg) else None
+        trazos_total = sum(len(p) for p in by_ocg.values())
+        trazos_hechos = 0
         for k_capa, (ocg, paths) in enumerate(sorted(by_ocg.items())):
             if avance is not None:              # «capa k de n» (no cambia nada del resultado)
-                avance(k_capa, len(by_ocg))
+                avance(k_capa, len(by_ocg), trazos_hechos, trazos_total)
             avance_mod.avisar(_tr("Reconstruyendo las líneas de la capa {c}…").format(
                 c=pdf_styles.style_label(ocg) if style_nodes_mod.is_style_layer(ocg) else ocg.split("|")[-1]),
-                k_capa + 1, len(by_ocg))
+                trazos_hechos, trazos_total)     # (lo YA hecho: la barra no marca la capa antes de reconstruirla)
+            trazos_hechos += len(paths)
             # una capa reconocida por sus letras no tiene perfil probado: sus letras son
             # trazos sueltos («TE» = asta + travesaño + «E» de tres trazos), como las de
             # Metro del perfil TELECOM (`stroke_letters`; DU08 h.26: cobertura 99.8 → 100 %)
@@ -1483,6 +1491,8 @@ def recognize_page(
                 continue
             results.append((is_abandoned_ocg(ocg), ocg, geom.reconstruct(paths, vault_paths, opts,
                                                                          on_polyline=al_polilinea)))
+        if avance is not None and by_ocg:
+            avance(len(by_ocg), len(by_ocg), trazos_total, trazos_total)
         if n_ink_layers:
             warnings.append(_tr("Capas por estilo de trazo continuo: {n} — cada trazo del plano es el eje de "
                                 "la tubería, sin unir ni mover nada.").format(n=n_ink_layers))
@@ -1647,7 +1657,13 @@ def recognize_page(
                 diam_in=(ley_mapa.diam_acometida_in if ley_mapa is not None and acometidas_mapa.es_capa(ocg)
                          else None))
 
-        for ab_layer, ocg, g in results:
+        # (avance: los trazos de las capas YA ajustadas, como la reconstrucción; el final, abajo)
+        pesos_ajuste = [max(1, len(by_ocg.get(ocg) or ())) for _ab, ocg, _g in results]
+        hecho_ajuste = 0
+        for k_ajuste, (ab_layer, ocg, g) in enumerate(results):
+            avance_mod.avisar(_tr("Uniendo las líneas en rutas y ajustando sus curvas…"),
+                              hecho_ajuste, sum(pesos_ajuste))
+            hecho_ajuste += pesos_ajuste[k_ajuste]
             # una línea que llega a otra por un tramo SIN tinta propia más largo que el
             # hueco del linetype no llega ahí (el núcleo prolongó su extremo)
             ink_pdf = [(a, b) for st in ink_strokes(by_ocg.get(ocg, []), lambda q: (q[0], q[1]))
@@ -1775,6 +1791,8 @@ def recognize_page(
                 vault_seen[key] = vault_seen.get(key, 0) + 1
                 if i in g.vault_orphans:
                     vault_orph[key] = vault_orph.get(key, 0) + 1
+        avance_mod.avisar(_tr("Uniendo las líneas en rutas y ajustando sus curvas…"), sum(pesos_ajuste),
+                          sum(pesos_ajuste))
         coverage_total = covered_w / n_dashes if n_dashes else 1.0
 
         # Bóvedas = vértices 'vault' de las polilíneas que SÍ se importan
@@ -1868,6 +1886,7 @@ def recognize_page(
                 # una ruta que cruza tuberías de distinto diámetro va en piezas partidas entre ellas
                 # AL FINAL (después de los ángulos: la geometría no cambia); los tramos sin unir toman
                 # el de su ruta
+                avance_mod.avisar(_tr("Leyendo los diámetros y rótulos del plano…"))
                 leidos = grosor_registros_mod.rotulos(page) if por_estilos else grosor_mapa_mod.rotulos(page)
                 rotulos_mapa_px = grosor_mapa_mod.a_px(leidos, px, zoom)
                 from reconocimiento import recognition_anotaciones as anot_mod
@@ -1886,6 +1905,7 @@ def recognize_page(
         # complemento (`recognition_grosor`): solo `grosor` y `diam_in`; nada se mueve.
         perfiles_lat: list = []
         if by_ocg and not any(o.startswith(pdf_styles.PREFIX) for o in by_ocg):
+            avance_mod.avisar(_tr("Leyendo los diámetros y rótulos del plano…"))
             perfiles = []
             for x0, y0, x1, y1 in profile_view_regions(page, crop_polygon):
                 cs = [px((x0, y0)), px((x1, y0)), px((x1, y1)), px((x0, y1))]

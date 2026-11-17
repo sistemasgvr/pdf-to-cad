@@ -290,6 +290,11 @@ pregunta antes de agregarlo. Los PDF escaneados no tienen sugerencia: se compone
     cada pieza tape a la de abajo.</li>
 <li>Haz clic en una pieza para <b>girarla</b>, quitarla, corregir en <b>Ajustes</b> su ángulo fino o
     su <b>escala</b>, o ajustar su recorte con <span class="btn">Editar área</span>.</li>
+<li>La pieza elegida trae <b>asas en su borde</b> (las cuatro esquinas y el medio de cada lado):
+    arrástralas para <b>escalarla</b>. La asa opuesta queda quieta y la pieza crece o se achica pareja;
+    un rótulo dice la escala que resulta («1" = 25' · 125 %»). Se pega a la escala de la hoja compuesta
+    y a la de las demás piezas; <b>Ctrl</b> = ajuste fino, <b>Mayús</b> = pasos de 5 %, y doble clic en
+    una asa la devuelve a la escala de la hoja compuesta. Es la misma escala de <b>Ajustes</b>.</li>
 <li>Abajo a la izquierda ves qué falta para seguir. Si quitaste todas las piezas,
     <span class="btn">Continuar</span> queda apagado y el enlace <b>Usar la hoja N</b> la vuelve a
     poner. Si marcaste un área para otra pieza y no la tomaste, o estás viendo una hoja que no
@@ -611,8 +616,8 @@ reconocer), <b>no disponible</b> con el motivo (por ejemplo «No hay capas de es
     las utilidades ya reconocidas; su fila dice cuáles faltan y, después, cuántas tuberías quedaron
     <b>dudosas</b> o <b>sin dato</b>. <b>Rótulos del plano</b> trae los rótulos con guía; su menú ⋯ ofrece
     <b>Leer rótulos ilegibles con la IA…</b>.</li>
-<li>El ⋯ de cada fila abre <b>Capas y estilos…</b> en esa utilidad, <b>Ajustar capas…</b> y <b>Unir
-    tramos</b>. El ojo abre su vista previa; <b>N por verificar</b> junta los puntos a revisar.</li>
+<li>El ⋯ de cada fila abre <b>Capas y estilos…</b> en esa utilidad (la hoja entera a la vista: clic en una
+    capa o estilo para ver a qué líneas corresponde y elegir su utilidad y su rol) y <b>Unir tramos</b>. El ojo abre su vista previa; <b>N por verificar</b> junta los puntos a revisar.</li>
 <li>La hoja se lee <b>una sola vez</b>: cada ▶ reutiliza esa lectura, así que reconocer por partes da
     exactamente lo mismo que reconocer todo de una vez.</li>
 <li>El estado del panel se guarda en el proyecto. Un proyecto de una versión anterior abre con lo ya
@@ -660,8 +665,14 @@ apagadas.</p>
 
 <h2>Volver a componer más tarde</h2>
 <p><b>Hoja y PDF → Componer hoja de trabajo…</b> abre otra vez «Componer hoja», en el PDF y la hoja donde
-estabas trabajando; al aceptar con otra composición, la hoja nueva se carga y se interpreta, y el panel
-Reconocer vuelve a empezar. Todo se guarda en el proyecto (.digproj), también los PDF de origen.</p>
+estabas trabajando, sin preguntar antes si guardar: las hojas que ya estaban no se vuelven a dibujar.</p>
+<p><b>Agregar hojas sin perder nada.</b> Si solo agregas hojas (de este PDF o de otro) a la derecha o abajo, sin
+mover las que ya estaban, lo dibujado, lo reconocido, la georreferencia y el deshacer se conservan tal cual; la hoja
+se interpreta de nuevo para el área nueva y el ▶ no repite lo que ya está dibujado. Si la hoja nueva cambia el
+lugar de lo que hay (otra escala, una hoja quitada o movida, o una nueva a la izquierda o arriba), se te pregunta
+antes: <span class="btn">Reemplazar</span>, <span class="btn">Guardar y reemplazar</span> o
+<span class="btn">Volver al compositor</span> con lo que elegiste. Todo se guarda en el proyecto (.digproj),
+también los PDF de origen.</p>
 <p>Si aceptas sin cambiar nada, el editor queda como estaba (lo reconocido y el panel no se pierden), y un ▶
 sin cambios en la hoja ni en sus capas usa al instante el reconocimiento anterior.
 <span class="btn">Cancelar</span> deja el editor <b>exactamente como estaba</b>.</p>

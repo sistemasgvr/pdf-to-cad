@@ -151,15 +151,18 @@ def calcular(fuentes: Sequence[dict], progreso=None, cancelado=None,
             fpd.append(fs)
         avisar("uniones")
         con_memoria = len(set(clave)) == len(clave)     # el mismo PDF dos veces: sin memoria
-        an = G.analizar(fpd, cancelado, enc=_Encajes(clave) if con_memoria else G.Encajes())
+        an = G.analizar(fpd, cancelado, progreso=avisar if progreso is not None else None,
+                        enc=_Encajes(clave) if con_memoria else G.Encajes())
         for k, g in enumerate(an.grupos):
             if cancelado is not None and cancelado():
                 return None
-            avisar("armar", k + 1, len(an.grupos))
+            avisar("armar", k, len(an.grupos))          # (lo YA hecho; «n de n» al terminar)
             if con_memoria:
                 _armar(g, an, docs, nombres, clave)
             else:
                 G.armar(g, an, docs, lambda d_, h_: VP.detect_scale(docs[d_][h_]), nombres)
+        if an.grupos:
+            avisar("armar", len(an.grupos), len(an.grupos))
         hermano = None
         rutas = [f.get("path") for f in fuentes if f.get("path")]
         if an.faltan() and rutas:

@@ -263,6 +263,16 @@ def de_reconocimiento(pipe, parte) -> bool:
     return pipe.get("origen") == "reconocido" and pipe.get("layer") == parte
 
 
+def avisos_diametro(estado: Optional[Estado]) -> bool:
+    """¿Se muestran los avisos «Diámetro del plano» (`diametro_plano.avisos`)? Pedido del usuario (2026-11-17): no
+    antes de reconocer la fila «Diámetros» (salían al importar las tuberías). Sin panel (`estado` None) o hoja que
+    nunca se interpretó con él (proyecto de antes, `firma_hoja` None): como siempre, sí."""
+    if estado is None or estado.firma_hoja is None:
+        return True
+    f = estado.filas.get("DIAMETROS")
+    return f is None or f.estado in _HECHAS
+
+
 def de_proyecto_viejo(pipes) -> Estado:
     """Proyecto guardado antes del panel «Reconocer»: nada interpretado; cada utilidad que ya tiene líneas
     RECONOCIDAS del PDF (`origen` «reconocido»; lo dibujado a mano no cuenta) queda «reconocida» (sin firma: no se

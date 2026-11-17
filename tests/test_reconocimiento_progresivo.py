@@ -316,10 +316,10 @@ def test_escape_muestra_que_se_esta_cancelando(win, monkeypatch):
 def test_la_tarjeta_se_traduce_al_volver_a_empezar(win, monkeypatch):
     from traduccion import i18n_core
     card = ProgresoReconocimiento(win)
-    assert card.note.text() == "Vista provisional"
+    assert card.note.text() == "≈ 0 %" and card.note.toolTip().startswith("Las líneas que se van dibujando")
     monkeypatch.setattr(i18n_core, "_current_lang", "en")
     card.begin("Recognizing…")
-    assert card.note.text() == "Provisional preview"
+    assert card.note.text() == "≈ 0%" and card.note.toolTip().startswith("The lines drawn as it goes")
     card.end()
 
 

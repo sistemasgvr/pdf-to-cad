@@ -40,7 +40,9 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from hoja import composite as C
 from hoja import composite_checks as CK
 import vector_pipeline as VP
+from ui.asistente.composite_asas import AsasEscala
 from ui.asistente.composite_view import CompositeView, _qpixmap
+from ui.asistente import composite_renders
 from ui.asistente.composite_source_page import SourcePageMixin
 from ui.asistente.composite_tabs import WorkTabs, BADGE_COUNT, BADGE_WARN
 from ui.asistente.pdf_view_quality import ViewportSharpener
@@ -186,6 +188,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self.docs: List[fitz.Document] = []
         for i, s in enumerate(self.sources):
             doc = fitz.open(stream=s["data"], filetype="pdf")
+            composite_renders.marcar(doc, s["data"])       # sus piezas ya dibujadas no se vuelven a dibujar
             self.docs.append(doc)
         self._scale_cache: Dict[tuple, float] = {}
         self._thumb_cache: Dict[tuple, QtGui.QIcon] = {}
@@ -690,6 +693,9 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
 
         self.view.pieceMoved.connect(lambda _i: self._refresh_summary())
         self.view.selectionChangedIdx.connect(self._on_piece_selected)
+        # asas de escala en el borde de la pieza elegida (pedido del usuario 2026-11-17)
+        self.asas_escala = AsasEscala(self.view, self._escala_por_asas, lambda i: self._detected_scale(
+            self.comp.pieces[i].source, self.comp.pieces[i].page))
         self.view.bridgesChanged.connect(self._on_bridges_changed)
         lay.addWidget(self.view, 1)
 
@@ -1041,6 +1047,20 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         self.comp.pieces[idx].src_scale = float(value) / 72.0
         self._refresh_scale_combo()
         self.view.refresh_all()
+        self._refresh_summary()
+
+    def _escala_por_asas(self, idx: int, final: bool):
+        """Las asas del borde cambiaron la escala de la pieza (`composite_asas`): lo mismo
+        que tras escribirla en «Escala pieza», pero con la asa opuesta quieta."""
+        self._sync_piece_widgets(idx)
+        if idx == self._editing:                      # «Área a tomar» muestra la escala de esta pieza
+            self.spn_src_scale.blockSignals(True)
+            self.spn_src_scale.setValue(self.comp.pieces[idx].src_scale * 72.0)
+            self.spn_src_scale.blockSignals(False)
+        if final:
+            self._refresh_scale_combo()
+            self.view.refresh_all()
+            self._on_pieces_changed()
         self._refresh_summary()
 
     def _sync_piece_widgets(self, idx: int):

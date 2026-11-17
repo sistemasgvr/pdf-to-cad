@@ -273,6 +273,8 @@ class SourcePageMixin:
                                           _tr("No se pudo abrir el PDF:\n\n{e}").format(e=exc))
             return
         self.sources.append({"name": os.path.basename(path), "data": data, "path": path})
+        from ui.asistente import composite_renders
+        composite_renders.marcar(doc, data)
         self.docs.append(doc)
         self._cur_source = len(self.sources) - 1
         self._cur_page = 0

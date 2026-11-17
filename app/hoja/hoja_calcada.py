@@ -176,7 +176,7 @@ def calcar(editor: C.Composite, docs_editor: Sequence, docs_nuevos: Sequence,
 
     def nuevas(f: int, h: int):
         if (f, h) not in leidas:
-            avance.avisar(_tr("Leyendo el mapa base de las hojas nuevas…"), len(leidas) + 1, n_nuevas)
+            avance.avisar(_tr("Leyendo el mapa base de las hojas nuevas…"), len(leidas), n_nuevas)   # (lo YA leído)
             leidas[(f, h)] = E.trazos(docs_nuevos[f][h])
         return leidas[(f, h)]
 
@@ -195,7 +195,7 @@ def calcar(editor: C.Composite, docs_editor: Sequence, docs_nuevos: Sequence,
         if not conocidos and buscadas_en_vano >= INTENTOS_SIN_NINGUNA:
             sin.extend(range(k, len(editor.pieces)))       # otro mapa base: no seguir buscando
             break
-        avance.avisar(_tr("Buscando dónde cae cada hoja sobre la hoja del editor…"), k + 1, len(editor.pieces))
+        avance.avisar(_tr("Buscando dónde cae cada hoja sobre la hoja del editor…"), k, len(editor.pieces))
         size = sizes(p)
         if (p.source, p.page) not in del_editor:
             del_editor[(p.source, p.page)] = E.trazos(docs_editor[p.source][p.page])
@@ -255,6 +255,9 @@ def calcar(editor: C.Composite, docs_editor: Sequence, docs_nuevos: Sequence,
         piezas.append(q)
         ubic.append(Ubicacion(fn, h, k, E.componer(e, *mapa_pieza(p, size, target_editor)).tupla(),
                               e.votos, e.rms))
+    if editor.pieces:                  # (arriba, lo YA hecho al empezar cada pieza; aquí el final)
+        avance.avisar(_tr("Buscando dónde cae cada hoja sobre la hoja del editor…"), len(editor.pieces),
+                      len(editor.pieces))
     if not piezas:
         return Calco(None, ubic, sin)
     comp = C.Composite(piezas, scale_ft_per_pt=target, bridges=editor.bridges,

@@ -81,7 +81,7 @@ class InterpretarMixin:
 
     def cancelar_interpretacion(self, aviso=True):
         t, self._interp_tarea = self._interp_tarea, None
-        self._interp_cerrar_tarjeta()
+        self._interp_cerrar_tarjeta(guardar=False)
         if t is not None and not t.hecha:
             t.cancelar()
         self._refrescar_panel_reconocer()
@@ -162,13 +162,29 @@ class InterpretarMixin:
         return self._interp_tarea is t and getattr(self, "_recog_generation", 0) == gen
 
     def _interp_avance(self, t, a):
-        if self._interp_tarea is not t or not a or a[0] != "detalle":
+        """Avisos del trabajo: («parte», clave, n) = esa parte ya se interpretó; («etapa», k) = empieza la etapa k;
+        («detalle», texto, i, n) o (texto, i, n) = la etapa de ahora (`interpretar` escucha `nucleo.avance` con su
+        propio `progreso`, así que su texto llega sin la marca «detalle»)."""
+        if self._interp_tarea is not t or not a:
+            return
+        p = getattr(self, "panel_reconocer", None)
+        if a[0] == "parte" and len(a) >= 3:
+            if p is not None and hasattr(p, "parte_interpretada"):
+                p.parte_interpretada(a[1], a[2])
+            return
+        if a[0] == "etapa" and len(a) >= 2:
+            if p is not None and hasattr(p, "etapa_interpretacion"):
+                p.etapa_interpretacion(a[1])
+            return
+        if a[0] == "detalle":
+            a = a[1:]
+        if len(a) != 3 or not isinstance(a[0], str):
             return
         tarjeta = self._interp_tarjeta
         if tarjeta is not None:
             from ui.comun import busy
-            tarjeta.step(detail=busy.detalle_de(a[1], a[2], a[3]), done=a[2] if a[3] else None,
-                         total=a[3] if a[3] else None)
+            tarjeta.step(detail=busy.detalle_de(a[0], a[1], a[2]), done=a[1] if a[2] else None,
+                         total=a[2] if a[2] else None)
 
     def _interp_terminado(self, t, gen, firma, res, err):
         if not self._interp_vigente(t, gen):
@@ -256,12 +272,24 @@ class InterpretarMixin:
     def _interp_abrir_tarjeta(self):
         from ui.comun.tarjeta_avance import CapaTarjetas
         self._interp_cerrar_tarjeta()
-        tarjeta = CapaTarjetas(self, cancel=self.cancelar_interpretacion)
+        p = getattr(self, "panel_reconocer", None)
+        if p is not None and hasattr(p, "reiniciar_interpretacion"):
+            p.reiniciar_interpretacion()
+        tarjeta = CapaTarjetas(self, cancel=self.cancelar_interpretacion, al_avance=self._interp_al_panel)
         tarjeta.begin(_tr(M_INTERPRETANDO), _tr("Capas, letras, leyenda, estilos, símbolos y rótulos · en "
                                                  "segundo plano"))
         self._interp_tarjeta = tarjeta
 
-    def _interp_cerrar_tarjeta(self):
+    def _interp_cerrar_tarjeta(self, guardar=True):
         tarjeta, self._interp_tarjeta = self._interp_tarjeta, None
         if tarjeta is not None:
-            tarjeta.end()
+            tarjeta.end(guardar=guardar)
+        self._interp_al_panel(None, None, None)
+
+    def _interp_al_panel(self, texto, detalle, frac):
+        """El panel Reconocer muestra el MISMO avance que la tarjeta (None = ya no interpreta)."""
+        p = getattr(self, "panel_reconocer", None)
+        if p is not None and hasattr(p, "avance_interpretacion"):
+            tarjeta = getattr(self, "_interp_tarjeta", None)
+            medida = tarjeta.medida() if frac is not None and tarjeta is not None else "cuenta"
+            p.avance_interpretacion(detalle, frac, medida)

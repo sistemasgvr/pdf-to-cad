@@ -64,6 +64,73 @@ def _boton(icono, tip_es):
     return b
 
 
+# La interpretación, punto por punto: las partes que avisa `interpretar_trabajo` y la etapa en que se leen.
+PARTES_INTERP = RE.UTILIDADES + ("VALVULAS", "ROTULOS", "ESCALA")
+ETAPA_PARTES = {0: RE.UTILIDADES, 1: RE.UTILIDADES, 2: ("VALVULAS",), 3: ("ROTULOS",), 4: ("ESCALA",)}
+ICONO_INTERP = {"espera": "circle-outline", "curso": "progress-clock", "hecho": "check-circle-outline",
+                "nada": "minus-circle-outline"}
+
+
+def texto_interpretada(clave, estado, n=None) -> str:
+    """Lo que dice cada punto de la lista de la interpretación."""
+    if estado == "espera":
+        return _tr("En espera")
+    if estado == "curso":
+        return _tr("Interpretando…")
+    if clave == "ESCALA":
+        return _tr("Escala 1\"={v}'").format(v="%g" % round(float(n) * 72.0, 2)) if n else _tr("Sin escala")
+    if clave == "VALVULAS":
+        return _cuenta(n, "1 símbolo", "{n} símbolos") if n else _tr("Sin válvulas")
+    if clave == "ROTULOS":
+        return _cuenta(n, "1 rótulo", "{n} rótulos") if n else _tr("Sin rótulos")
+    if n is None:
+        return _tr("Leída · sus estilos los asigna la leyenda")
+    return _cuenta(n, "1 capa", "{n} capas") if n else _tr("Sin capas en la hoja")
+
+
+class FilaInterpretacion(QtWidgets.QWidget):
+    """Un punto de la lista: icono de estado, nombre y lo que se leyó."""
+
+    def __init__(self, clave):
+        super().__init__()
+        self.clave, self.estado, self.n = clave, "espera", None
+        lay = QtWidgets.QHBoxLayout(self)
+        lay.setContentsMargins(0, 2, 0, 2)
+        lay.setSpacing(6)
+        self.marca = QtWidgets.QLabel()
+        self.marca.setFixedSize(4, 14)
+        lay.addWidget(self.marca, 0, QtCore.Qt.AlignTop)
+        self.ic = QtWidgets.QLabel()
+        self.ic.setFixedSize(16, 16)
+        lay.addWidget(self.ic, 0, QtCore.Qt.AlignTop)
+        tx = QtWidgets.QVBoxLayout()
+        tx.setSpacing(0)
+        self.nombre = QtWidgets.QLabel()
+        self.nombre.setWordWrap(True)
+        self.detalle = QtWidgets.QLabel()
+        self.detalle.setProperty("rol", "t3")
+        self.detalle.setWordWrap(True)                 # el panel nunca pide scroll horizontal
+        tx.addWidget(self.nombre)
+        tx.addWidget(self.detalle)
+        lay.addLayout(tx, 1)
+        self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
+        self.poner("espera")
+
+    def poner(self, estado, n=None):
+        if estado == "hecho" and not n and n is not None:
+            estado = "nada"                          # se leyó y no hay nada de esto en la hoja
+        self.estado, self.n = estado, n
+        t = _theme.tokens()
+        self.nombre.setText(_tr("Escala del plano") if self.clave == "ESCALA" else _tr(RE.ETIQUETAS[self.clave]))
+        self.detalle.setText(texto_interpretada(self.clave, "hecho" if estado == "nada" else estado, n))
+        color = {"curso": QA_OFFPATTERN, "hecho": QA_OFFPATTERN}.get(estado, t.text3)
+        self.ic.setPixmap(_icon("mdi:" + ICONO_INTERP[estado], color=color).pixmap(16, 16))
+        self.nombre.setStyleSheet(f"color:{t.text if estado in ('curso', 'hecho') else t.text_muted};")
+        if self.clave in RE.UTILIDADES:
+            self.marca.setStyleSheet(f"background:{layer_qcolor(self.clave).name()}; border-radius:2px;"
+                                     f" border:1px solid {t.border};")
+
+
 class FilaParte(QtWidgets.QFrame):
     """Una fila del panel. `panel` recibe los clics (el panel decide si emite o explica)."""
 
@@ -115,9 +182,8 @@ class FilaParte(QtWidgets.QFrame):
         _bind(a, "setText", "Capas y estilos…")
         a.triggered.connect(lambda: p.capas.emit(self.parte))
         if self.parte in RE.UTILIDADES:
-            a = m.addAction("")
-            _bind(a, "setText", "Ajustar capas…")
-            a.triggered.connect(lambda: p.ajustar.emit(self.parte))
+            # «Ajustar capas…» ya no va aparte: «Capas y estilos…» es la misma vista, con la hoja a la vista y
+            # utilidad + rol de cada capa (2026-11-17)
             self.act_unir = m.addAction("")
             _bind(self.act_unir, "setText", "Unir tramos")
             self.act_unir.setCheckable(True)
@@ -262,6 +328,31 @@ class PanelReconocer(QtWidgets.QWidget):
         # sin interpretar / escaneo
         self.lbl_vacio = R.texto("", "t2", True, traducir=False)
         cl.addWidget(self.lbl_vacio)
+        # mientras interpreta: la etapa, la barra y su porcentaje (lo mismo que la tarjeta de abajo a la derecha)
+        self.caja_interp = R.transparente(QtWidgets.QWidget())
+        il = QtWidgets.QVBoxLayout(self.caja_interp)
+        il.setContentsMargins(0, 0, 0, 0)
+        il.setSpacing(6)
+        self.lbl_interp = R.texto("", "t3", True, traducir=False)
+        il.addWidget(self.lbl_interp)
+        fila_b = QtWidgets.QHBoxLayout()
+        fila_b.setSpacing(8)
+        self.bar_interp = QtWidgets.QProgressBar()
+        self.bar_interp.setRange(0, 1000)
+        self.bar_interp.setTextVisible(False)
+        self.bar_interp.setFixedHeight(8)
+        fila_b.addWidget(self.bar_interp, 1)
+        self.lbl_interp_pct = R.texto("0 %", "t3", False, traducir=False)
+        fila_b.addWidget(self.lbl_interp_pct)
+        il.addLayout(fila_b)
+        # punto por punto: qué ya se interpretó (pedido 2026-11-17)
+        self.lista_interp = {}
+        for clave in PARTES_INTERP:
+            f = FilaInterpretacion(clave)
+            il.addWidget(f)
+            self.lista_interp[clave] = f
+        self.caja_interp.hide()
+        cl.addWidget(self.caja_interp)
         self.btn_interpretar = QtWidgets.QPushButton()
         _bind(self.btn_interpretar, "setText", "Interpretar la hoja")
         self.btn_interpretar.setProperty("kind", "primary")
@@ -306,6 +397,38 @@ class PanelReconocer(QtWidgets.QWidget):
         LANG_BUS.changed.connect(self._al_idioma)
         self.mostrar(self._estado)
 
+    def reiniciar_interpretacion(self):
+        """Una interpretación que empieza: todo «en espera»."""
+        for f in self.lista_interp.values():
+            f.poner("espera")
+        self.avance_interpretacion(None, None)
+
+    def etapa_interpretacion(self, k):
+        """Empieza la etapa `k` de `interpretar_trabajo.ETAPAS`: sus partes pasan a «en curso»."""
+        for clave in ETAPA_PARTES.get(int(k), ()):
+            f = self.lista_interp.get(clave)
+            if f is not None and f.estado == "espera":
+                f.poner("curso")
+
+    def parte_interpretada(self, clave, n):
+        f = self.lista_interp.get(clave)
+        if f is not None:
+            f.poner("hecho", n)
+
+    def avance_interpretacion(self, detalle, frac, medida="cuenta"):
+        """La etapa y el porcentaje de la interpretación en curso (`frac` None = terminó). `medida` fuera de
+        «cuenta» = la cifra es una estimación: «≈ 42 %» (`avance_aprendido.Seguidor.medida`)."""
+        if frac is None:
+            self.bar_interp.setValue(0)
+            self.lbl_interp_pct.setText("0 %")
+            self.lbl_interp.setText("")
+            return
+        frac = max(0.0, min(1.0, float(frac)))
+        self.bar_interp.setValue(int(1000 * frac))
+        from ui.comun.busy import cifra
+        self.lbl_interp_pct.setText(cifra(frac, medida))
+        self.lbl_interp.setText(detalle or "")
+
     # ── datos ─────────────────────────────────────────────────────────────
     def mostrar(self, estado, ultimo=None, escaneo=False, unidad_capas="capas", interpretando=False,
                 diametros=None):
@@ -330,6 +453,7 @@ class PanelReconocer(QtWidgets.QWidget):
         # también en un proyecto viejo: lo importado queda «reconocida» y el resto «sin interpretar» (Tarea 10)
         algo_sin_interp = any(f.estado == "sin_interpretar" for f in filas.values())
         self.btn_interpretar.setVisible(algo_sin_interp and not escaneo and not interpretando)
+        self.caja_interp.setVisible(self._interpretando and vacio and not escaneo)
         corriendo = any(f.estado == "reconociendo" for f in filas.values())
         self.btn_cancelar.setVisible(corriendo)
         self.btn_todo.setVisible(not vacio and not corriendo)

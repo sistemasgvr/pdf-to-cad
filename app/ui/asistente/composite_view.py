@@ -429,7 +429,18 @@ class CompositeView(ZoomPanView):
         return self.render_piece_raw(p, scale)[0]
 
     def render_piece_raw(self, p: C.Piece, scale: float):
-        """(pixmap del clip de la pieza a `scale` px/pt, origen (ox, oy) del render)."""
+        """(pixmap del clip de la pieza a `scale` px/pt, origen (ox, oy) del render). La misma pieza ya dibujada
+        (mismo PDF, hoja, recorte, polígono, escala y capas) sale de la memoria (`composite_renders`)."""
+        from ui.asistente import composite_renders as CR
+        k = CR.clave(self.docs[p.source], p, scale)
+        hit = CR.buscar(k)
+        if hit is not None:
+            return hit
+        res = self._render_piece_raw(p, scale)
+        CR.guardar(k, *res)
+        return res
+
+    def _render_piece_raw(self, p: C.Piece, scale: float):
         page = self.page(p)
         x0, y0, x1, y1 = C.clip_rect_pt(self.page_size(p), p.clip)
         clip = fitz.Rect(page.rect.x0 + x0, page.rect.y0 + y0, page.rect.x0 + x1, page.rect.y0 + y1)
@@ -463,15 +474,20 @@ class CompositeView(ZoomPanView):
             self.scene().removeItem(it)
         self.items = []
         from nucleo import avance
+        n_piezas = len(self.comp.pieces)
         for i, p in enumerate(self.comp.pieces):
-            # quien muestre «Cargando…» (`busy`) dice cuál va (36 hojas: varios segundos)
-            avance.avisar(_tr("Dibujando cada hoja en la hoja compuesta…"), i + 1, len(self.comp.pieces))
+            # quien muestre «Cargando…» (`busy`) dice cuál va (36 hojas: varios segundos). «i de n» = las YA
+            # dibujadas: con i + 1 al empezar, la barra daba la etapa por hecha mientras dibujaba la última
+            # y se quedaba en 99 % (reporte 2026-11-17)
+            avance.avisar(_tr("Dibujando cada hoja en la hoja compuesta…"), i, n_piezas)
             it = PieceItem(i, self)
             self.scene().addItem(it)
             ov = self.overview_scale(p)
             pm, origin = self.render_piece_raw(p, ov)
             it.set_raw(pm, ov, origin)
             self.items.append(it)
+        if n_piezas:
+            avance.avisar(_tr("Dibujando cada hoja en la hoja compuesta…"), n_piezas, n_piezas)
         self._update_scene_rect()
         self.measure.apply_cursor()
         if 0 <= keep_selection < len(self.items):

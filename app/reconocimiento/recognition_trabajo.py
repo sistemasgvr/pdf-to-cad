@@ -7,7 +7,8 @@ compuesta no trabe la ventana ni deje la RAM ocupada) o, sin proceso, en el hilo
 
 `progreso(...)` recibe, en orden:
   · ("utilidad", i, n, utilidad)  antes de cada utilidad,
-  · ("capa", i, n, utilidad, k, m) al empezar cada capa de esa utilidad,
+  · ("capa", i, n, utilidad, k, m, hechos, total) al empezar cada capa de esa utilidad (k = capas YA hechas)
+    y al terminar la última (m de m); hechos/total = trazos de esas capas / de todas (el peso real de cada capa),
   · ("trazos", i, n, utilidad, lote) durante la reconstrucción, como vista provisional,
   · ("hecha", i, n, utilidad, trazos) al terminarla: sustituye la vista provisional
     con los puntos (px) de las líneas ya ajustadas de esa utilidad.
@@ -148,7 +149,7 @@ def _reconocer_utilidad(doc, pdf_path, page_index, utility, i, n, letters, *, zo
         join_routes=join_routes,
         scale_ft_per_pt=scale_ft_per_pt, letters=mine,
         al_trazo=flujo.agregar if en_vivo else None,
-        avance=lambda k, m: avisar("capa", i, n, utility, k, m))
+        avance=lambda k, m, *trazos: avisar("capa", i, n, utility, k, m, *trazos))
     flujo.vaciar()
     avisar("hecha", i, n, utility,
            [[(float(x), float(y)) for x, y in pl.pts_pdf] for pl in res.drawable])

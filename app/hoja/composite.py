@@ -1300,7 +1300,7 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
     seen = _ocg_xrefs(dst)
     ocg_source: Dict[int, int] = {}
     for k_av, piece in enumerate(comp.pieces):
-        avance.avisar(_tr("Copiando cada hoja con sus vectores, capas y textos…"), k_av + 1, len(comp.pieces))
+        avance.avisar(_tr("Copiando cada hoja con sus vectores, capas y textos…"), k_av, len(comp.pieces))
         src = docs[piece.source]
         spage = src[piece.page]
         cx0, cy0, cx1, cy1 = clip_rect_pt((spage.rect.width, spage.rect.height), piece.clip)
@@ -1338,6 +1338,8 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
         for xref in now - seen:
             ocg_source[xref] = piece.source
         seen = now
+    if comp.pieces:                    # (arriba, lo YA hecho al empezar cada pieza; aquí el final)
+        avance.avisar(_tr("Copiando cada hoja con sus vectores, capas y textos…"), len(comp.pieces), len(comp.pieces))
     _rebuild_ocproperties(dst, ocg_source, hidden_by_source)
     if bridges:
         by_name: Dict[Tuple[int, str], int] = {}
@@ -1604,11 +1606,12 @@ def compute_bridges(comp: Composite, docs: Sequence[fitz.Document]) -> List[Brid
     target = comp.target_scale()
     by_piece: Dict[int, List[Anchor]] = {}
     for i, p in enumerate(comp.pieces):
-        avance.avisar(_tr("Buscando las líneas que cruzan cada costura…"), i + 1, len(comp.pieces))
+        avance.avisar(_tr("Buscando las líneas que cruzan cada costura…"), i, len(comp.pieces))   # (lo YA hecho)
         page = docs[p.source][p.page]
         size = (page.rect.width, page.rect.height)
         by_piece[i] = map_anchors(p, size, target, edge_anchors(page, p.clip, insets=p.covers,
                                                                 polygon=p.polygon))
+    avance.avisar(_tr("Buscando las líneas que cruzan cada costura…"), len(comp.pieces), len(comp.pieces))
     grupos = sorted({p.grupo for p in comp.pieces})
     if len(grupos) == 1:                                  # como siempre
         return find_bridges(by_piece, comp.bridge_max_pt)

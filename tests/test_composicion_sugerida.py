@@ -580,3 +580,48 @@ def test_pdf_hermano_se_vuelve_a_proponer_al_quitarlo(app, monkeypatch, tmp_path
         assert dlg.sug_hermano.isHidden()
     finally:
         dlg.close_docs()
+
+
+def test_avance_de_la_sugerencia_es_un_porcentaje_real_que_no_retrocede():
+    """Reporte 2026-11-17: la tarjeta «Armando la composición sugerida…» mostraba la barra llena
+    (un grupo de uno) o en movimiento sin cifra. El análisis avisa ahora cada pareja revisada y la
+    tarjeta lo lleva a UN porcentaje de 0 a 100 que solo sube."""
+    from hoja import composicion_trabajo as T
+    from ui.asistente import composite_suggest as S
+    avisos = []
+    res = T.calcular([{"name": "cad.pdf", "data": _plano_cad().tobytes()}],
+                     lambda e, i, n: avisos.append((e, i, n)))
+    assert res is not None and res.analisis.grupos
+    etapas = [e for e, _i, _n in avisos]
+    assert "cad" in etapas and "armar" in etapas
+    assert any(e == "cad" and n > 0 for e, _i, n in avisos)          # parejas contadas
+    pct = [S.porcentaje(e, i, n) for e, i, n in avisos]
+    assert None not in pct
+    assert pct == sorted(pct)                                        # nunca retrocede
+    assert pct[0] < 60 <= pct[-1] < 100                              # el último grupo aún se arma
+    # un grupo de uno ya no se ve «terminado» al empezar a armarlo
+    assert S.porcentaje("armar", 1, 1) == S.TRAMOS["armar"][0]
+
+
+def test_dibujar_las_hojas_avisa_lo_hecho_y_el_final(app, monkeypatch):
+    """Reporte 2026-11-17: al usar la sugerencia la barra quedaba en 99 % unos segundos. Se avisaba «14 de 14»
+    al EMPEZAR la última hoja: la etapa contaba como hecha mientras aún dibujaba. Ahora «i de n» = las ya
+    dibujadas, y n de n solo al terminar."""
+    monkeypatch.setenv("PDFCAD_SUGERENCIA", "1")
+    from nucleo import avance
+    from ui.asistente import composite_dialog
+    dlg = composite_dialog.CompositeDialog(None, [{"name": "a.pdf", "data": _plano_cad().tobytes()}], None, {}, 0)
+    try:
+        assert _esperar(dlg) is not None
+        g, _p = dlg._sug_grupo()
+        dlg.comp.pieces[:] = C.Composite.from_dict(g.composite.to_dict()).pieces
+        vistos = []
+        monkeypatch.setattr(avance, "CADA_S", 0.0, raising=False)
+        with avance.escuchar(lambda tx, i, n: vistos.append((i, n, len(dlg.view.items)))):
+            dlg.view.rebuild()
+        n = len(dlg.comp.pieces)
+        assert n >= 2 and vistos
+        assert vistos[-1][:2] == (n, n)
+        assert all(i == hechas for i, _n, hechas in vistos)          # «i de n» = las YA dibujadas
+    finally:
+        dlg.close_docs()

@@ -93,6 +93,7 @@ def limpiar(pipes, structures, ft_per_px, tipos=TIPOS, protegidas=()):
             for k, i in enumerate(vivas):
                 _avisar("tramos", k, len(vivas))
                 res.cambios.extend(LT.arreglar(pipes, structures, i, ft_per_px))
+            _avisar_fin("tramos", len(vivas))
     if "suelta" in tipos:
         _sueltas(pipes, ft_per_px, res)
     res.borrar.sort()
@@ -100,9 +101,15 @@ def limpiar(pipes, structures, ft_per_px, tipos=TIPOS, protegidas=()):
 
 
 def _avisar(etapa, k, n):
-    """Avance de la etapa (barra de carga, `nucleo.avance`): cada 256 y al final."""
-    if not k & 255 or k == n - 1:
-        avance.avisar(etapa, k + 1, n)
+    """Avance de la etapa (barra de carga, `nucleo.avance`) al EMPEZAR el paso k: k = lo YA hecho, cada 256 (el
+    final, «n de n», lo da `_avisar_fin` al terminar el bucle: antes se mandaba al empezar el último paso)."""
+    if not k & 255:
+        avance.avisar(etapa, k, n)
+
+
+def _avisar_fin(etapa, n):
+    if n:
+        avance.avisar(etapa, n, n)
 
 
 def _vivas(pipes, borrar=()):
@@ -178,6 +185,7 @@ def _duplicadas(pipes, ft, protegidas, res):
             res.cambios.append(Cambio("duplicada", sale, x, y, _largo(pipes[sale]["pts"]) * ft, True, "borrar"))
             if sale == a:
                 break
+    _avisar_fin("duplicadas", len(vivas))
 
 
 # ─────────────────────────── puntas casi unidas ───────────────────────────
@@ -278,6 +286,7 @@ def _unir_puntas(pipes, structures, ft, res):
                 model_ops.translate_structure(s, dest[0] - q[0], dest[1] - q[1])
             pts[e] = dest
             res.cambios.append(Cambio("punta", i, dest[0], dest[1], d * ft, True, "punta"))
+    _avisar_fin("puntas", len(vivas))
 
 
 def _radio_ft(p):
@@ -334,3 +343,4 @@ def _sueltas(pipes, ft, res):
         if not toca:
             x, y = _medio(pts)
             res.cambios.append(Cambio("suelta", i, x, y, largo, False))
+    _avisar_fin("sueltas", len(vivas))

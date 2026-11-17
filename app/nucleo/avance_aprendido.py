@@ -14,6 +14,24 @@ duró cada una (`Seguidor.cerrar` → perfil) y la vez siguiente la barra repart
 Nunca retrocede y nunca marca 100 % antes de terminar (`TOPE`). La etapa se reconoce por su texto sin números ni
 nombres entre comillas (`clave_de`: «Hoja 3 de 36» y «Hoja 4 de 36» son la misma), o por la `clave` que dé quien
 avisa. Quién guarda los perfiles lo decide la interfaz (`ui/comun/tiempos_carga`).
+
+REGLAS DE HONESTIDAD (pedido del usuario 2026-11-17: «si nos informan un porcentaje de 0 a 100, tiene que ser todo
+real»):
+  · la cifra dice CÓMO se midió (`medida()`): «cuenta» = la etapa de ahora avanza con su «i de n» real y lo anterior
+    está medido (perfil); «perfil» = la etapa de ahora no tiene cuenta y se estima por lo que duró la vez anterior;
+    «tiempo» = no hay nada medido (primera vez, o una etapa que el perfil no conoce). Las dos últimas son
+    estimaciones y la interfaz lo muestra («≈ 42 %»): una etapa sin cuenta no finge precisión;
+  · «i de n» = lo YA hecho: quien avisa manda «i de n» al EMPEZAR el paso i+1 y «n de n» solo al terminar (si no, la
+    barra marca la etapa entera antes de hacerla y se planta en 99 % mientras sigue trabajando);
+  · sin nada medido la barra sigue una curva que se frena (`SIN_PERFIL_TAU_S`): a la mitad de una carga de
+    minutos no marca 95 %; una etapa nueva solo avanza hacia la MITAD de lo que falta (`NUEVA_HASTA`);
+  · entre un «i de n» y el siguiente la barra solo sigue al RITMO medido en esta misma carga (lo hecho / lo que
+    tardó), y como mucho `ENTRE_AVISOS` de un paso medio (lo hecho / los avisos que llegaron): un paso que tarda
+    mucho más que los demás (la capa grande) la deja quieta, nunca adelantada a la cuenta;
+  · una etapa sin cuenta se estima con lo que duró la vez anterior × lo que ESTA carga va más lenta o más rápida
+    en las etapas ya terminadas (`_escala`): un perfil de una hoja suelta no hace que una compuesta de 12 marque
+    98 % con un cuarto del trabajo por delante;
+  · nunca retrocede ni llega a 100 % antes de `cerrar()` (`TOPE`).
 """
 from __future__ import annotations
 
@@ -23,10 +41,12 @@ import time
 from typing import Callable, Dict, List, Optional
 
 TOPE = 0.99                 # la barra no marca el final hasta que la carga termina
-SIN_PERFIL_TAU_S = 12.0     # sin historia: 63 % de `SIN_PERFIL_TOPE` a los 12 s, y cada vez más despacio
+SIN_PERFIL_TAU_S = 15.0     # sin historia: la MITAD de `SIN_PERFIL_TOPE` a los 15 s, 3/4 a los 45 s, 9/10 a los 135 s
 SIN_PERFIL_TOPE = 0.9
+ESCALA_MIN, ESCALA_MAX = 0.2, 20.0   # (`_escala`)
+NUEVA_HASTA = 0.5           # etapa que el perfil no conoce: como mucho hasta la mitad de lo que falta
 FRENO = 0.9                 # etapa sin cuenta: lineal hasta aquí de lo que duró antes; después frena
-ENTRE_AVISOS = 0.9          # entre «i de n» y el siguiente, por tiempo, hasta esta parte del paso
+ENTRE_AVISOS = 0.9          # entre «i de n» y el siguiente, por tiempo, hasta esta parte de UN paso medio
 DURACION_MIN_S = 0.4        # una carga más corta no se guarda (ni necesita barra)
 MAX_ETAPAS = 80
 INICIO = "·inicio"
@@ -51,13 +71,15 @@ def perfil_valido(perfil) -> bool:
 
 
 class _Etapa:
-    __slots__ = ("t", "desde", "i", "n", "cambio")
+    __slots__ = ("t", "desde", "i", "n", "cambio", "avisos", "t_cambio")
 
     def __init__(self):
         self.t = 0.0              # segundos acumulados (sin el tramo abierto)
         self.desde = None         # cuándo se abrió el tramo de ahora
         self.i = self.n = None
         self.cambio = 0.0         # cuándo cambió su «i de n»
+        self.avisos = 0           # cuántas veces cambió (para el paso medio)
+        self.t_cambio = 0.0       # segundos en la etapa hasta ese cambio (para el ritmo)
 
 
 class Seguidor:
@@ -111,7 +133,11 @@ class Seguidor:
         except (TypeError, ValueError):
             i = n = None
         if n and (i, n) != (e.i, e.n):
+            if e.n != n:
+                e.avisos = 0
             e.i, e.n, e.cambio = i, n, ahora
+            e.avisos += 1
+            e.t_cambio = e.t + (ahora - e.desde if e.desde is not None else 0.0)
 
     def _cerrar_tramo(self, ahora: float) -> None:
         e = self.vistas.get(self.actual) if self.actual else None
@@ -126,30 +152,56 @@ class Seguidor:
             self._max = min(TOPE, v)
         return self._max
 
+    def medida(self) -> str:
+        """Cómo está medida la cifra de ahora: "cuenta", "perfil" o "tiempo" (ver el docstring del módulo)."""
+        if self._total <= 0 or self.actual not in self._dur:
+            return "tiempo"
+        e = self.vistas.get(self.actual)
+        return "cuenta" if e is not None and e.n else "perfil"
+
     def _estimar(self, ahora: float) -> float:
-        if self._total <= 0:                                    # primera vez de esta carga
-            return SIN_PERFIL_TOPE * (1.0 - math.exp(-(ahora - self.t0) / SIN_PERFIL_TAU_S))
+        if self._total <= 0:                                    # primera vez de esta carga: cada vez más despacio
+            t = max(0.0, ahora - self.t0)                       # (hiperbólica: con cargas largas no se dispara)
+            return SIN_PERFIL_TOPE * t / (t + SIN_PERFIL_TAU_S)
         if self.actual not in self._dur:                        # etapa que la vez anterior no estuvo
             falta = max(3.0, self._total * (1.0 - self._base))
-            return self._base + (0.97 - self._base) * (1.0 - math.exp(-(ahora - self._desde_base) / falta))
+            hasta = self._base + (TOPE - self._base) * NUEVA_HASTA
+            return self._base + (hasta - self._base) * (1.0 - math.exp(-(ahora - self._desde_base) / falta))
         lugar = self._orden[self.actual]
+        escala = self._escala(lugar)
         hecho = 0.0
         for k, d in self._dur.items():
             if k == self.actual:
-                hecho += d * self._parte_actual(k, d, ahora)
+                hecho += d * self._parte_actual(k, d * escala, ahora)
             elif self._orden[k] < lugar:
                 hecho += d                                      # ya pasó (o esta vez no hizo falta)
             elif k in self.vistas and d > 0:
                 hecho += d * min(1.0, self.vistas[k].t / d)
         return hecho / self._total
 
+    def _escala(self, lugar: int) -> float:
+        """Cuánto más (o menos) tarda ESTA carga que la del perfil, medido en las etapas ya terminadas."""
+        real = previsto = 0.0
+        for k, d in self._dur.items():
+            e = self.vistas.get(k)
+            if k != self.actual and self._orden[k] < lugar and e is not None and e.t > 0 and d > 0:
+                real += e.t
+                previsto += d
+        if previsto < 0.2 or real <= 0:
+            return 1.0
+        return max(ESCALA_MIN, min(ESCALA_MAX, real / previsto))
+
     def _parte_actual(self, k: str, d: float, ahora: float) -> float:
         e = self.vistas[k]
         if e.n:
             if e.i >= e.n:
                 return 1.0
-            por_paso = max(0.05, d / e.n)
-            return (e.i + min(ENTRE_AVISOS, (ahora - e.cambio) / por_paso)) / e.n
+            dt = max(0.0, ahora - e.cambio)
+            if e.i > 0 and e.t_cambio > 0:                      # el ritmo de ESTA carga
+                ritmo, paso = e.i / e.t_cambio, e.i / max(1, e.avisos - 1)
+            else:                                               # aún nada hecho: el de la vez anterior
+                ritmo, paso = e.n / max(0.05, d), 1.0
+            return (e.i + min(ENTRE_AVISOS * paso, ritmo * dt)) / e.n
         t = e.t + (ahora - e.desde if e.desde is not None else 0.0)
         r = t / d if d > 0 else 1.0
         return r if r < FRENO else FRENO + (0.99 - FRENO) * (1.0 - math.exp(-(r - FRENO) / 0.15))

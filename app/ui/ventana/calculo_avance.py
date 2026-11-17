@@ -101,7 +101,8 @@ class AvanceCalculo(QtCore.QObject):
             bar.setValue(mil)
         faltan = [p for p in ("cruces", "accesorios") if p in self.desde and p not in self.listas]
         etapa = self.etapa or (faltan[0] if len(faltan) == 1 else None)
-        texto = _tr("Actualizando conflictos y avisos… {p} %").format(p=mil // 10)
+        # (lo de cada parte se estima por lo que tardó la vez anterior y su proceso no siempre avisa: «≈»)
+        texto = _tr("Actualizando conflictos y avisos… ≈ {p} %").format(p=mil // 10)
         if etapa:
             texto += " · " + _tr(TEXTOS[etapa])
         if hasattr(self.win, "statusBar"):

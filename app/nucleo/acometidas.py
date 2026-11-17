@@ -45,7 +45,7 @@ def unir_a_principal(pipes, indices, tol_px: float) -> int:
             for v in m.get("pts") or ():
                 _poner(vertices, m.get("layer"), v)
     for k_av, tap in enumerate(nuevas):
-        avance.avisar(_tr("Uniendo cada acometida a su tubería…"), k_av + 1, len(nuevas))
+        avance.avisar(_tr("Uniendo cada acometida a su tubería…"), k_av, len(nuevas))   # (lo YA hecho)
         if not es_acometida(tap) or NETWORK_KIND.get(tap.get("layer") or "") == "pressure":
             continue
         pts, kinds = tap.get("pts") or [], tap.get("vertex_kinds") or []
@@ -76,6 +76,8 @@ def unir_a_principal(pipes, indices, tol_px: float) -> int:
                     _poner(vertices, main.get("layer"), main["pts"][k])
                     n += 1
                 break
+    if nuevas:
+        avance.avisar(_tr("Uniendo cada acometida a su tubería…"), len(nuevas), len(nuevas))
     return n
 
 

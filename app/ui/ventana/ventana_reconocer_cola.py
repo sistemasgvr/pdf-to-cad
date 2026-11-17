@@ -312,15 +312,39 @@ class ReconocerColaMixin:
             return
         tipo, ov = a[0], getattr(self, "_recog_busy", None)
         if tipo == "capa" and ov is not None and a[5]:
-            self._recog_linea = _tr("{u} · capa {k} de {m}").format(
-                u=_tr(RE.ETIQUETAS.get(a[3], a[3])), k=a[4] + 1, m=a[5])
-            ov.step(detail=self._recog_linea, done=a[4], total=a[5], pump=False, clave="capas")
+            k, m = int(a[4]), int(a[5])
+            self._recog_linea = "" if k >= m else _tr("{u} · capa {k} de {m}").format(
+                u=_tr(RE.ETIQUETAS.get(a[3], a[3])), k=k + 1, m=m)
+            # la cuenta de la barra = los TRAZOS de las capas ya hechas (una capa grande pesa más que una chica);
+            # sin ellos (otro trabajo) las capas
+            hechos, total = (a[6], a[7]) if len(a) >= 8 and a[7] else (k, m)
+            ov.step(detail=self._recog_linea or None, done=hechos, total=total, pump=False, clave="capas")
         elif tipo == "trazos":
             self._recognition_strokes(a[3], a[4])
         elif tipo == "hecha":
             self._recognition_partial(a[3], a[4])
         elif tipo == "detalle":
-            self._recognition_stage(a[1], a[2], a[3])
+            self._rec_etapa(ov, a[1], a[2], a[3])
+
+    def _rec_etapa(self, ov, texto, i, n):
+        """Qué está haciendo ahora, debajo de la utilidad y su capa. Dentro de una capa («Reconstruyendo las
+        líneas de la capa X…») la cuenta es la de los trazos que dio el aviso «capa»; las demás etapas (ajustar
+        las rutas, las bóvedas, los diámetros…) cuentan lo suyo o, sin cuenta, son una etapa aparte que la barra
+        estima (antes TODO lo que venía después de la primera capa seguía siendo «capas» con la cuenta de la
+        última: la barra marcaba 8 de 9 capas con tres cuartos del trabajo por hacer)."""
+        if ov is None:
+            return
+        from ui.comun import busy as _busy_mod
+        linea = getattr(self, "_recog_linea", "")
+        dentro = bool(linea) and texto.startswith(_tr("Reconstruyendo las líneas de la capa {c}…").split("{c}")[0])
+        salto = chr(10)
+        detalle = (linea + salto if linea else "") + _busy_mod.detalle_de(texto, None if dentro else i,
+                                                                          None if dentro else n)
+        if dentro:
+            ov.step(detail=detalle, pump=False, clave="capas")
+        else:
+            self._recog_linea = ""
+            ov.step(detail=detalle, done=i if n else None, total=n or None, pump=False)
 
     def _rec_terminado(self, t, gen, res, err):
         if not self._rec_vigente(t, gen):
@@ -382,7 +406,10 @@ class ReconocerColaMixin:
                 self._origen_desde_fuente = None
         if ov is not None and parte in RE.UTILIDADES and hasattr(self, "_agregado_utilidad"):
             self._agregado_utilidad(ov, parte)
+        antes = self.avisos_diametro
         RE.tras_reconocer(self._rec_estado(), parte, firma_parte, _cuantos(parte, res), _verificar(parte, res))
+        if self.avisos_diametro != antes:                # «Diámetros» reconocido: ahora sí sus avisos
+            self._redraw()
         self._reconocer_ultimo = (parte, n)
         self._refrescar_panel_reconocer()
         return n

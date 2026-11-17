@@ -91,18 +91,18 @@ class ReconocerVistaMixin:
 
     # ── «Ajustar capas…» de una utilidad ──────────────────────────────────
     def ajustar_capas_parte(self, parte):
-        """Roles a mano de las capas de UNA utilidad (sin elegir cuál); la fila reconocida queda «desactualizada»."""
+        """«Ajustar capas…» = «Capas y estilos…» abierta en esa utilidad (pedido 2026-11-17: el cuadro de roles era
+        una lista de nombres sin ver a qué línea se refiere cada uno; en «Capas y estilos…» la hoja entera está a la
+        vista, el clic en una capa la resalta y se elige su utilidad y su rol). Al aplicar, la fila reconocida cuyos
+        roles cambiaron queda «desactualizada» (`_capas_estilos_cerrada`)."""
         parte = str(parte).strip().upper()
         if parte not in RE.UTILIDADES or not getattr(self, "doc", None):
             return
-        if self._ajustar_roles_de(parte, self.page_idx):
-            RE.marcar_cambios(self._rec_estado(), {parte: self._firma_parte_actual(parte)})
-        self._refrescar_panel_reconocer()
+        self.abrir_capas_estilos(parte)
 
     def _ajustar_y_ver(self, parte):
-        """«Ajustar capas…» de la vista previa: pide los roles y vuelve a mostrarla (reconociendo de nuevo si cambió)."""
+        """«Ajustar capas…» de la vista previa: la misma vista «Capas y estilos…»; con el 👁 se vuelve a ver."""
         self.ajustar_capas_parte(parte)
-        QtCore.QTimer.singleShot(0, self, lambda p=parte: self.ver_parte(p))
 
     # ── «Para verificar» guardados ─────────────────────────────────────────
     def ir_a_por_verificar(self):

@@ -603,15 +603,17 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         Componer hoja y «Agregar utilidad». Escaneos (`manual`): igual que siempre, al dibujo a mano.
         Devuelve False si se cancela el compositor (quien llama repone el editor si hay `_respaldo`)."""
         page_idx = start_idx
+        elegido = (self.src_pdfs, self.composite, self.hidden_ocgs_by_source)   # «Volver al compositor»: lo último
         while True:
             agregando = getattr(self, "_agregando", None) is not None
             res = composite_dialog.compose_sheet(
-                self, self.src_pdfs, self.composite, self.hidden_ocgs_by_source, current_page=page_idx,
+                self, elegido[0], elegido[1], elegido[2], current_page=page_idx,
                 manual=manual, vivo=self._pasos() if hasattr(self, "_pasos") else None,
                 **({"sugerencia": False} if agregando else {}))
             if res is None:
                 return False
             comp, sources, hidden_by_source = res
+            elegido = (sources, comp, hidden_by_source)
             if agregando:
                 # utilidad agregada: el lugar de cada hoja lo pone su mapa base (ventana_agregar)
                 comp = self._agregando_recolocar(comp, sources)
@@ -630,6 +632,16 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
                 finally:
                     for d in docs:
                         d.close()
+            if not agregando and self.canvas.pixmap_item is not None and self.composite is not None:
+                if self._misma_composicion(comp, sources, hidden_by_source):
+                    break
+                if self._solo_agrega_hojas(comp, sources, hidden_by_source):
+                    return self._agregar_hojas_conservando(comp, sources, hidden_by_source)
+                decision = self._preguntar_reemplazar_hoja()
+                if decision == "volver":
+                    continue
+                if decision is None:
+                    return False
             break
         if (not agregando and self.canvas.pixmap_item is not None and self.composite is not None
                 and self._misma_composicion(comp, sources, hidden_by_source)):
@@ -663,6 +675,107 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             self._info(_tr("Hoja compuesta importada al editor. Dibuja las utilidades a mano."))
             return True
         self._info(_tr("Hoja cargada en el editor. Reconoce cada utilidad desde el panel Reconocer."))
+        self._interpretar_hoja()
+        return True
+
+    # ── «Componer hoja» con la hoja ya en el editor (pedido 2026-11-17) ──
+    def _tamanos_de(self, sources):
+        """(pieza) → (ancho, alto) en pt de su hoja de origen; abre cada PDF una vez (quien llama los cierra)."""
+        docs, memo = {}, {}
+
+        def tam(p):
+            k = (p.source, p.page)
+            if k not in memo:
+                d = docs.get(p.source)
+                if d is None:
+                    d = docs[p.source] = fitz.open(stream=sources[p.source]["data"], filetype="pdf")
+                r = d[p.page].rect
+                memo[k] = (r.width, r.height)
+            return memo[k]
+        return tam, docs
+
+    def _solo_agrega_hojas(self, comp, sources, hidden_by_source) -> bool:
+        """¿La hoja nueva = la del editor + hojas nuevas, sin mover nada de lo que ya había? (`composite_agregar`)."""
+        from hoja import composite_agregar as CA
+        tam_a, docs_a = self._tamanos_de(self.src_pdfs)
+        tam_n, docs_n = self._tamanos_de(sources)
+        try:
+            return CA.solo_agrega(self.composite, self._src_fingerprints(self.src_pdfs), self.hidden_ocgs_by_source,
+                                  comp, recognition_cache.SourceFingerprints()(sources), hidden_by_source,
+                                  tam_a, tam_n)
+        except Exception:                                # ante la duda: rearmar (y preguntar), como antes
+            return False
+        finally:
+            for d in list(docs_a.values()) + list(docs_n.values()):
+                d.close()
+
+    def _preguntar_reemplazar_hoja(self):
+        """La hoja nueva NO conserva el lugar de lo que hay (otra escala, una hoja quitada o movida, o una nueva a la
+        izquierda o arriba): «reemplazar» | «volver» (al compositor, con lo elegido) | None (cancelar). Sin trabajo
+        en el editor (líneas, estructuras, georreferencia…) no pregunta."""
+        if not respaldo_editor.hay_trabajo(self):
+            return "reemplazar"
+        caja = QtWidgets.QMessageBox(self)
+        caja.setIcon(QtWidgets.QMessageBox.Warning)
+        caja.setWindowTitle(_tr("Componer hoja de trabajo"))
+        caja.setText(_tr("La hoja nueva cambia el lugar de lo que ya está en el editor."))
+        caja.setInformativeText(_tr(
+            "Pasa si cambia la escala, se quita o mueve una hoja, o se agrega una a la izquierda o arriba. Lo "
+            "dibujado y lo reconocido se quitarán y la hoja se interpretará de nuevo. Agregar hojas a la derecha o "
+            "abajo, sin mover las de antes, lo conserva todo."))
+        b_guardar = (caja.addButton(_tr("Guardar y reemplazar"), QtWidgets.QMessageBox.AcceptRole)
+                     if self._has_real_changes() else None)
+        b_reemplazar = caja.addButton(_tr("Reemplazar"), QtWidgets.QMessageBox.DestructiveRole)
+        b_volver = caja.addButton(_tr("Volver al compositor"), QtWidgets.QMessageBox.RejectRole)
+        caja.setDefaultButton(b_volver)
+        caja.exec()
+        b = caja.clickedButton()
+        if b is b_volver:
+            return "volver"
+        if b_guardar is not None and b is b_guardar:
+            self.save_project()
+            return "reemplazar" if not self._dirty else None
+        return "reemplazar" if b is b_reemplazar else None
+
+    def _agregar_hojas_conservando(self, comp, sources, hidden_by_source) -> bool:
+        """La hoja nueva SOLO agrega hojas: se arma y se carga como siempre, pero lo dibujado, lo reconocido, la
+        georreferencia y el deshacer vuelven tal cual (mismas coordenadas de página). La hoja se interpreta de
+        nuevo (el área nueva); el ▶ no repite lo que ya está dibujado."""
+        modelo = {k: getattr(self, k) for k in respaldo_editor._MODELO if hasattr(self, k)}
+        registro = getattr(self, "_conf_registro", None)
+        deshacer, rehacer = list(self._undo), list(self._redo)
+        antes = (self.src_pdfs, self.composite, self.hidden_ocgs_by_source)
+        self.src_pdfs = sources
+        self.composite = comp
+        self.hidden_ocgs_by_source = {k: list(v) for k, v in hidden_by_source.items()}
+        try:
+            self._apply_composite()
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(self, _tr("Componer hoja"),
+                _tr("No se pudo armar la hoja compuesta:\n\n{e}").format(e=exc))
+            self._volver_a_la_hoja(antes)
+            return False
+        for k, v in modelo.items():
+            setattr(self, k, v)
+        self._conf_registro = registro
+        self._undo[:] = deshacer
+        self._redo[:] = rehacer
+        self._soltar_pasos()
+        if getattr(self, "_respaldo", None) is not None:
+            self._soltar_respaldo()                       # la hoja de antes ya no vuelve (su PDF se cierra)
+        self._refresh_lists()
+        self._redraw()
+        self._update_geo_status()
+        self._update_undo_tooltips()
+        self._dirty = True
+        n = len(comp.pieces) - len(antes[1].pieces)
+        if comp.manual:
+            self._reconocer_escaneo = True
+            self._refrescar_panel_reconocer()
+            self._info(_tr("Se agregaron {n} hoja(s) a la hoja de trabajo; lo dibujado se conserva.").format(n=n))
+            return True
+        self._info(_tr("Se agregaron {n} hoja(s) a la hoja de trabajo; lo dibujado y lo reconocido se conservan. "
+                       "La hoja se interpreta de nuevo para el área nueva.").format(n=n))
         self._interpretar_hoja()
         return True
 
@@ -806,8 +919,8 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             self.informar(_tr("Componer hoja de trabajo"),
                 _tr("Abre un PDF para componer su hoja de trabajo."))
             return
-        if not self._confirm_discard():
-            return
+        # sin «¿Guardar cambios?» al entrar (pedido 2026-11-17): Cancelar deja el editor como estaba
+        # (`_tomar_respaldo`) y solo se pregunta al final si la hoja nueva reemplazaría lo hecho
         self._empezar_asistente()
         self._tomar_respaldo()
         if not self._wizard_sheet_flow(self.page_idx):
@@ -820,8 +933,8 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             self.informar(_tr("Componer hoja de trabajo"),
                 _tr("Abre un PDF para componer su hoja de trabajo."))
             return
-        if not self._confirm_discard():
-            return
+        # sin «¿Guardar cambios?» al entrar (pedido 2026-11-17): Cancelar deja el editor como estaba
+        # (`_tomar_respaldo`) y solo se pregunta al final si la hoja nueva reemplazaría lo hecho
         self._empezar_asistente()
         self._tomar_respaldo()
         if not self._wizard_sheet_flow(self.page_idx, manual=True):

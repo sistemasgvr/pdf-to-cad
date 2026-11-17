@@ -6,6 +6,11 @@ ocupa su rectángulo: el resto de la ventana sigue usable. `CapaTarjetas` = la m
 «Cargando…» (`busy.BusyOverlay`: `begin`/`step`/`end`/`active`), así `barra_pesada.AvancePesado(capa=…)` la usa
 sin cambios; y puede MOSTRAR la misma tarjeta en otra ventana a mitad del trabajo (`agregar`: la Vista 3D
 mientras el informe toma sus capturas).
+
+La barra va SIEMPRE de 0 a 100 % con su cifra (reporte 2026-11-17, «Interpretando la hoja…» sin avance): con
+`modelo=True` la pone quien llama (`barra_pesada`); si no, se reparte con lo que duró cada etapa la vez anterior
+y el «i de n» de cada aviso (`nucleo/avance_aprendido`, como la capa «Cargando…»). `al_avance(texto, detalle,
+fraccion)` = alguien más muestra el mismo avance (el panel Reconocer).
 """
 from __future__ import annotations
 
@@ -51,7 +56,15 @@ class TarjetaAvance(QtWidgets.QFrame):
         self.barra.setRange(0, 1000)
         self.barra.setTextVisible(False)
         self.barra.setFixedHeight(8)
-        lay.addWidget(self.barra)
+        fila_b = QtWidgets.QHBoxLayout()
+        fila_b.setSpacing(8)
+        fila_b.addWidget(self.barra, 1)
+        self.pct = QtWidgets.QLabel("0 %")
+        self.pct.setObjectName("detalle")
+        self.pct.setMinimumWidth(40)
+        self.pct.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        fila_b.addWidget(self.pct)
+        lay.addLayout(fila_b)
         self.setFixedWidth(ANCHO)
         host.installEventFilter(self)
 
@@ -61,17 +74,47 @@ class TarjetaAvance(QtWidgets.QFrame):
         if detalle is not None:
             self.detalle.setText(detalle)
         if hecho is not None and total:
-            self.barra.setValue(int(1000 * hecho / total))
+            self.poner_fraccion(hecho / total)
         self._ubicar()
+
+    def poner_fraccion(self, frac: float, medida: str = "cuenta"):
+        """`medida` (`avance_aprendido.Seguidor.medida`): fuera de «cuenta» la cifra es una estimación: «≈ 42 %»."""
+        from ui.comun.busy import cifra
+        frac = max(0.0, min(1.0, float(frac)))
+        self.barra.setValue(int(1000 * frac))
+        self.pct.setText(cifra(frac, medida))
 
     def _ubicar(self):
         self.adjustSize()
-        abajo = MARGEN
-        sb = self.host.statusBar() if isinstance(self.host, QtWidgets.QMainWindow) else None
-        if sb is not None and sb.isVisible():
-            abajo += sb.height()
-        self.move(max(0, self.host.width() - self.width() - MARGEN), max(0, self.host.height() - self.height() - abajo))
+        caja = self._caja_libre()
+        if caja is not None:
+            # sobre el PLANO, abajo a la derecha: nunca encima de los paneles (reporte 2026-11-17: el borde del
+            # panel Propiedades la cruzaba)
+            x, y = caja.right() + 1 - self.width() - MARGEN, caja.bottom() + 1 - self.height() - MARGEN
+            self.move(max(caja.left(), x), max(0, y))
+        else:
+            abajo = MARGEN
+            sb = self.host.statusBar() if isinstance(self.host, QtWidgets.QMainWindow) else None
+            if sb is not None and sb.isVisible():
+                abajo += sb.height()
+            self.move(max(0, self.host.width() - self.width() - MARGEN),
+                      max(0, self.host.height() - self.height() - abajo))
         self.raise_()
+
+    def _caja_libre(self):
+        """El rectángulo del lienzo (en coords del host) sin lo que tapan los paneles desplegados encima, o None si
+        el host no tiene lienzo (otra ventana: va abajo a la derecha de ella)."""
+        cv = getattr(self.host, "canvas", None)
+        if not isinstance(cv, QtWidgets.QWidget) or not cv.isVisible():
+            return None
+        try:
+            caja = QtCore.QRect(cv.mapTo(self.host, QtCore.QPoint(0, 0)), cv.size())
+            tapado = getattr(self.host, "_inicio_tapado", None)
+            izq, der = tapado() if callable(tapado) else (0, 0)
+        except RuntimeError:
+            return None
+        caja = caja.adjusted(izq, 0, -der, 0)
+        return caja if caja.width() >= self.width() + 2 * MARGEN else None
 
     def eventFilter(self, obj, ev):
         if obj is self.host and ev.type() == QtCore.QEvent.Resize:
@@ -87,23 +130,61 @@ class TarjetaAvance(QtWidgets.QFrame):
 class CapaTarjetas:
     """La tarjeta del trabajo en una o varias ventanas, con la interfaz de `busy.BusyOverlay`."""
 
-    def __init__(self, host, cancel=None):
+    REFRESCO_MS = 150
+
+    def __init__(self, host, cancel=None, al_avance=None):
         self.cancel = cancel
+        self.al_avance = al_avance
         self.tarjetas = []
         self.active = False
         self._estado = {}
         self._hosts = [host]
+        self._seg = None
+        self._timer = None
 
-    def begin(self, text, detail="", cancel=None, **_kw):
+    def begin(self, text, detail="", cancel=None, modelo=False, **_kw):
         self.active = True
         self._estado = {"texto": text, "detalle": detail}
+        if not modelo:
+            from ui.comun import tiempos_carga
+            self._seg = tiempos_carga.seguidor(text)
+            self._timer = QtCore.QTimer(self._hosts[0])
+            self._timer.setInterval(self.REFRESCO_MS)
+            self._timer.timeout.connect(self._refrescar)
+            self._timer.start()
         for h in self._hosts:
             self._crear(h)
+        self._refrescar()
+
+    def fraccion(self) -> float:
+        """Cuánto va, de 0 a 1."""
+        if self._seg is not None:
+            return self._seg.fraccion()
+        e = self._estado
+        return float(e["hecho"]) / float(e["total"]) if e.get("total") else 0.0
+
+    def medida(self) -> str:
+        """"cuenta" (real) o una estimación ("perfil"/"tiempo"): ver `avance_aprendido`."""
+        if self._seg is not None:
+            return self._seg.medida()
+        e = self._estado
+        return "cuenta" if e.get("total") and not e.get("estimado") else "tiempo"
+
+    def _refrescar(self):
+        if not self.active:
+            return
+        f = self.fraccion()
+        m = self.medida()
+        for t in self.tarjetas:
+            t.poner_fraccion(f, m)
+            t._ubicar()                    # un panel que se despliega o se recoge mueve el lugar libre
+        if self.al_avance is not None:
+            self.al_avance(self._estado.get("texto", ""), self._estado.get("detalle", ""), f)
 
     def _crear(self, host):
         t = TarjetaAvance(host, self.cancel)
-        t.poner(self._estado.get("texto", ""), self._estado.get("detalle", ""), self._estado.get("hecho"),
-                self._estado.get("total"))
+        t.poner(self._estado.get("texto", ""), self._estado.get("detalle", ""))
+        t.poner_fraccion(self.fraccion(), self.medida())
         t.show()
         t._ubicar()
         self.tarjetas.append(t)
@@ -116,18 +197,34 @@ class CapaTarjetas:
         if self.active:
             self._crear(host)
 
-    def step(self, text=None, detail=None, done=None, total=None, pump=False):
+    def step(self, text=None, detail=None, done=None, total=None, pump=False, clave=None, estimado=None):
+        if estimado is not None:
+            self._estado["estimado"] = bool(estimado)
         if text is not None:
             self._estado["texto"] = text
         if detail is not None:
             self._estado["detalle"] = detail
         if done is not None and total:
             self._estado["hecho"], self._estado["total"] = done, total
+        if self._seg is not None and (text is not None or detail is not None or total):
+            e = self._estado
+            self._seg.etapa(e.get("texto", "") + (" · " + e["detalle"] if e.get("detalle") else ""),
+                            done if total else None, total, clave=clave)
         for t in self.tarjetas:
-            t.poner(text, detail, done, total)
+            t.poner(text, detail)
+        self._refrescar()
 
-    def end(self):
+    def end(self, guardar=True):
+        """`guardar=False` (cancelado): lo que duró no sirve de ejemplo para la próxima vez."""
         self.active = False
+        if self._timer is not None:
+            self._timer.stop()
+            self._timer.deleteLater()
+            self._timer = None
+        seg, self._seg = self._seg, None
+        if seg is not None and guardar:
+            from ui.comun import tiempos_carga
+            tiempos_carga.guardar(seg)
         for t in self.tarjetas:
             t.cerrar()
         self.tarjetas = []

@@ -746,7 +746,7 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
     llegadas = _VerticesDeBoveda(pipes) if (net == "conduit" and pipes) else None
     con_boveda = set()                    # estructuras que ya tomaron otra bóveda en esta pasada
     for k_av, vg in enumerate(vaults_geo or []):
-        avance.avisar(_tr("Asociando cada bóveda a su estructura…"), k_av + 1, len(vaults_geo))
+        avance.avisar(_tr("Asociando cada bóveda a su estructura…"), k_av, len(vaults_geo))   # (lo YA hecho)
         cx, cy = vg.get("center", (None, None))
         if cx is None:
             continue
@@ -817,6 +817,8 @@ def attach_vault_geometry(structures, vaults_geo, tol=12.0, net="conduit",
             where = origin((cx, cy)) if callable(origin) else origin
             xdata.set_auto(st, xdata.auto_fields(vg.get("layer"), where))
         done += 1
+    if vaults_geo:
+        avance.avisar(_tr("Asociando cada bóveda a su estructura…"), len(vaults_geo), len(vaults_geo))
     _assign_standalone_codes(structures)
     normalize_solids(structures)
     return done, created

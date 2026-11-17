@@ -122,13 +122,15 @@ def escribir(informe, redactor, ruta, imagenes=None, notas=()):
         doc.add_heading(t("Fichas por zona"), 1)
     n = len(informe.zonas)
     for k, z in enumerate(informe.zonas, 1):
-        avance.avisar("informe_zonas", k, n)
+        avance.avisar("informe_zonas", k - 1, n)          # (lo YA hecho; «n de n» al terminar)
         doc.add_heading(t("Zona {z}").format(z=z.numero), 2)
         doc.add_paragraph(redactor.zona(z))
         _imagen(doc, imagenes.get(("2d", z.numero)), t("Zona {z} en el plano.").format(z=z.numero))
         _imagen(doc, imagenes.get(("3d", z.numero)), t("Zona {z} en la vista 3D.").format(z=z.numero))
         for f in z.fichas:
             _ficha(doc, f, redactor)
+    if n:
+        avance.avisar("informe_zonas", n, n)
 
     rec = [f for f in informe.fichas if f["tipo"] == "reconocimiento"]
     if rec:

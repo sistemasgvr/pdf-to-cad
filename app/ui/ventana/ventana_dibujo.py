@@ -67,7 +67,8 @@ class DibujoMixin:
                                  getattr(self, "normas_aprobados", None), getattr(self, "normas_cat", None),
                                  getattr(self, "duct_banks", None), self.scale, self.zoom,
                                  getattr(i18n_core, "_current_lang", None),
-                                 *((self.sin_accesorio,) if getattr(self, "sin_accesorio", None) else ()))
+                                 *((self.sin_accesorio,) if getattr(self, "sin_accesorio", None) else ()),
+                                 *(("sin_avisos_diametro",) if not getattr(self, "avisos_diametro", True) else ()))
 
     def _firma_marcas(self):
         """Lo que decide las marcas de tamaño fijo: el modelo (la firma del redibujo), la escala, el idioma

@@ -110,7 +110,8 @@ class Encajes:
 _DIRECTO = Encajes()
 
 
-def _confirmar_cad(fichas: Dict[Nodo, Ficha], cancelado=None, enc: Encajes = _DIRECTO) -> Tuple[List[E.Costura], int]:
+def _confirmar_cad(fichas: Dict[Nodo, Ficha], cancelado=None, enc: Encajes = _DIRECTO,
+                   avance=None) -> Tuple[List[E.Costura], int]:
     """Confirma con el dibujo las parejas CAD. Por cada lado de una hoja: primero las
     de su misma serie (UR-602 → UR-603, no UR-603A); si ninguna confirma, las demás.
     Si dos vecinas confirman por el mismo lado, gana la de más votos solo si destaca."""
@@ -119,9 +120,11 @@ def _confirmar_cad(fichas: Dict[Nodo, Ficha], cancelado=None, enc: Encajes = _DI
         por_lado[(fa.clave, lado)].append((fa, fb, ra, rb, d))
     hechas: List[E.Costura] = []
     descartadas = 0
-    for (_n, lado), cands in por_lado.items():
+    for k, ((_n, lado), cands) in enumerate(por_lado.items()):
         if cancelado is not None and cancelado():
             break
+        if avance is not None:
+            avance(k, len(por_lado))
         fa = cands[0][0]
         misma = [c for c in cands if c[1].serie == fa.serie or not c[1].serie or not fa.serie]
         otras = [c for c in cands if c not in misma]
@@ -210,16 +213,19 @@ def _mediana(vals: Sequence[float]) -> float:
     return v[len(v) // 2]
 
 
-def _confirmar_mapa(fichas: Dict[Nodo, Ficha], cancelado=None, enc: Encajes = _DIRECTO) -> Tuple[List[E.Costura], int]:
+def _confirmar_mapa(fichas: Dict[Nodo, Ficha], cancelado=None, enc: Encajes = _DIRECTO,
+                    avance=None) -> Tuple[List[E.Costura], int]:
     """Solape de cada pareja de celdas vecinas; las que no dan un pico claro se
     reintentan GUIADAS por la traslación y escala de las parejas ya confirmadas
     entre los mismos PDF y por el mismo lado (casi constante en una fila de hojas)."""
     parejas = _parejas_mapa(fichas)
     hechas: List[E.Costura] = []
     pend = []
-    for fa, lado, fb in parejas:
+    for k, (fa, lado, fb) in enumerate(parejas):
         if cancelado is not None and cancelado():
             return hechas, 0
+        if avance is not None:
+            avance(k, len(parejas))
         # atlas con las vecinas escritas en los bordes: hojas borde con borde, se unen por el marco
         c = E.encaje_marco(fa, fb, lado) if (fa.por_bordes and fb.por_bordes) else None
         if c is not None:
@@ -354,7 +360,8 @@ def _ordenar(g: Grupo) -> None:
 
 def analizar(fichas_por_doc: Sequence[Sequence[Ficha]], cancelado=None, progreso=None,
              enc: Encajes = _DIRECTO) -> Analisis:
-    """Todas las parejas confirmadas y sus grupos (sin armar: ver `armar`)."""
+    """Todas las parejas confirmadas y sus grupos (sin armar: ver `armar`).
+    `progreso(etapa, i, n)`: «cad» y «mapa» con las parejas revisadas de cada una."""
     fichas: Dict[Nodo, Ficha] = {}
     for fs in fichas_por_doc:
         mapa = [f for f in fs if f.tipo == "cuadricula"]
@@ -364,12 +371,14 @@ def analizar(fichas_por_doc: Sequence[Sequence[Ficha]], cancelado=None, progreso
                 E.sin_plantilla(f, tpl)
         for f in fs:
             fichas[f.clave] = f
+    def _de(etapa):
+        return None if progreso is None else (lambda i, n: progreso(etapa, i, n))
     if progreso is not None:
-        progreso("cad")
-    cad, d1 = _confirmar_cad(fichas, cancelado, enc)
+        progreso("cad", 0, 0)
+    cad, d1 = _confirmar_cad(fichas, cancelado, enc, avance=_de("cad"))
     if progreso is not None:
-        progreso("mapa")
-    mapa, d2 = _confirmar_mapa(fichas, cancelado, enc)
+        progreso("mapa", 0, 0)
+    mapa, d2 = _confirmar_mapa(fichas, cancelado, enc, avance=_de("mapa"))
     grupos = _grupos("estaciones", cad, fichas) + _grupos("cuadricula", mapa, fichas)
     presentes = {f.celda for f in fichas.values() if f.celda is not None}
     for g in grupos:

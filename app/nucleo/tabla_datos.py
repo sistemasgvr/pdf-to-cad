@@ -85,8 +85,8 @@ def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
     curva_de = {}
     parcial = solo_pipes is not None or solo_estructuras is not None
     for i, p in enumerate(pipes):
-        if not i & 255 or i == len(pipes) - 1:
-            avance.avisar("tabla_utilidades", i + 1, len(pipes))      # barra de carga (Tabla de datos)
+        if not i & 255:
+            avance.avisar("tabla_utilidades", i, len(pipes))      # barra de carga (lo YA hecho; el final, abajo)
         pts = p.get("pts") or []
         if p.get("world") or len(pts) < 2 or (parcial and i not in (solo_pipes or ())):
             continue
@@ -106,6 +106,8 @@ def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
             _r(model_ops.pendiente_total(p, ft_per_px), 3) if ft_per_px else None, _r(p.get("amperaje"), 1),
             db_de.get(i, ""), ix, iy, fx, fy, avisos_de.get(i, 0)])
         ut.lugares.append((pts[len(pts) // 2][0], pts[len(pts) // 2][1], "pipe", i))
+    if pipes:
+        avance.avisar("tabla_utilidades", len(pipes), len(pipes))
 
     bz = Tabla("buzones", N_("Buzones y cajas"), [
         N_("Código"), N_("Clase"), N_("Red"), N_("X"), N_("Y"), N_("Tapa (ft)"), N_("Fondo (ft)"),

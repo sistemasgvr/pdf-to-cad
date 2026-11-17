@@ -253,6 +253,9 @@ def test_du10_todos_los_avisos_sobre_su_linea_dibujada(win, monkeypatch):
     """DU10 UR-602 (h. índice 4): cada aviso de utilidad, a ≤ 0.01 ft de lo que se dibuja de ella."""
     from reconocimiento import recognition as rec
     monkeypatch.setattr(type(win), "_run_recognition_wizard", lambda self: None)
+    # la ventana viene del proyecto de la presentación con cambios: sin esto «¿Guardar cambios?» (modal) esperaba
+    # una respuesta que nadie da y la prueba quedaba colgada (también en el commit 60a8cc5)
+    monkeypatch.setattr(type(win), "_confirm_discard", lambda self: True)
     win._open_pdf_path(str(DU10))
     win._load_page(4)
     ruta = win.work_pdf_path or win.pdf_path

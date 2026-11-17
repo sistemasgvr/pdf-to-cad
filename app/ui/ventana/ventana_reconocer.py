@@ -40,6 +40,11 @@ class ReconocerMixin(ReconocerColaMixin, ReconocerVistaMixin, CapasEstilosMixin,
     reconocer_estado = None          # nucleo.reconocer_estado.Estado (la crea `panel_reconocer`)
     _reconocer_ultimo = None         # (parte, cuántos) de lo último reconocido: pie del panel
 
+    @property
+    def avisos_diametro(self) -> bool:
+        """`reconocer_estado.avisos_diametro`: los avisos de diámetro solo con «Diámetros» reconocido."""
+        return RE.avisos_diametro(getattr(self, "reconocer_estado", None))
+
     def _refrescar_panel_reconocer(self):
         p = getattr(self, "panel_reconocer", None)
         if p is None:
@@ -60,6 +65,8 @@ class ReconocerMixin(ReconocerColaMixin, ReconocerVistaMixin, CapasEstilosMixin,
         su diámetro con certeza y siguen con el de por defecto). Solo si alguna utilidad ya está reconocida."""
         e = self.reconocer_estado
         if not any(e.filas[u].estado in ("reconocida", "desactualizada") for u in RE.UTILIDADES):
+            return None
+        if not RE.avisos_diametro(e):                    # aún sin reconocer «Diámetros»: no hay avisos
             return None
         from nucleo import diametro_plano
         pipes = self.pipes or []

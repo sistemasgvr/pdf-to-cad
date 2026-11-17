@@ -396,7 +396,7 @@ def curvas_en_quiebres(pipes, structures, ft_per_px, indices=None, tol=None):
     vec = vecindario.Vecindario(pipes, structures, ft_per_px)
     lista = list(range(len(pipes)) if indices is None else indices)
     for k_av, ip in enumerate(lista):
-        avance.avisar(_tr("Buscando los quiebres que entran como curva…"), k_av + 1, len(lista))
+        avance.avisar(_tr("Buscando los quiebres que entran como curva…"), k_av, len(lista))   # (lo YA hecho)
         p = pipes[ip]
         net = network_kind(p.get("layer") or "")
         pts = p.get("pts") or []
@@ -411,6 +411,8 @@ def curvas_en_quiebres(pipes, structures, ft_per_px, indices=None, tol=None):
         antes = list(sub_s)
         _quiebres_de(sub_p, sub_s, k, ft_per_px, tol, nuevas, sin_lugar)
         vec.aplicar(ip, antes, sub_s)
+    if lista:
+        avance.avisar(_tr("Buscando los quiebres que entran como curva…"), len(lista), len(lista))
     return nuevas, sin_lugar
 
 

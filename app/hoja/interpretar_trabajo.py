@@ -29,7 +29,11 @@ panel «Reconocer» del editor lo usa (`nucleo.reconocer_estado.de_interpretacio
     hoja queda RETENIDA en el proceso bajo esa firma (`reconocimiento.lectura_retenida`): los ▶ que siguen no la
     vuelven a leer.
 
-Avisa cada etapa por `nucleo.avance` (`ETAPAS`); `progreso` = quien escucha, si se llama fuera del trabajador.
+Avisa cada etapa por `nucleo.avance` (`ETAPAS`); `progreso` = quien escucha (en el trabajador, la ventana). Además,
+al terminar cada parte, `progreso("parte", clave, n)` (pedido 2026-11-17: el panel Reconocer muestra punto por
+punto qué ya se interpretó): cada utilidad con sus capas de línea y estructura (n None = mapa sin capas: sus
+estilos los decide la leyenda al final), «VALVULAS» con sus fuentes, «ROTULOS» con los rótulos y «ESCALA» con los
+pies por punto. `progreso("etapa", k)` = empieza la etapa k de `ETAPAS`.
 Lo que no se pudo leer de lo opcional (símbolos, rótulos) queda vacío: nunca tumba la interpretación.
 """
 from __future__ import annotations
@@ -56,34 +60,65 @@ def interpretar(ruta: str, hoja: int, ons: Sequence = (), estilos_ocultos: Seque
         doc = lectura_retenida.abrir(ruta, firma)
         lectura_retenida.reponer(doc)
         return interpretar_doc(doc, hoja, ons, estilos_ocultos, firma, escala,
-                               leer=capas_trabajo.leer_doc)
+                               leer=capas_trabajo.leer_doc, avisar_parte=progreso)
 
 
 def interpretar_doc(doc, hoja: int, ons: Sequence = (), estilos_ocultos: Sequence[str] = (), firma: str = "",
-                    escala: Optional[float] = None, leer=None) -> dict:
+                    escala: Optional[float] = None, leer=None, avisar_parte=None) -> dict:
     """`interpretar` sobre un documento ya abierto, dentro de su `pdf_styles.lectura_unica`."""
+    def etapa(k):
+        if avisar_parte is not None:
+            avisar_parte("etapa", k)
+        avance.avisar(_tr(ETAPAS[k]))
+
+    def parte(clave, n):
+        if avisar_parte is not None:
+            try:
+                avisar_parte("parte", clave, n)
+            except Exception:                          # noqa: BLE001 — avisar nunca tumba la interpretación
+                pass
     if leer is None:
         from hoja.capas_trabajo import leer_doc as leer
     from reconocimiento import recognition as rec
     hoja = int(hoja)
-    avance.avisar(_tr(ETAPAS[0]))
+    etapa(0)
     out = dict(leer(doc, hoja, ons, estilos_ocultos))          # deja todas las capas encendidas
     out.setdefault("sugeridos", None)
     page = doc[hoja]
-    avance.avisar(_tr(ETAPAS[1]))
+    etapa(1)
     out["letras"] = _letras_portables(rec.page_letters(page))
     layers = out["layers"]
     con_capas = any(L.get("source") != "style" and L.get("path_count") for L in layers)
-    avance.avisar(_tr(ETAPAS[2]))
+    for u, n in _capas_por_utilidad(layers):
+        parte(u, n)
+    etapa(2)
     out["simbolos"] = _simbolos(page, layers, out["leyenda"], con_capas)
-    avance.avisar(_tr(ETAPAS[3]))
+    parte("VALVULAS", len(out["simbolos"] or ()))
+    etapa(3)
     out["rotulos_n"] = _rotulos_n(page, out["leyenda"], con_capas, layers)
+    parte("ROTULOS", int(out["rotulos_n"] or 0))
     if escala is None:
-        avance.avisar(_tr(ETAPAS[4]))
+        etapa(4)
         import vector_pipeline
         escala = vector_pipeline.detect_scale(page)
+    parte("ESCALA", escala)
     out["escala"] = escala
     out["firma"] = firma
+    return out
+
+
+def _capas_por_utilidad(layers) -> list:
+    """(utilidad, capas de línea + estructura que reconocería) — lo mismo que cuenta la fila del panel
+    (`reconocer_estado._fuentes_utilidad`). Mapa sin capas: None (los estilos los asigna la leyenda después)."""
+    from nucleo import reconocer_estado as RE
+    layers = list(layers or [])
+    if not layers or all(L.get("source") == "style" for L in layers):
+        return [(u, None) for u in RE.UTILIDADES]
+    from hoja import leyenda_estandar as le
+    out = []
+    for u in RE.UTILIDADES:
+        lineas, estructuras = le.capas_que_reconoce(layers, u)
+        out.append((u, len(lineas) + len(estructuras)))
     return out
 
 

@@ -134,5 +134,9 @@ class AvancePesado(QtCore.QObject):
             return                                    # en el hilo de la ventana: no repintar a cada aviso
         self._pintado = ahora
         mil = self.barra.milesimas
-        detalle = _tr("{etapa} · {p} %").format(etapa=self._detalle, p=mil // 10) if self._detalle else ""
-        self.ov.step(detail=detalle, done=mil, total=1000, pump=pump)
+        detalle = (_tr("{etapa} · ≈ {p} %") if self._sola else _tr("{etapa} · {p} %")).format(
+            etapa=self._detalle, p=mil // 10) if self._detalle else ""
+        try:                                          # (la etapa sin «i de n» se estima: la cifra lo dice)
+            self.ov.step(detail=detalle, done=mil, total=1000, pump=pump, estimado=self._sola)
+        except TypeError:                             # una capa que no sabe de estimaciones
+            self.ov.step(detail=detalle, done=mil, total=1000, pump=pump)

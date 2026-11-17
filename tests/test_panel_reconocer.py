@@ -107,8 +107,9 @@ def test_ver_capas_y_menu(panel):
     assert ver == [("ELECTRICO",)]
     acciones = {a.text(): a for a in panel.filas["ELECTRICO"].menu.actions() if a.text()}
     acciones[t("Capas y estilos…")].trigger()
-    acciones[t("Ajustar capas…")].trigger()
-    assert capas == [("ELECTRICO",)] and ajustar == [("ELECTRICO",)]
+    # «Ajustar capas…» ya no va aparte: es la misma vista «Capas y estilos…» (2026-11-17)
+    assert t("Ajustar capas…") not in acciones
+    assert capas == [("ELECTRICO",)] and ajustar == []
     a_unir = acciones[t("Unir tramos")]
     assert a_unir.isCheckable() and a_unir.isChecked()
     a_unir.trigger()
@@ -153,6 +154,96 @@ def test_todo_cancelar_e_interpretar(panel, app):
     assert not panel.lista.isVisibleTo(panel)
     panel.btn_interpretar.click()
     assert interp == [()]
+
+
+def test_interpretando_muestra_etapa_barra_y_porcentaje(panel, app):
+    """Reporte 2026-11-17: mientras interpreta, el panel decía solo «Interpretando la hoja…» y nada más."""
+    panel.mostrar(RE.nuevo(), interpretando=True)
+    assert panel.caja_interp.isVisibleTo(panel)
+    panel.avance_interpretacion("Leyendo las letras de las líneas", 0.42)
+    assert panel.lbl_interp.text() == "Leyendo las letras de las líneas"
+    assert panel.bar_interp.value() == 420
+    assert panel.lbl_interp_pct.text() == t("{p} %").format(p=42)
+    panel.mostrar(_estado())                                         # terminó: ya no se ve
+    assert not panel.caja_interp.isVisibleTo(panel)
+
+
+def test_interpretacion_punto_por_punto(panel):
+    """Pedido 2026-11-17: mientras interpreta, el panel dice QUÉ ya se interpretó (cada utilidad, válvulas, rótulos,
+    escala), no solo una barra."""
+    panel.reiniciar_interpretacion()
+    panel.mostrar(RE.nuevo(), interpretando=True)
+    fl = panel.lista_interp
+    assert all(f.estado == "espera" for f in fl.values())
+    panel.etapa_interpretacion(0)
+    assert fl["AGUA"].estado == "curso" and fl["VALVULAS"].estado == "espera"
+    panel.parte_interpretada("AGUA", 5)
+    panel.parte_interpretada("GAS", 0)
+    assert fl["AGUA"].estado == "hecho" and fl["AGUA"].detalle.text() == t("{n} capas").format(n=5)
+    assert fl["GAS"].estado == "nada"
+    panel.etapa_interpretacion(2)
+    assert fl["VALVULAS"].estado == "curso"
+    panel.parte_interpretada("VALVULAS", 3)
+    panel.parte_interpretada("ESCALA", 20 / 72.0)
+    assert fl["VALVULAS"].detalle.text() == t("{n} símbolos").format(n=3)
+    assert fl["ESCALA"].detalle.text() == t("Escala 1\"={v}'").format(v="20")
+    panel.reiniciar_interpretacion()
+    assert fl["AGUA"].estado == "espera"
+
+
+def test_el_trabajo_avisa_cada_parte(tmp_path, monkeypatch):
+    from hoja import interpretar_trabajo as IT
+    import vector_pipeline
+    monkeypatch.setattr(vector_pipeline, "detect_scale", lambda page: 0.5)
+    import fitz
+    ruta = str(tmp_path / "h.pdf")
+    d = fitz.open(); pg = d.new_page(); pg.draw_line((10, 10), (200, 10)); d.save(ruta); d.close()
+    vistos = []
+    IT.interpretar(ruta, 0, progreso=lambda *a: vistos.append(a))
+    partes = {a[1] for a in vistos if a[0] == "parte"}
+    assert set(RE.UTILIDADES) <= partes and {"VALVULAS", "ROTULOS", "ESCALA"} <= partes
+    assert [a[1] for a in vistos if a[0] == "etapa"] == [0, 1, 2, 3, 4]
+
+
+def test_tarjeta_sobre_el_plano_no_sobre_los_paneles(app):
+    """Reporte 2026-11-17: la tarjeta de avance quedaba abajo a la derecha de la VENTANA y el borde del panel
+    Propiedades la cruzaba. Con lienzo, va dentro de lo que queda libre del lienzo."""
+    from ui.comun import tarjeta_avance as TA
+    win = QtWidgets.QMainWindow()
+    win.resize(1400, 800)
+    cont = QtWidgets.QWidget()
+    lay = QtWidgets.QHBoxLayout(cont); lay.setContentsMargins(0, 0, 0, 0)
+    win.canvas = QtWidgets.QWidget()
+    derecha = QtWidgets.QWidget(); derecha.setFixedWidth(300)
+    lay.addWidget(win.canvas, 1); lay.addWidget(derecha)
+    win.setCentralWidget(cont)
+    win.show(); app.processEvents()
+    capa = TA.CapaTarjetas(win)
+    capa.begin("Interpretando la hoja…")
+    app.processEvents()
+    g = capa.tarjetas[0].geometry()
+    lienzo = QtCore.QRect(win.canvas.mapTo(win, QtCore.QPoint(0, 0)), win.canvas.size())
+    assert lienzo.contains(g)
+    capa.end(guardar=False)
+    win.close(); win.deleteLater()
+
+
+def test_tarjeta_de_avance_va_de_0_a_100_con_su_cifra(app):
+    """Sin «i de n» la tarjeta tampoco se queda quieta: reparte el 0–100 % y lo muestra; el panel recibe lo mismo."""
+    from ui.comun import tarjeta_avance as TA
+    host = QtWidgets.QWidget()
+    host.resize(800, 600)
+    vistos = []
+    capa = TA.CapaTarjetas(host, al_avance=lambda tx, d, f: vistos.append(f))
+    capa.begin("Interpretando la hoja…", "Capas")
+    capa.step(detail="Leyendo capas", done=1, total=4)
+    tarjeta = capa.tarjetas[0]
+    assert tarjeta.pct.text().endswith("%")
+    assert vistos and vistos == sorted(vistos)                       # nunca retrocede
+    assert 0.0 <= capa.fraccion() < 1.0
+    capa.end(guardar=False)
+    assert capa.tarjetas == []
+    host.deleteLater()
 
 
 def test_hoja_escaneada(panel):

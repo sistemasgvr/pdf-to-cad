@@ -145,6 +145,22 @@ def servicio() -> Servicio:
     return _SERVICIO
 
 
+# ─────────────────────────── avance global ───────────────────────────
+# Tramos de la barra (0–100) por etapa de `composicion_trabajo.calcular`, en proporción a lo
+# que tarda cada una (leer las hojas es lo más largo). «armar» avisa al EMPEZAR cada grupo.
+TRAMOS = {"hojas": (0, 60), "uniones": (60, 60), "cad": (60, 72), "mapa": (72, 86),
+          "armar": (86, 98), "hermano": (98, 100)}
+
+
+def porcentaje(etapa: str, i: int, n: int) -> Optional[int]:
+    """Porcentaje del análisis entero (None = etapa desconocida)."""
+    if etapa not in TRAMOS:
+        return None
+    a, b = TRAMOS[etapa]
+    hecho = (i - 1 if etapa == "armar" else i) / n if n else 0.0
+    return int(round(a + (b - a) * max(0.0, min(1.0, hecho))))
+
+
 # ─────────────────────────── textos ───────────────────────────
 def describir(g: G.Grupo, an: G.Analisis) -> str:
     d = G.resumen_datos(g, an.fichas)
@@ -275,6 +291,7 @@ class SuggestionMixin:
         (sin botones) ese rato antes de decir «Buscando…» — al agregar o quitar un PDF lo ya visto
         vuelve de la memoria al instante y la tarjeta no parpadea."""
         self._sug_res = None
+        self._sug_pct_clave = None                  # un análisis nuevo empieza en 0 %
         clave = self._sug_clave = servicio().pedir(self.sources)
         if self._sug_res is not None or self._sug_oculta:
             return
@@ -287,10 +304,10 @@ class SuggestionMixin:
                 if getattr(self, "_sug_espera", None) == clave:
                     self._sug_espera = None
                     if self._sug_res is None and self._sug_clave == clave and not self._sug_oculta:
-                        self._sug_mostrar_busqueda(texto, 0, 0)
+                        self._sug_mostrar_busqueda(texto)
             QtCore.QTimer.singleShot(esperar_ms, _ya)
         else:
-            self._sug_mostrar_busqueda(texto, 0, 0)
+            self._sug_mostrar_busqueda(texto)
 
     def _sug_desconectar(self):
         srv = _SERVICIO
@@ -306,18 +323,26 @@ class SuggestionMixin:
     def _sug_progreso(self, clave, etapa, i, n):
         if clave != self._sug_clave or self._sug_oculta or getattr(self, "_sug_espera", None) == clave:
             return
+        p = porcentaje(etapa, i, n)
+        if p is None:
+            return
+        uniones = _tr("Confirmando las uniones con el dibujo…")
         textos = {"hojas": _tr("Buscando cómo se unen las hojas… (hoja {i} de {n})").format(i=i, n=n),
-                  "uniones": _tr("Confirmando las uniones con el dibujo…"),
+                  "uniones": uniones, "cad": uniones, "mapa": uniones,
                   "armar": _tr("Armando la composición sugerida…"),
                   "hermano": _tr("Buscando en la carpeta el PDF con las hojas vecinas…")}
-        self._sug_mostrar_busqueda(textos.get(etapa, ""), i, n)
+        # nunca retrocede (una etapa sin «i de n» no baja lo ya marcado)
+        previo = self._sug_pct if getattr(self, "_sug_pct_clave", None) == clave else 0
+        self._sug_pct_clave, self._sug_pct = clave, max(previo, p)
+        self._sug_mostrar_busqueda(textos[etapa], self._sug_pct)
 
-    def _sug_mostrar_busqueda(self, texto: str, i: int, n: int):
+    def _sug_mostrar_busqueda(self, texto: str, pct: Optional[int] = None):
+        """`pct` None = aún sin cifras (barra en movimiento, sin porcentaje)."""
         self.sug_acciones.setEnabled(True); self.cmb_sug.setEnabled(True)
-        self.lbl_sug.setText(texto)
-        self.bar_sug.setRange(0, n if n else 0)
-        if n:
-            self.bar_sug.setValue(i)
+        self.lbl_sug.setText(texto if pct is None else "%s <b>%d %%</b>" % (texto, pct))
+        self.bar_sug.setRange(0, 0 if pct is None else 100)
+        if pct is not None:
+            self.bar_sug.setValue(pct)
         self.bar_sug.show()
         for w in (self.cmb_sug, self.btn_sug_usar, self.btn_sug_deshacer):
             w.hide()
@@ -526,6 +551,8 @@ class SuggestionMixin:
         with busy(self, _tr("Armando la composición sugerida…"),
                   _tr("{n} hojas · vectores, capas y textos intactos").format(n=len(comp.pieces))):
             self._sug_poner(C.Composite.from_dict(comp.to_dict()))
+            from nucleo import avance as _avance
+            _avance.avisar(_tr("Mostrando la hoja compuesta…"))
             # la hoja a la vista pasa a ser una de la composición: si no, «Continuar»
             # preguntaba por la portada abierta («hoja sin tomar»)
             p0 = self.comp.pieces[0]
@@ -601,6 +628,8 @@ class SuggestionMixin:
                                           _tr("No se pudo abrir el PDF:\n\n{e}").format(e=exc))
             return
         self.sources.append({"name": os.path.basename(herm.ruta), "data": data, "path": herm.ruta})
+        from ui.asistente import composite_renders
+        composite_renders.marcar(doc, data)
         self.docs.append(doc)
         self._fill_sources()                      # se sigue viendo la misma hoja
         self.sug_hermano.hide()                    # ya está en la lista; si se quita, se vuelve a proponer

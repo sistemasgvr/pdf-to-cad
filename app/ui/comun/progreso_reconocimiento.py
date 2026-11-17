@@ -3,6 +3,12 @@
 Es una ventanita propia (como las de `ventana_flotantes`): un hijo encima del lienzo obligaría a
 repintar su fondo en cada aviso. Mientras dura, la edición queda en pausa y el plano se puede acercar
 y desplazar. Misma forma de uso que `busy.BusyOverlay` (`begin`, `step`, `end`).
+
+La cifra (pedido del usuario 2026-11-17: «si nos informan un porcentaje de 0 a 100, tiene que ser todo real»; antes
+decía «Vista provisional · N %» y N corría por tiempo): `cifra(frac, medida)` = «42 %» si la etapa de ahora avanza con
+su cuenta real (las capas, pesadas por sus trazos; el ajuste de rutas capa por capa…) y «≈ 42 %» si es una
+estimación por lo que duró la vez anterior o por tiempo (ver `nucleo/avance_aprendido`). Lo que se dibuja mientras
+tanto sigue siendo provisional: lo dice el globo de la cifra.
 """
 from __future__ import annotations
 
@@ -10,6 +16,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from traduccion.i18n import t as _tr
 from ui.comun import ia_estilo, theme, tiempos_carga
+from ui.comun.busy import cifra
 
 
 class ProgresoReconocimiento(QtWidgets.QFrame):
@@ -51,7 +58,10 @@ class ProgresoReconocimiento(QtWidgets.QFrame):
     def _traducir(self):
         """La tarjeta vive tanto como la ventana: el idioma pudo cambiar desde la última vez."""
         self.cancel_button.setText(_tr("Cancelar"))
-        self.note.setText(_tr("Vista provisional"))
+        self.note.setText(cifra(0.0, "tiempo"))
+        self.note.setToolTip(_tr("Las líneas que se van dibujando son provisionales: al terminar las reemplazan "
+                                 "las ajustadas. «≈» = el porcentaje es una estimación (esta etapa no tiene una "
+                                 "cuenta de lo que falta)."))
 
     def _estilo(self):
         t = theme.tokens()
@@ -119,6 +129,9 @@ class ProgresoReconocimiento(QtWidgets.QFrame):
     def fraccion(self) -> float:
         return self._seg.fraccion() if self._seg is not None else 0.0
 
+    def medida(self) -> str:
+        return self._seg.medida() if self._seg is not None else "tiempo"
+
     def _colocar(self):
         modal = QtWidgets.QApplication.activeModalWidget()
         visible = (self.active and self.host.isVisible() and not self.host.isMinimized()
@@ -136,7 +149,7 @@ class ProgresoReconocimiento(QtWidgets.QFrame):
         self.detail_label.setToolTip(self._detail)
         frac = self.fraccion()                           # la barra va sola entre un aviso y el siguiente
         self.bar.setValue(int(frac * 1000))
-        self.note.setText(_tr("Vista provisional · {p} %").format(p=int(frac * 100)))
+        self.note.setText(cifra(frac, self.medida()))
         self.ensurePolished()
         self.layout().activate()
         self.adjustSize()
@@ -197,3 +210,4 @@ class ProgresoReconocimiento(QtWidgets.QFrame):
                             QtCore.QEvent.Hide, QtCore.QEvent.WindowStateChange):
             QtCore.QTimer.singleShot(0, self, self._colocar)
         return False
+

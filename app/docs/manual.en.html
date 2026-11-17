@@ -289,6 +289,11 @@ map names sheets that are in <b>another PDF in the same folder</b> (Phoenix «�
     if you prefer each piece to cover the one below.</li>
 <li>Click a piece to <b>rotate</b> it, remove it, fix its fine angle or its <b>scale</b> under
     <b>Adjust</b>, or adjust its crop with <span class="btn">Edit area</span>.</li>
+<li>The selected piece shows <b>handles on its border</b> (the four corners and the middle of each side):
+    drag them to <b>scale</b> it. The opposite handle stays put and the piece grows or shrinks evenly;
+    a tag shows the resulting scale («1" = 25' · 125 %»). It snaps to the composed sheet scale and to the
+    other pieces' scale; <b>Ctrl</b> = fine adjustment, <b>Shift</b> = 5 % steps, and double-clicking a
+    handle returns it to the composed sheet scale. It is the same scale as in <b>Adjust</b>.</li>
 <li>At the bottom left you see what is missing to go on. If you removed every piece,
     <span class="btn">Continue</span> is disabled and the <b>Use sheet N</b> link puts it back. If
     you marked an area for another piece and did not take it, or you are viewing a sheet you did not
@@ -613,8 +618,7 @@ its layers or styles.</p>
     utilities already recognized; its row says which are missing and, afterwards, how many pipes were left
     <b>doubtful</b> or <b>without data</b>. <b>Plan labels</b> brings the labels with a leader; its ⋯ menu
     offers <b>Read unreadable labels with the AI…</b>.</li>
-<li>Each row's ⋯ opens <b>Layers and styles…</b> on that utility, <b>Adjust layers…</b> and <b>Join
-    segments</b>. The eye opens its preview; <b>N to check</b> gathers the points to review.</li>
+<li>Each row's ⋯ opens <b>Layers and styles…</b> on that utility (the whole sheet in view: click a layer or style to see which lines it is and choose its utility and role) and <b>Join segments</b>. The eye opens its preview; <b>N to check</b> gathers the points to review.</li>
 <li>The sheet is read <b>only once</b>: every ▶ reuses that reading, so recognizing by parts gives exactly the
     same result as recognizing everything at once.</li>
 <li>The panel state is saved in the project. A project from an earlier version opens with what was already
@@ -663,8 +667,14 @@ are off.</p>
 
 <h2>Composing again later</h2>
 <p><b>Sheet and PDF → Compose working sheet…</b> opens «Compose sheet» again, on the PDF and sheet you were
-working on; when you accept a different composition, the new sheet is loaded and interpreted and the
-Recognize panel starts over. Everything is saved in the project (.digproj), including the source PDFs.</p>
+working on, without asking first whether to save: sheets that were already there are not drawn again.</p>
+<p><b>Adding sheets without losing anything.</b> If you only add sheets (from this PDF or another) to the right or
+below, without moving the earlier ones, what was drawn and recognized, the georeferencing and Undo are kept as they
+are; the sheet is interpreted again for the new area and ▶ does not repeat what is already drawn. If the new sheet
+moves what is there (another scale, a sheet removed or moved, or a new one to the left or above), you are asked
+first: <span class="btn">Replace</span>, <span class="btn">Save and replace</span> or
+<span class="btn">Back to the composer</span> with what you chose. Everything is saved in the project (.digproj),
+including the source PDFs.</p>
 <p>If you accept without changing anything, the editor stays as it was (what was recognized and the panel are
 kept), and a ▶ with no change in the sheet or its layers instantly reuses the previous recognition.
 <span class="btn">Cancel</span> leaves the editor <b>exactly as it was</b>.</p>

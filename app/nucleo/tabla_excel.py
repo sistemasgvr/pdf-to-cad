@@ -59,8 +59,8 @@ def tabla_vertices(pipes, a_cad):
         N_("Utilidad N°"), N_("Nombre"), N_("Vértice"), N_("Cota de llegada (ft)"), N_("Cota de salida (ft)"),
         N_("Automática (ft)"), N_("X"), N_("Y")])
     for i, p in enumerate(pipes or []):
-        if not i & 255 or i == len(pipes) - 1:
-            avance.avisar("tabla_vertices", i + 1, len(pipes))        # barra de carga (Tabla de datos)
+        if not i & 255:
+            avance.avisar("tabla_vertices", i, len(pipes))        # barra de carga (lo YA hecho; el final, abajo)
         pts = p.get("pts") or []
         if p.get("world") or len(pts) < 3:
             continue
@@ -74,6 +74,8 @@ def tabla_vertices(pipes, a_cad):
             tb.filas.append([i + 1, nombre, v, _r(v_in.get(v), 3), _r(v_out.get(v), 3), _r(auto[v], 3),
                              _r(x, 3), _r(y, 3)])
             tb.lugares.append((pts[v][0], pts[v][1], "pipe", i))
+    if pipes:
+        avance.avisar("tabla_vertices", len(pipes), len(pipes))
     return tb
 
 
