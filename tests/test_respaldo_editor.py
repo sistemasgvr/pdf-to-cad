@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 from PySide6 import QtCore, QtWidgets  # noqa: E402
 
 from hoja import composite as C  # noqa: E402

@@ -26,7 +26,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import List, Optional, Sequence, Tuple
 
-import fitz
+import pymupdf as fitz
 
 from hoja import composicion_ficha as F
 

@@ -2,7 +2,7 @@
 import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import fitz
+import pymupdf as fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from ui.asistente.organized_layer_dialog import OrganizedLayersDialog

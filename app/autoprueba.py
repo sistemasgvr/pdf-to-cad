@@ -38,7 +38,7 @@ MODULOS_APP = (
     "geo.georef_dialog", "ia.civil3d_agente", "ia.civil3d_mcp", "nucleo.normas_excel", "nucleo.tabla_excel",
     "digitize", "vector_pipeline", "raster_pipeline", "detect", "nucleo.superficies", "ui.dialogos.superficies_dialog",
 )
-TERCEROS = ("PySide6.QtWidgets", "PySide6.QtOpenGLWidgets", "fitz", "numpy", "ezdxf", "docx", "openpyxl", "pyproj",
+TERCEROS = ("PySide6.QtWidgets", "PySide6.QtOpenGLWidgets", "PySide6.QtNetwork", "pymupdf", "numpy", "ezdxf", "docx", "openpyxl", "pyproj",
             "shiboken6", "PIL.TiffImagePlugin")          # PIL: GeoTIFF de las superficies (2.1.0)
 # Terceros que solo usa una parte de la app (si faltan, esa parte avisa; no impiden abrir).
 OPCIONALES = ("contextily", "rasterio", "mercantile", "cv2", "pytesseract")

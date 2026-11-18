@@ -43,7 +43,7 @@ def lineas(pdf, hoja, **kw):
 def compuesta(pdf, salida):
     """La composición sugerida MÁS GRANDE del PDF, como la arma la app (`composicion_sugerida.armar` +
     `composite.build_document` con puentes), guardada en `salida`. → (ruta, escala pies/pt, [(pdf, hoja) de origen])."""
-    import fitz
+    import pymupdf as fitz
     import vector_pipeline as VP
     from hoja import composicion_ficha as F, composicion_sugerida as G, composite as C
     doc = fitz.open(pdf)
@@ -87,7 +87,7 @@ def main():
     ap.add_argument("--imagenes", default="", help="carpeta donde guardar el recorte de cada línea")
     a = ap.parse_args()
 
-    import fitz
+    import pymupdf as fitz
     from hoja import pdf_styles, recorte_diametro
     from ia import diametro_ia as DI, proveedor as P
     from nucleo import diametro_plano, normas_catalogo as nc

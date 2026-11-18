@@ -22,7 +22,7 @@ import tempfile
 def dibujar(ruta, hoja, zoom, ons=(), limite=None, presupuesto=None, grises=True, progreso=None) -> dict:
     """(En el proceso trabajador) la hoja `hoja` de `ruta` como `fondo_pdf.render_pix` (+ `gris`
     si `grises`), a archivos temporales. Devuelve sus rutas y medidas."""
-    import fitz
+    import pymupdf as fitz
     from hoja import pdf_layers
     from ui.comun import fondo_pdf as F
     if limite:

@@ -20,7 +20,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 
 from hoja import acometidas_mapa, leyenda_mapa as LM, pdf_styles  # noqa: E402
 from hoja import leyenda_mapa_lectura as lectura  # noqa: E402

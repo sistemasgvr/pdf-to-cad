@@ -24,7 +24,7 @@ try:
 except Exception:
     pass
 
-import fitz
+import pymupdf as fitz
 import ezdxf
 
 import config as C

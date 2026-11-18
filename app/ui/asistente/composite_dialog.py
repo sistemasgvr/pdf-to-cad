@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-import fitz
+import pymupdf as fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from hoja import composite as C

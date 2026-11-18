@@ -90,6 +90,11 @@ def calcular(datos_modelo, conflictos, idioma, partes=PARTES, progreso=None):
     return Calculo(pickle.loads(datos_modelo), conflictos).correr(partes)
 
 
+def proceso_activo():
+    from ui.comun import proceso
+    return proceso.activo()
+
+
 def calentar(progreso=None):
     """Trabajo vacío: el proceso importa este módulo (y con él los cálculos) antes de que llegue el primer
     cálculo de verdad. Devuelve None."""
@@ -171,12 +176,33 @@ class CalculoFondoMixin:
                 av.cerrar()
             elif hasattr(self, "statusBar"):
                 self.statusBar().clearMessage()
+        if calc.get("reintentar"):                      # después de cerrar su barra: la nueva usa la misma
+            QtCore.QTimer.singleShot(0, self, lambda c=calc: self._reintentar_calculo(c))
+
+    def _reintentar_calculo(self, calc=None):
+        m = getattr(self, "_memo_redibujo", None)
+        if getattr(self, "_provisional", False) and m is not None and m.firma is not None:
+            if calc is not None and calc["firma"] == m.firma:       # el MISMO modelo: un solo reintento
+                self._calculo_reintentado = m.firma
+            self._lanzar_calculo()
 
     def _calculo_terminado_con(self, calc, m, av):
         if calc["error"]:
+            provisional = getattr(self, "_provisional", False)
+            vigente = provisional and m is not None and m.firma == calc["firma"]
+            if provisional and not vigente:             # el modelo cambió: se calcula el de ahora, aparte
+                calc["reintentar"] = True               # (antes nadie lo lanzaba hasta el próximo cambio)
+                return
+            # Un proceso que murió (o falló) se reintenta UNA vez aparte (2026-11-18, estrés con 29 mil
+            # utilidades: calcular aquí trababa la ventana ~20 s sin responder ni al cierre).
+            if (vigente and calc["error"] != "cancelado" and proceso_activo()
+                    and getattr(self, "_calculo_reintentado", None) != calc["firma"]):
+                print("[calculo_fondo] el cálculo aparte falló; se reintenta aparte:" + chr(10) + calc["error"])
+                calc["reintentar"] = True
+                return
             if calc["error"] != "cancelado":
                 print("[calculo_fondo] el cálculo aparte falló; se calcula aquí:" + chr(10) + calc["error"])
-            if getattr(self, "_provisional", False) and m is not None and m.firma == calc["firma"]:
+            if vigente:
                 self._forzar_sincronico = True
                 try:
                     self._redraw()

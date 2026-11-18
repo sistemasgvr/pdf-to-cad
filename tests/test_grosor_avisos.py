@@ -15,7 +15,7 @@ for p in (os.path.join(ROOT, "app"), ROOT):
         sys.path.insert(0, p)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 
 from nucleo import diametro_plano  # noqa: E402
 from reconocimiento import recognition_grosor as G  # noqa: E402

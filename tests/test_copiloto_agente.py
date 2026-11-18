@@ -82,7 +82,7 @@ def test_senalame_esto_es_del_proyecto():
 # ── herramientas en la ventana ──
 @pytest.fixture
 def w():
-    import fitz
+    import pymupdf as fitz
     win = _ventana(pipes=[_pipe(), _pipe(200.0)])
     doc = fitz.open()
     pagina = doc.new_page(width=600, height=600)

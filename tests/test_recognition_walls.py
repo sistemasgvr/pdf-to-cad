@@ -3,7 +3,7 @@
 import math
 import os
 
-import fitz
+import pymupdf as fitz
 import pytest
 
 from reconocimiento import recognition as rec

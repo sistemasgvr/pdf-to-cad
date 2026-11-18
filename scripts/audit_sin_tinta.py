@@ -66,7 +66,7 @@ def _drawn(pl):
 
 def run(job):
     U, pdf, pno = job
-    import fitz
+    import pymupdf as fitz
     from reconocimiento import recognition as rec
     doc = fitz.open(D + pdf)
     res = rec.recognize_page(D + pdf, pno, utility=U, zoom=Z, doc=doc)
@@ -176,7 +176,7 @@ if __name__ == "__main__":
     if sys.argv[1] == "--diff":
         diff(sys.argv[2], sys.argv[3])
         sys.exit(0)
-    import fitz
+    import pymupdf as fitz
     utils = [u.upper() for u in sys.argv[2:]] or UTILS
     jobs = [(U, p, i) for U in utils for p in PDFS for i in range(fitz.open(D + p).page_count)]
     with ProcessPoolExecutor(max(2, os.cpu_count() - 1)) as ex:

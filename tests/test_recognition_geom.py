@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 
 from reconocimiento import recognition_geom as G
 

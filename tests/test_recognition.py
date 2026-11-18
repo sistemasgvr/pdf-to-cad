@@ -15,7 +15,7 @@ DOCS_DU08 = Path(r"C:/Users/bernu/OneDrive/Documentos/docs prueba") / "03-DU08_0
 ELEC_PAGE = 2
 
 
-pytest.importorskip("fitz")
+pytest.importorskip("pymupdf")
 
 
 def test_selector_de_reconocimiento_ofrece_ambas_o_cada_utilidad():
@@ -218,7 +218,7 @@ def test_bridge_yields_longer_continuous_runs():
 
 @pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
 def test_merge_collinear_respects_max_bridge():
-    import fitz
+    import pymupdf as fitz
     import vector_pipeline as VP
     # Dos guiones colineales con hueco 50 pt (como letra e)
     a0, a1 = fitz.Point(0, 0), fitz.Point(20, 0)
@@ -275,7 +275,7 @@ def test_inject_vault_vertices_snaps_to_pipe():
 def test_layer_roles_force_ungd_and_valt():
     """Con roles explícitos se reconocen líneas y bóvedas en hoja con eléctricas."""
     page = 13  # UD-212 / hoja 14 UI
-    import fitz
+    import pymupdf as fitz
     doc = fitz.open(str(PDF))
     drawings = doc[page].get_drawings()
     ungd = next((d.get("layer") for d in drawings if d.get("layer") and "C-ELEC-UNGD" in d["layer"].upper()), None)
@@ -375,7 +375,7 @@ def test_cada_capa_se_reconstruye_sola_no_mezcla_esfv():
     Aunque las dos se marquen como «líneas», cada pipe pertenece a UNA capa
     y la geometría UNGD no cambia al incluir ESFV."""
     page = 3  # UI hoja 4
-    import fitz
+    import pymupdf as fitz
     doc = fitz.open(str(PDF))
     names = sorted({d.get("layer") or "" for d in doc[page].get_drawings() if d.get("layer")})
     doc.close()
@@ -405,7 +405,7 @@ def test_cada_capa_se_reconstruye_sola_no_mezcla_esfv():
 def test_esfv_como_buzon_no_deforma_ungd():
     """Marcar ESFV-STRUCT como bóveda no debe cambiar las centerlines UNGD."""
     page = 3
-    import fitz
+    import pymupdf as fitz
     doc = fitz.open(str(PDF))
     names = sorted({d.get("layer") or "" for d in doc[page].get_drawings() if d.get("layer")})
     doc.close()
@@ -429,7 +429,7 @@ def test_esfv_como_buzon_no_deforma_ungd():
 def _abandoned_doc(tmp_path, lines):
     """PDF sintético con capas OCG reales. `lines` = [(ocg, a, b, marker_every | None, double)]:
     línea a guiones (21.6/3.6) y, si `marker_every`, barras «/» (o «//») cada tanto."""
-    import fitz
+    import pymupdf as fitz
     doc = fitz.open(); page = doc.new_page(width=1000, height=800)
     ocgs = {}
     for ocg, a, b, every, double in lines:
@@ -688,7 +688,7 @@ def _audit_fillets(page_index, n_expected, strict_tangents):
     (patas = guiones rectos) cada tangente A/B está sobre la RECTA de un guión
     de la capa (≤0.5 pt, mismo rumbo ±1°); y el arco que dibuja el editor /
     genera el plugin (esquina + radio en pies) es el mismo arco."""
-    import fitz
+    import pymupdf as fitz
     from nucleo import model_ops
     Z = 2.0
     res = rec.recognize_page(PDF, page_index, zoom=Z)
@@ -867,7 +867,7 @@ def test_du06_ningun_tramo_sin_tinta_debajo():
     debajo (≥50 % de sus muestras a ≤2 pt). Lo reportó el usuario: en la hoja 3
     salía un abanico de líneas hacia el nodo de una bóveda grande y un extremo se
     prolongaba 29 pt sin tinta para alcanzarla."""
-    import fitz
+    import pymupdf as fitz
     from reconocimiento import recognition_geom as geom
     Z = 2.0
     doc = fitz.open(str(PDF))
@@ -931,7 +931,7 @@ def test_du06_ningun_tramo_sin_tinta_debajo():
 def test_du06_nodos_de_boveda_dentro_del_simbolo():
     """El nodo interior (la CAJA) tiene que caer DENTRO del recuadro de la bóveda:
     el usuario vio un triángulo de líneas apuntando a un vértice fuera de ella."""
-    import fitz
+    import pymupdf as fitz
     from reconocimiento import recognition_geom as geom
     doc = fitz.open(str(PDF))
     try:

@@ -41,7 +41,7 @@ def abrir(ruta: str, firma: str):
     if a is not None and a["firma"] == firma and a["ruta"] == ruta and not a["doc"].is_closed:
         return a["doc"]
     soltar()
-    import fitz
+    import pymupdf as fitz
     from hoja import pdf_layers, pdf_styles
     doc = fitz.open(ruta)
     capas = pdf_layers.encendidas(doc)

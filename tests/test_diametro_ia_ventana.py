@@ -210,7 +210,7 @@ def test_abrir_aviso_consulta_ia_sin_boton_y_no_repite():
 def test_analisis_muestra_captura_y_datos_sin_aplicar(monkeypatch):
     import base64
     import hashlib
-    import fitz
+    import pymupdf as fitz
     from types import SimpleNamespace
     from PySide6 import QtWidgets
     from ia.diametro_ia import Sugerencia
@@ -245,7 +245,7 @@ def test_analisis_muestra_captura_y_datos_sin_aplicar(monkeypatch):
 
 
 def test_composicion_envia_y_muestra_originales_fuera_del_recorte(monkeypatch):
-    import fitz
+    import pymupdf as fitz
     from PySide6 import QtWidgets
     from test_contexto_original import _datos
     from hoja import composite as C

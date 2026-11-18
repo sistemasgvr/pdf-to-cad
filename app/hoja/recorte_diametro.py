@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Dict, Sequence, Tuple
 
-import fitz
+import pymupdf as fitz
 
 LADO_PX = 1024
 MARGEN_PT = 30.0

@@ -1,7 +1,7 @@
 """Differential geometry tests against the pre-acceleration clipping rules."""
 from types import SimpleNamespace
 
-import fitz
+import pymupdf as fitz
 import numpy as np
 import pytest
 

@@ -11,7 +11,7 @@ PDF = Path('C:/Users/bernu/OneDrive/Documentos/docs prueba/03-DU08_09_10-APDU-SE
 
 
 def test_retraced_branch_preserves_every_source_edge():
-    import fitz
+    import pymupdf as fitz
     points = [(0, 10), (0, 0), (10, 0), (2, 0), (-2, 4)]
     path = {'items': [('l', fitz.Point(*a), fitz.Point(*b))
                       for a,b in zip(points, points[1:])]}

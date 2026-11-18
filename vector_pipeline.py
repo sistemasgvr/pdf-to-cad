@@ -10,7 +10,7 @@ Estrategia:
 
 Parámetros en config.py.
 """
-import fitz
+import pymupdf as fitz
 import math
 import re
 from collections import Counter, defaultdict

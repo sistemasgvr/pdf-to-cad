@@ -4116,8 +4116,6 @@ EN: dict[str, str] = {
         'Slope per segment: {tramos}',
     'Preparando el DXF…':
         'Preparing the DXF…',
-    'Actualizando conflictos y avisos…':
-        'Updating conflicts and warnings…',
     'Reusando el plano ya digitalizado…':
         'Reusing the already digitized plan…',
     'Leyendo el plano digitalizado…':

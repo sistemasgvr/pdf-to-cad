@@ -1,7 +1,7 @@
 """Select a destination first, then a page from this or another PDF."""
 import os
 
-import fitz
+import pymupdf as fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from ui.comun.icons import icon as _icon

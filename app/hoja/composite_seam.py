@@ -28,7 +28,7 @@ import math
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
-import fitz
+import pymupdf as fitz
 
 from hoja import composite as C
 

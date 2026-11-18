@@ -21,7 +21,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
-import fitz
+import pymupdf as fitz
 
 # Raíz del repo en path (app/ suele estar sola en sys.path vía main.py).
 _ROOT = Path(__file__).resolve().parent.parent.parent     # raíz del repo (app/reconocimiento/ → ../..)

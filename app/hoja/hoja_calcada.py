@@ -341,7 +341,7 @@ def calcar_trabajo(editor_dict: dict, fuentes_editor: Sequence[bytes], fuentes_n
                    nombres_nuevos: Sequence[str], escala: Optional[float] = None,
                    nombres_editor: Sequence[str] = (), progreso=None) -> dict:
     """Entrada del proceso trabajador: abre los PDF, calca y devuelve datos simples."""
-    import fitz
+    import pymupdf as fitz
     editor = C.Composite.from_dict(editor_dict)
     de = [fitz.open(stream=b, filetype="pdf") for b in fuentes_editor]
     dn = [fitz.open(stream=b, filetype="pdf") for b in fuentes_nuevas]

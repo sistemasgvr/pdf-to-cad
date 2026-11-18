@@ -133,7 +133,7 @@ def test_leyenda_por_utilidad_con_la_del_pdf():
 def du08_h26():
     if not DU08.exists():
         pytest.skip("PDF de prueba DU08 no disponible")
-    import fitz
+    import pymupdf as fitz
     from PySide6 import QtWidgets
     from ui.asistente import layer_dialog
     from ui.asistente import layer_dialog_info

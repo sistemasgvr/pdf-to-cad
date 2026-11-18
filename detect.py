@@ -8,7 +8,7 @@ página… o, si pasó por un vectorizador (raster → vector), miles de trazos
 «calcados» pero NINGÚN texto, fuente ni capa: ese caso se trata como raster
 (se rasteriza la página y sigue el flujo manual), nunca como ploteado.
 """
-import fitz
+import pymupdf as fitz
 
 
 def classify_page(page, min_vector_paths=80, image_cover_frac=0.6, min_text_chars=20):

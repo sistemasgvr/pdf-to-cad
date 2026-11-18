@@ -18,7 +18,7 @@ Dependencias extra (instalar solo si se usa esta ruta):
 import math
 from collections import defaultdict
 
-import fitz
+import pymupdf as fitz
 
 import config as C
 

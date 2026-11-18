@@ -22,7 +22,7 @@ for p in (str(ROOT / "app"), str(ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 
 from reconocimiento import recognition as rec  # noqa: E402
 from reconocimiento import recognition_geom as G  # noqa: E402

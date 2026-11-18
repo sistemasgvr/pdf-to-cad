@@ -63,7 +63,7 @@ def main():
     ap.add_argument("--filas", type=int, default=30)
     a = ap.parse_args()
     comun.preparar()
-    import fitz
+    import pymupdf as fitz
     from reconocimiento import recognition as rec
     from reconocimiento import recognition_trabajo as RT
 

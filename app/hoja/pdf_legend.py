@@ -232,7 +232,7 @@ def document_legend(doc, should_stop: Optional[Callable[[], bool]] = None) -> Li
 
 def render_sample(page, row: LegendRow, zoom: float = 3.0) -> bytes:
     """PNG de la muestra de una fila (con 2 pt de aire)."""
-    import fitz
+    import pymupdf as fitz
     x0, y0, x1, y1 = row.sample
     clip = fitz.Rect(x0 - 2, y0 - 2, x1 + 2, y1 + 2) & page.rect
     pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip, alpha=False)

@@ -3,7 +3,7 @@ import hashlib
 import json
 from types import SimpleNamespace
 
-import fitz
+import pymupdf as fitz
 
 from ia import diametro_ia as DI
 from nucleo import diametro_contexto as DC, normas_catalogo as nc

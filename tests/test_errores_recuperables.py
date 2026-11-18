@@ -90,7 +90,7 @@ def test_resumen_del_error_muestra_la_causa_y_no_la_cabecera_traceback():
 
 
 def test_seleccion_vacia_y_reconstruccion_del_arbol_no_ejecutan_slots_con_filas_borradas(app):
-    import fitz
+    import pymupdf as fitz
     from ui.asistente.layer_dialog import SheetLayersDialog
     doc = fitz.open()
     page = doc.new_page()

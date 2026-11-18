@@ -141,7 +141,7 @@ class InterpretarMixin:
         ruta, hoja = self._rec_ruta_hoja()
         if not ruta:
             return None, 0, False
-        import fitz
+        import pymupdf as fitz
         return fitz.open(ruta), int(hoja), True
 
     def _soltar_rec_hoja(self):

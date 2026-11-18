@@ -41,7 +41,7 @@ def _opts(cfg):
 
 def run(job):
     cfg, pdf, pno = job
-    import fitz; from reconocimiento import recognition as rec
+    import pymupdf as fitz; from reconocimiento import recognition as rec
     o = _opts(cfg)
     if o is not None:
         rec.UTILITY_GEOM_OPTIONS[U] = o
@@ -151,7 +151,7 @@ def run(job):
 
 
 if __name__ == "__main__":
-    import fitz
+    import pymupdf as fitz
     cfg = sys.argv[1] if len(sys.argv) > 1 else "profile"
     outp = sys.argv[2] if len(sys.argv) > 2 else f"audit_alcantarillado_{cfg}.json"
     jobs = [(cfg, p, i) for p in PDFS for i in range(fitz.open(D + p).page_count)]

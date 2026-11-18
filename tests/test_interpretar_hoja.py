@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 
 from hoja import capas_trabajo, interpretar_trabajo as IT          # noqa: E402
 from reconocimiento import recognition as rec                    # noqa: E402

@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT/'app'), str(ROOT)]
-import fitz
+import pymupdf as fitz
 from PIL import Image, ImageDraw, ImageFont
 from reconocimiento import recognition as rec
 from reconocimiento import recognition_trace as trace

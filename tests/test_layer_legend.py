@@ -20,7 +20,7 @@ for p in (str(ROOT / "app"), str(ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 
 from hoja import pdf_layers  # noqa: E402
 from hoja import pdf_legend  # noqa: E402

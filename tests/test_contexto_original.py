@@ -1,7 +1,7 @@
 import base64
 import json
 
-import fitz
+import pymupdf as fitz
 import pytest
 
 from hoja import composite as C, contexto_original as CO

@@ -26,7 +26,7 @@ from __future__ import annotations
 import math
 from typing import Callable, NamedTuple, Optional
 
-import fitz
+import pymupdf as fitz
 from nucleo import avance
 from traduccion.i18n_core import t as _tr
 import numpy as np

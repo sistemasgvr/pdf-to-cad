@@ -1,4 +1,4 @@
-import fitz
+import pymupdf as fitz
 
 from hoja import pdf_layers, pdf_styles
 from reconocimiento import recognition as rec

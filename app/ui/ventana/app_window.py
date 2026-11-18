@@ -7,7 +7,7 @@ borra zonas y exporta un único DXF (base digitalizada + tu marcado) en las
 mismas coordenadas. Ver menú Ayuda → Manual de usuario.
 """
 import sys, os, copy, math, json, zipfile
-import fitz
+import pymupdf as fitz
 import numpy as np
 import ezdxf
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -2234,12 +2234,25 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         for u in e.mimeData().urls(): self.open_path(u.toLocalFile()); break
 
 
+def _otra_instancia(win, ruta):
+    """Alguien abrió la app otra vez: esta ventana al frente y, si traía un archivo, se abre aquí (salvo con un
+    diálogo abierto: no se interrumpe lo que el usuario está haciendo)."""
+    from ui.comun import instancia_unica
+    instancia_unica.traer_al_frente(win)
+    if ruta and QtWidgets.QApplication.activeModalWidget() is None:
+        win.open_path(ruta)
+
+
 def main():
     # La Vista 3D usa QOpenGLWidget: Qt pide esto ANTES de crear la app.
     QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
     from ui.comun import vigia_carga
     vigia_carga.sin_fantasma()          # Windows no cambia la ventana por «(No responde)» mientras carga
     app = QtWidgets.QApplication(sys.argv)
+    # Una sola instancia (2026-11-17): si ya hay una abierta, se le pasa el archivo y esta termina.
+    from ui.comun import instancia_unica
+    if instancia_unica.ya_abierta(sys.argv[1] if len(sys.argv) > 1 else ""):
+        sys.exit(0)
     from ui.comun import errores
     errores.instalar(app)
     app._no_wheel_filter = _NoWheelFilter(app)
@@ -2253,6 +2266,7 @@ def main():
     # hardcodeado ahora vive en app/theme.py, parametrizado por tokens de color.
     _theme.apply_theme(app, _theme.load_preference("dark"))
     win = Main(); win.showMaximized()          # siempre maximizada (pedido del usuario 2026-10-30)
+    instancia_unica.escuchar(app, lambda ruta: _otra_instancia(win, ruta))
     recuperado = win.iniciar_autoguardado()      # copias automáticas + ofrecer recuperar
     import diagnostico_equipo                    # 1.ª vez de cada versión: informe del equipo, en otro proceso
     diagnostico_equipo.lanzar_si_falta()

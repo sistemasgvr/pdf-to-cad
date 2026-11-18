@@ -14,7 +14,7 @@ for p in (os.path.join(ROOT, "app"), ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 
 from hoja import area_sugerida as AS  # noqa: E402
 from hoja import composicion_ficha as F  # noqa: E402

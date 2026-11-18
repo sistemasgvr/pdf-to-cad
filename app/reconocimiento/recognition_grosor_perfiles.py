@@ -187,7 +187,7 @@ def de_hojas(fuentes: Sequence[Tuple[str, int]]) -> List[PerfilLateral]:
     igual en la compuesta. Cada hoja se lee una vez por proceso (`_DE_HOJA`, por archivo, fecha y
     hoja); un nombre que dos hojas dibujan distinto no se usa."""
     import os
-    import fitz
+    import pymupdf as fitz
     from hoja import pdf_styles
     from reconocimiento import recognition as rec
     from reconocimiento import recognition_grosor as grosor

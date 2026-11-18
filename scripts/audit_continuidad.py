@@ -161,7 +161,7 @@ if __name__ == "__main__":
     if sys.argv[1] == "--diff":
         diff(sys.argv[2], sys.argv[3])
         sys.exit()
-    import fitz
+    import pymupdf as fitz
     outp = sys.argv[1]
     utils = [u.upper() for u in sys.argv[2:]] or UTILS
     jobs = [(u, p, i) for u in utils for p in PDFS for i in range(fitz.open(D + p).page_count)]

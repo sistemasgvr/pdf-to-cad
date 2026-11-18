@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from typing import List, Optional, Sequence, Tuple
 
-import fitz
+import pymupdf as fitz
 
 VERSION = 1
 # fuentes de símbolos (no llevan letras: válvulas, flechas, marcas de mapa)

@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from contextlib import ExitStack
 
-import fitz
+import pymupdf as fitz
 
 from hoja import contexto_diametro, contexto_original
 from traduccion.i18n_core import N_

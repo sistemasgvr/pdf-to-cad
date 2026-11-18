@@ -21,7 +21,7 @@ for p in (str(ROOT / "app"), str(ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 from reconocimiento import recognition as rec  # noqa: E402
 from nucleo import model_ops  # noqa: E402
 from nucleo.model import NETWORK_KIND  # noqa: E402

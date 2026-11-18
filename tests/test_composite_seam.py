@@ -16,7 +16,7 @@ for p in (os.path.join(ROOT, "app"), ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 
 from hoja import composite as C  # noqa: E402
 from hoja import composite_seam as S  # noqa: E402

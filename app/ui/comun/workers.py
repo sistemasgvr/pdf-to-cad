@@ -228,7 +228,7 @@ class OrganizedRecognitionWorker(QtCore.QThread):
         self.utilities = rec.normalize_utilities(utilities if utilities is not None else utility)
 
     def run(self):
-        import fitz
+        import pymupdf as fitz
         from hoja import pdf_layers
         from reconocimiento import recognition
         from hoja.sheet_crops import page_rect

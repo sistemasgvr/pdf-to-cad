@@ -29,7 +29,7 @@ from collections import defaultdict
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-import fitz
+import pymupdf as fitz
 
 from ui.comun.busy import busy
 from ui.comun import fondo_pdf

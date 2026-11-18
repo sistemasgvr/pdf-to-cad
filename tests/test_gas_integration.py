@@ -17,7 +17,7 @@ for p in (str(ROOT / "app"), str(ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 ezdxf = pytest.importorskip("ezdxf")
 from PySide6 import QtWidgets  # noqa: E402
 

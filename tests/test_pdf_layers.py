@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 
 from hoja import pdf_layers
 from reconocimiento import recognition as rec

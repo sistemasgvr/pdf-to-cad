@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, Sequence, Set, Tuple
 
-import fitz
+import pymupdf as fitz
 
 from hoja import composicion_ficha as F
 

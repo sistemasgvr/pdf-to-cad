@@ -21,7 +21,7 @@ import math
 import re
 from typing import Dict, List, Optional, Sequence
 
-import fitz
+import pymupdf as fitz
 
 from hoja import pdf_styles
 from nucleo import valvulas as V

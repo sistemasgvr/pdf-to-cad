@@ -32,6 +32,8 @@ ESTADOS = {
     "": ("Sin clasificar", "", "#c3d5df", "#24323b"),
 }
 ORDEN_ESTADOS = ["probado", "falta_probar", "optimizar", "en_desarrollo", "con_bug", "planificado", ""]
+ESTADOS_BASE = dict(ESTADOS)
+ORDEN_BASE = list(ORDEN_ESTADOS)
 TIPOS_NOVEDAD = {"nuevo": "Novedades", "mejora": "Mejoras", "correccion": "Correcciones"}
 
 
@@ -42,6 +44,7 @@ class Grupo:
     padre: str = ""
     detalle: str = ""
     catalogo: str = ""          # área del catálogo cuyas piezas se cuentan en este grupo
+    privado: bool = False       # el cliente no la ve (ni lo que tiene dentro): nunca se publica
 
 
 @dataclass
@@ -56,6 +59,7 @@ class Funcion:
     propuesto_nota: str = ""
     desde: str = ""
     nota: str = ""              # interna: nunca sale en el sitio público
+    privado: bool = False       # el cliente no la ve: nunca se publica (pedido 2026-11-18)
 
     @property
     def por_revisar(self):
@@ -114,6 +118,7 @@ class Proyecto:
     versiones: list
     fichas: list
     cloudflare: str = "pdfacad-funciones"     # nombre del proyecto de Cloudflare Pages
+    estados: list = field(default_factory=list)   # [[estado]]: estados propios o colores cambiados (dicts)
 
     def grupo(self, gid):
         return next((g for g in self.grupos if g.id == gid), None)
@@ -177,10 +182,26 @@ def _clave_version(n):
     return tuple(int(p) if p.isdigit() else 0 for p in str(n).split("."))
 
 
+def aplicar_estados(lista):
+    """[[estado]] de funciones.toml: id, nombre, cliente, fondo, texto. Cambia el color de uno de siempre o suma
+    uno propio (antes de «Sin clasificar»). Se repone desde los de fábrica en cada lectura."""
+    ESTADOS.clear()
+    ESTADOS.update(ESTADOS_BASE)
+    ORDEN_ESTADOS[:] = ORDEN_BASE
+    for e in lista:
+        eid = e.get("id", "")
+        base = ESTADOS.get(eid, (eid, eid, "#c3d5df", "#24323b"))
+        ESTADOS[eid] = (e.get("nombre") or base[0], e.get("cliente", base[1]), e.get("fondo") or base[2],
+                        e.get("texto") or base[3])
+        if eid not in ORDEN_ESTADOS:
+            ORDEN_ESTADOS.insert(len(ORDEN_ESTADOS) - 1, eid)
+
+
 def leer():
     d = _toml(ruta("funciones.toml"))
     p = d.get("proyecto", {})
-    return Proyecto(nombre=p.get("nombre", "Proyecto"), version_actual=p.get("version_actual", ""),
+    aplicar_estados(d.get("estado", []))
+    return Proyecto(estados=list(d.get("estado", [])), nombre=p.get("nombre", "Proyecto"), version_actual=p.get("version_actual", ""),
                     admin=p.get("admin", "Admin"), sitio=p.get("sitio", ""),
                     cloudflare=p.get("cloudflare", "pdfacad-funciones"),
                     grupos=[Grupo(**_campos(Grupo, g)) for g in d.get("grupo", [])],
@@ -225,8 +246,12 @@ def pendientes_version(pr: "Proyecto", v: "Version"):
     no está en el diagrama)."""
     funciones = {f.id: f for f in pr.funciones}
     out = []
+    if not v.novedades:
+        out.append("La versión aún no tiene cambios")
     for n in v.novedades:
         t = n.get("titulo") or "(sin título)"
+        if not (n.get("titulo") or "").strip():
+            out.append("Hay un cambio sin título")
         if n.get("tipo") not in TIPOS_NOVEDAD:
             out.append(f"«{t}»: tipo «{n.get('tipo')}» (usa nuevo, mejora o correccion)")
         if not n.get("funciones"):
@@ -237,6 +262,8 @@ def pendientes_version(pr: "Proyecto", v: "Version"):
                 out.append(f"«{t}»: la función «{fid}» no existe en el diagrama")
             elif not f.estado:
                 out.append(f"«{t}»: la función «{f.nombre}» aún no tiene estado aprobado")
+            elif es_privada(pr, f):
+                out.append(f"«{t}»: la función «{f.nombre}» es privada (el cliente no la ve)")
     return out
 
 
@@ -255,7 +282,7 @@ def _valor(v):
 def _tabla(nombre, d, arreglo=True, omitir_vacios=True):
     lineas = [f"[[{nombre}]]" if arreglo else f"[{nombre}]"]
     for k, v in d.items():
-        if omitir_vacios and v in ("", [], None):
+        if omitir_vacios and (v is False or v in ("", [], None)):
             continue
         lineas.append(f"{k} = {_valor(v)}")
     return "\n".join(lineas)
@@ -274,6 +301,7 @@ def guardar_funciones(pr: Proyecto):
     partes = [CABECERA_FUNCIONES,
               _tabla("proyecto", dict(nombre=pr.nombre, version_actual=pr.version_actual, admin=pr.admin,
                                       sitio=pr.sitio, cloudflare=pr.cloudflare), arreglo=False)]
+    partes += [_tabla("estado", e) for e in pr.estados]
     for g in pr.grupos:
         partes.append(_tabla("grupo", g.__dict__))
     actual = None
@@ -333,3 +361,135 @@ def conteo(items):
     for it in items:
         c[it.estado if it.estado in c else ""] += 1
     return c
+
+
+# ───────────────────────── edición del administrador ─────────────────────────
+
+def slug(texto, largo=40):
+    import unicodedata
+    t = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode().lower()
+    t = "".join(c if c.isalnum() else "-" for c in t)
+    return "-".join(p for p in t.split("-") if p)[:largo].strip("-") or "item"
+
+
+def _id_libre(base, usados):
+    i, out = 2, base
+    while out in usados:
+        out, i = f"{base}-{i}", i + 1
+    return out
+
+
+def agregar_grupo(pr: Proyecto, nombre, padre="", detalle=""):
+    nombre = nombre.strip()
+    if not nombre:
+        raise ValueError("El grupo necesita un nombre")
+    if padre and not pr.grupo(padre):
+        raise ValueError(f"No existe el grupo «{padre}»")
+    gid = _id_libre(f"{padre}.{slug(nombre)}" if padre else slug(nombre), {g.id for g in pr.grupos})
+    g = Grupo(id=gid, nombre=nombre, padre=padre, detalle=detalle.strip())
+    # justo después del último grupo de la misma rama, para que el orden del diagrama tenga sentido
+    pos = max((i for i, x in enumerate(pr.grupos) if x.id == padre or x.padre == padre), default=len(pr.grupos) - 1)
+    pr.grupos.insert(pos + 1, g)
+    return g
+
+
+def agregar_funcion(pr: Proyecto, grupo, nombre, estado="", desde="", nota="", hoy=None):
+    nombre = nombre.strip()
+    if not nombre:
+        raise ValueError("La función necesita un nombre")
+    if not pr.grupo(grupo):
+        raise ValueError(f"No existe el grupo «{grupo}»")
+    fid = _id_libre(f"{grupo}.{slug(nombre)}", {f.id for f in pr.funciones})
+    f = Funcion(id=fid, grupo=grupo, nombre=nombre, desde=desde or pr.version_actual, nota=nota.strip())
+    aprobar(pr, f, estado, hoy)
+    ult = max((i for i, x in enumerate(pr.funciones) if x.grupo == grupo), default=len(pr.funciones) - 1)
+    pr.funciones.insert(ult + 1, f)
+    return f
+
+
+def editar_funcion(pr: Proyecto, f: Funcion, nombre=None, grupo=None, nota=None):
+    """Cambia nombre, grupo o nota interna. El id no cambia (lo usan las versiones)."""
+    if nombre is not None:
+        if not nombre.strip():
+            raise ValueError("El nombre no puede quedar vacío")
+        f.nombre = nombre.strip()
+    if grupo is not None and grupo != f.grupo:
+        if not pr.grupo(grupo):
+            raise ValueError(f"No existe el grupo «{grupo}»")
+        f.grupo = grupo
+    if nota is not None:
+        f.nota = nota.strip()
+
+
+def usos_de_funcion(pr: Proyecto, fid):
+    return [v.numero for v in pr.versiones if any(fid in n.get("funciones", []) for n in v.novedades)]
+
+
+def quitar_funcion(pr: Proyecto, f: Funcion):
+    usos = usos_de_funcion(pr, f.id)
+    if usos:
+        raise ValueError(f"«{f.nombre}» está en las novedades de la versión {', '.join(usos)}: quítala de ahí primero")
+    pr.funciones.remove(f)
+
+
+def quitar_grupo(pr: Proyecto, gid):
+    if pr.funciones_de(gid) or pr.hijos(gid):
+        raise ValueError("Solo se puede quitar un grupo vacío (sin funciones ni subgrupos)")
+    pr.grupos[:] = [g for g in pr.grupos if g.id != gid]
+
+
+def poner_estado(pr: Proyecto, nombre, fondo, texto="#ffffff", cliente=None, eid=None):
+    """Agrega un estado propio o cambia el color/nombre de uno existente (por `eid`)."""
+    if eid is None:
+        if not nombre.strip():
+            raise ValueError("El estado necesita un nombre")
+        eid = _id_libre(slug(nombre, 24).replace("-", "_"), set(ESTADOS))
+    for c in (fondo, texto):
+        if not (isinstance(c, str) and len(c) == 7 and c.startswith("#")):
+            raise ValueError(f"Color inválido: {c}")
+    d = {"id": eid, "nombre": nombre.strip() or ESTADOS.get(eid, ("",))[0],
+         "cliente": (cliente if cliente is not None else nombre).strip(), "fondo": fondo, "texto": texto}
+    pr.estados[:] = [e for e in pr.estados if e.get("id") != eid] + [d]
+    aplicar_estados(pr.estados)
+    return eid
+
+
+def quitar_estado(pr: Proyecto, eid):
+    if eid in ESTADOS_BASE:              # de fábrica: solo vuelve a su color original
+        pr.estados[:] = [e for e in pr.estados if e.get("id") != eid]
+    else:
+        en_uso = [x.nombre for x in pr.funciones + pr.fichas if eid in (x.estado, x.propuesto)]
+        if en_uso:
+            raise ValueError(f"El estado se usa en {len(en_uso)} ítem(s), p. ej. «{en_uso[0]}»: cámbialos primero")
+        pr.estados[:] = [e for e in pr.estados if e.get("id") != eid]
+    aplicar_estados(pr.estados)
+
+
+# ───────────────────────── privado (pedido 2026-11-18) ─────────────────────────
+
+def grupo_privado(pr: Proyecto, gid):
+    """La tarjeta/área o alguna de las que la contienen es privada."""
+    vistos = set()
+    while gid and gid not in vistos:
+        vistos.add(gid)
+        g = pr.grupo(gid)
+        if g is None:
+            return False
+        if g.privado:
+            return True
+        gid = g.padre
+    return False
+
+
+def es_privada(pr: Proyecto, f: Funcion):
+    return f.privado or grupo_privado(pr, f.grupo)
+
+
+def publico(pr: Proyecto):
+    """Copia del proyecto SIN lo privado: lo único que se arma para el cliente (sitio y reporte)."""
+    import dataclasses
+    grupos = [g for g in pr.grupos if not grupo_privado(pr, g.id)]
+    ocultas = {g.catalogo for g in pr.grupos if g.catalogo and grupo_privado(pr, g.id)}
+    return dataclasses.replace(pr, grupos=grupos,
+                               funciones=[f for f in pr.funciones if not es_privada(pr, f)],
+                               fichas=[fi for fi in pr.fichas if fi.area not in ocultas])

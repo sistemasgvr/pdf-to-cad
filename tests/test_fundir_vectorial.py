@@ -13,7 +13,7 @@ las dos) ahora en el compositor de PDF ploteados y de mapas sin capas. Cubre:
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-import fitz
+import pymupdf as fitz
 import pytest
 from PySide6 import QtWidgets
 

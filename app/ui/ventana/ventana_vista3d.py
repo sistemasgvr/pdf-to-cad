@@ -15,11 +15,10 @@ class Vista3DMixin:
     def abrir_vista3d(self):
         from ui.dialogos import vista3d_dialog
         self.terminar_trazo_en_curso()              # la línea a medias también pasa a 3D (2026-11-09)
-        if getattr(self, "_provisional", False):        # calculo_fondo: nada a medio calcular (con aviso)
-            from ui.comun import busy
-            with busy.busy(self, _tr("Actualizando conflictos y avisos…")):
-                self._resultados_al_dia()
-        else:
+        # Sin esperar al cálculo de fondo (2026-11-18, estrés con 29 mil utilidades: `_resultados_al_dia`
+        # rehacía el plano aquí y la ventana quedaba ~20 s sin responder, ni al cierre). La vista se arma con lo
+        # que hay y se rehace sola cuando llegan los conflictos y avisos (`_vista3d_al_dia` tras el redibujo).
+        if not getattr(self, "_provisional", False):
             self._resultados_al_dia()
         self._guardar_antes_de_3d()
         return vista3d_dialog.abrir(self)

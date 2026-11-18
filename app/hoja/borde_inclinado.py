@@ -16,7 +16,7 @@ from __future__ import annotations
 import math
 from typing import Callable, List, Optional, Sequence, Tuple
 
-import fitz
+import pymupdf as fitz
 
 Rect = Tuple[float, float, float, float]
 Pt = Tuple[float, float]

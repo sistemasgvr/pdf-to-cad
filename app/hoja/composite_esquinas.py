@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 from typing import List, Sequence
 
-import fitz
+import pymupdf as fitz
 
 from hoja import composite as C
 

@@ -4,7 +4,7 @@ Las MISMAS importaciones que app_window.py: los métodos movidos a ventana_*.py
 ven exactamente los mismos nombres que veían en app_window.
 """
 import sys, os, copy, math, json, zipfile
-import fitz
+import pymupdf as fitz
 import numpy as np
 import ezdxf
 from PySide6 import QtCore, QtGui, QtWidgets

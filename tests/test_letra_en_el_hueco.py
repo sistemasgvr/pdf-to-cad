@@ -35,7 +35,7 @@ def _dist_to(pts, q):
 
 
 def _lines(hoja, utility):
-    import fitz
+    import pymupdf as fitz
     with fitz.open(str(DU06)) as doc:
         res = rec.recognize_page(None, hoja - 1, utility=utility, zoom=Z, doc=doc)
     return [[(x / Z, y / Z) for x, y in p.pts_pdf] for p in res.drawable]
@@ -57,7 +57,7 @@ def test_du06_h5_linea_de_agua_de_g_xref_es_agua():
     """2.º reporte (2026-10-07): la línea «—W—» de `G-XREF` (UNA «W», justo antes de un
     quiebre: el guión siguiente mide 1.4 pt) no era de nadie y el agua no la reconocía. La
     hoja usa «W» en `C-WATR-UNGD-E` → es agua; las «T» de la capa siguen siendo telecom."""
-    import fitz
+    import pymupdf as fitz
     with fitz.open(str(DU06)) as doc:
         page = doc[4]
         uses = rec.letter_uses(rec.page_letters(page))

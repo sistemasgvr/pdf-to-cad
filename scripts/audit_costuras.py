@@ -14,7 +14,7 @@ import os, sys, re, math, time, json
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path[:0] = [os.path.join(ROOT, 'app'), ROOT]
-import fitz
+import pymupdf as fitz
 from collections import Counter, defaultdict
 from PySide6 import QtWidgets, QtCore
 app = QtWidgets.QApplication([])

@@ -23,7 +23,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
-import fitz
+import pymupdf as fitz
 
 from hoja import texto_pdf
 

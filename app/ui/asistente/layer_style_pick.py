@@ -1,5 +1,5 @@
 """Seleccionar una familia de vectores desde su tinta visible en el PDF."""
-import fitz
+import pymupdf as fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from ui.asistente.layer_dialog_info import _qpath

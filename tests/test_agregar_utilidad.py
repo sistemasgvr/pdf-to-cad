@@ -18,7 +18,7 @@ import random
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 
 from hoja import composite as C  # noqa: E402
 from hoja import encaje_mapa_base as E  # noqa: E402

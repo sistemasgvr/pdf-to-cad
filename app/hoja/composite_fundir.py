@@ -22,7 +22,7 @@ import math
 import re
 from typing import List, Optional, Sequence, Set, Tuple
 
-import fitz
+import pymupdf as fitz
 
 Pt = Tuple[float, float]
 

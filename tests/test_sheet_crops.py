@@ -1,5 +1,5 @@
 """Plan windows keep source coordinates and discard only geometry outside."""
-import fitz
+import pymupdf as fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtTest import QTest
 

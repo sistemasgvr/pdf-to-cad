@@ -206,7 +206,7 @@ def test_recta_larga_no_se_aparta_de_su_tinta():
 
 
 # ─────────────────────────── reconocimiento real ───────────────────────────
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 
 from reconocimiento import recognition as rec  # noqa: E402
 

@@ -5,7 +5,7 @@ import random
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import fitz
+import pymupdf as fitz
 import pytest
 
 from reconocimiento import recognition as rec

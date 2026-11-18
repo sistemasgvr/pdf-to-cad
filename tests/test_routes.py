@@ -178,7 +178,7 @@ def test_determinismo_y_lookahead_no_inventa_puntos():
 @pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
 @pytest.mark.parametrize("page", [2, 3, 8, 12, 13])
 def test_du06_invariantes_de_rutas(page):
-    import fitz
+    import pymupdf as fitz
     from reconocimiento import recognition as rec
 
     doc = fitz.open(str(PDF))
@@ -212,7 +212,7 @@ def test_du06_invariantes_de_rutas(page):
 @pytest.mark.skipif(not PDF.is_file(), reason="PDF de prueba DU06 no está en el repo")
 def test_du06_hoja13_prop_comm_y_haynes_en_pocas_rutas():
     """Las dos «PROP COMM DB» y la vertical de Haynes St no se parten: ≤ 3 rutas."""
-    import fitz
+    import pymupdf as fitz
     from reconocimiento import recognition as rec
 
     doc = fitz.open(str(PDF))

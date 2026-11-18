@@ -19,7 +19,7 @@ from typing import Sequence
 def leer(ruta: str, hoja: int, ons: Sequence = (), estilos_ocultos: Sequence[str] = (),
          progreso=None) -> dict:
     """{layers, leyenda (o None), visibles (nombres de capa con algo que se ve)[, sugeridos]}."""
-    import fitz
+    import pymupdf as fitz
     from hoja import pdf_styles
     with fitz.open(ruta) as doc:
         with pdf_styles.lectura_unica(doc):

@@ -6,7 +6,7 @@ Sin dependencia de la ventana: las funciones reciben los parámetros que necesit
 (pies) que usa la app, para que DXF y JSON queden en las mismas coordenadas.
 """
 import math
-import fitz
+import pymupdf as fitz
 import numpy as np
 from PySide6 import QtGui
 

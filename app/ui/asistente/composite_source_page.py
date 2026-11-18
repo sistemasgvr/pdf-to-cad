@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import os
 
-import fitz
+import pymupdf as fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from hoja import pdf_layers as PL

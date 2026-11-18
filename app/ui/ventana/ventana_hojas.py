@@ -16,7 +16,7 @@ composición y los PDF de origen.
 """
 from __future__ import annotations
 
-import fitz
+import pymupdf as fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from nucleo.model import Z_PDF

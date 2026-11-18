@@ -3,7 +3,7 @@ estilos de la red se deducen del plano y quedan asignados en Â«Capas de la hojaÂ
 mismo estilo con otro grosor por pieza se reconoce como uno (`pdf_styles.gemelos`)."""
 import os
 
-import fitz
+import pymupdf as fitz
 import pytest
 
 from hoja import composite as C, estilos_sugeridos as ES, pdf_styles

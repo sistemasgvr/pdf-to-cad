@@ -18,7 +18,7 @@ for p in (str(ROOT / "app"), str(ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 from PySide6 import QtCore, QtWidgets  # noqa: E402
 
 from nucleo import reconocer_estado as RE  # noqa: E402

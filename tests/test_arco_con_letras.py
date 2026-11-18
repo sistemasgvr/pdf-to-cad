@@ -104,7 +104,7 @@ def _dist_to(pts, q):
 
 @pytest.fixture(scope="module")
 def du06_h3_telecom():
-    import fitz
+    import pymupdf as fitz
     from reconocimiento import recognition as rec
     with fitz.open(str(DU06)) as doc:
         return rec.recognize_page(None, 2, utility="TELECOM", zoom=1.0, doc=doc)
@@ -148,7 +148,7 @@ def test_du06_h3_el_banco_de_ductos_sale_de_la_caja_por_sus_letras(du06_h3_telec
 
 @needs_du06
 def test_du06_h3_reparto_por_letras_el_trazo_que_baja_es_telecom():
-    import fitz
+    import pymupdf as fitz
     from reconocimiento import recognition as rec
     from reconocimiento import recognition_letter_lines as lines
     with fitz.open(str(DU06)) as doc:

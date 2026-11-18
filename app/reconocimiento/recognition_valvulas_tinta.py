@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 from typing import List, Optional, Sequence, Tuple
 
-import fitz
+import pymupdf as fitz
 
 ZOOM = 10                    # px por pt del dibujo de cada glifo
 TINTA_TOL = 150              # suma de diferencias RGB: el suavizado del borde aclara el color del glifo

@@ -248,7 +248,7 @@ def _gap_texts(paths):
 @needs_du08
 def test_leyenda_de_du08_se_lee_entera():
     """DU08 h.33: cada muestra de la leyenda de utilidades se lee con su código."""
-    import fitz
+    import pymupdf as fitz
     with fitz.open(str(DU08)) as doc:
         page = doc[32]
         paths = [d for d in page.get_drawings()
@@ -259,7 +259,7 @@ def test_leyenda_de_du08_se_lee_entera():
 
 @needs_du08
 def test_du08_h26_te_es_electrico_y_se_reconoce():
-    import fitz
+    import pymupdf as fitz
     from hoja import pdf_layers
     with fitz.open(str(DU08)) as doc:
         found = rec.page_letters(doc[25])
@@ -294,7 +294,7 @@ def test_du08_h26_diagonal_te_llega_a_la_linea_por_su_recta():
     al cruce de su recta con la línea (≈842.3, 579.45), dentro del hueco, y toda la
     diagonal queda a ≤0.15 pt de su tinta (con su recta ya bien, la pasada de codos
     reconoce además el arquito con el que nace de la horizontal)."""
-    import fitz
+    import pymupdf as fitz
     import math
     with fitz.open(str(DU08)) as doc:
         res = rec.recognize_page(None, 25, utility="ELECTRICO", zoom=2.0, doc=doc)
@@ -323,7 +323,7 @@ def test_du08_h26_diagonal_te_llega_a_la_linea_por_su_recta():
 
 @pytest.mark.skipif(not LABOE.exists(), reason="PDF de prueba LABOE no disponible")
 def test_laboe_capa_0_solo_su_linea_de_alcantarillado():
-    import fitz
+    import pymupdf as fitz
     with fitz.open(str(LABOE)) as doc:
         page = doc[25]
         found = rec.page_letters(page)

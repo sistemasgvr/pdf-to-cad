@@ -195,7 +195,7 @@ def test_el_trabajo_avisa_cada_parte(tmp_path, monkeypatch):
     from hoja import interpretar_trabajo as IT
     import vector_pipeline
     monkeypatch.setattr(vector_pipeline, "detect_scale", lambda page: 0.5)
-    import fitz
+    import pymupdf as fitz
     ruta = str(tmp_path / "h.pdf")
     d = fitz.open(); pg = d.new_page(); pg.draw_line((10, 10), (200, 10)); d.save(ruta); d.close()
     vistos = []

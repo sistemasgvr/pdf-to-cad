@@ -42,7 +42,7 @@ def _opts(cfg):
 def run(job):
     U, cfg, pdf, pno = job
     cfg_utility[0] = U
-    import fitz; from reconocimiento import recognition as rec
+    import pymupdf as fitz; from reconocimiento import recognition as rec
     o = _opts(cfg)
     if o is not None:
         rec.UTILITY_GEOM_OPTIONS[U] = o
@@ -154,7 +154,7 @@ def run(job):
 
 
 if __name__ == "__main__":
-    import fitz
+    import pymupdf as fitz
     U = sys.argv[1].upper()
     cfg = sys.argv[2] if len(sys.argv) > 2 else "profile"
     outp = sys.argv[3] if len(sys.argv) > 3 else f"audit_{U.lower()}_{cfg}.json"

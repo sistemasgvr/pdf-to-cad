@@ -28,7 +28,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path[:0] = [os.path.join(ROOT, "app"), ROOT]
 
-import fitz  # noqa: E402
+import pymupdf as fitz  # noqa: E402
 import vector_pipeline as VP  # noqa: E402
 from hoja import composite as C  # noqa: E402
 from hoja import composicion_ficha as F  # noqa: E402

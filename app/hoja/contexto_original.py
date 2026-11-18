@@ -11,7 +11,7 @@ import hashlib
 import os
 import re
 
-import fitz
+import pymupdf as fitz
 from shapely.geometry import LineString, Polygon, box
 
 from hoja import composite as C

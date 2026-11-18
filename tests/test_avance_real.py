@@ -196,7 +196,7 @@ def test_lo_que_sigue_a_las_capas_no_es_la_etapa_capas():
 
 
 def test_hoja_compuesta_avisa_lo_ya_hecho():
-    import fitz
+    import pymupdf as fitz
     from hoja import composite as C
     from traduccion.i18n_core import t as _tr
     doc = fitz.open()

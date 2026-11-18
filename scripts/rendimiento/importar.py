@@ -122,7 +122,7 @@ def main():
     # una vez del texto (`detect_scale`, ~28 s en Southwest) y se guarda junto al PDF, para medir lo mismo que la app
     escala = f"{a.pdf}.escala-{a.hoja}.txt"
     if not os.path.isfile(escala):
-        import fitz
+        import pymupdf as fitz
         import vector_pipeline as VP
         with fitz.open(a.pdf) as d:
             with open(escala, "w") as f:
@@ -136,7 +136,7 @@ def main():
     medir("abrir el PDF y cargar la hoja", abrir)
     guardado = f"{a.pdf}.reconocido-{a.hoja}-{w.zoom:g}.pickle"
     if a.reconocer or not os.path.isfile(guardado):
-        import fitz
+        import pymupdf as fitz
         from reconocimiento import recognition as rec, recognition_trabajo as RT
         utilidades, roles = tuple(rec.SUPPORTED_UTILITIES), {}
         if a.sugerir:

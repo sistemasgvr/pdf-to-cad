@@ -3,7 +3,7 @@
 import json
 import os
 
-import fitz
+import pymupdf as fitz
 import pytest
 
 from hoja import indice_texto as IT

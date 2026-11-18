@@ -15,7 +15,7 @@ from traduccion.i18n_core import t as _tr
 def materializar(comp_dict: dict, fuentes: Sequence[bytes], ocultas: Dict[str, list],
                  nombres: Sequence[str], progreso=None):
     """(bytes del PDF de UNA hoja, esquema `piece_layout`)."""
-    import fitz
+    import pymupdf as fitz
     from hoja import composite as composite_mod
     from hoja import pdf_layers as _pdf_layers
     avisar = progreso or (lambda *a: None)

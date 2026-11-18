@@ -44,7 +44,7 @@ def test_circular_reconstruction_preserves_sweep_and_editor(radius, degrees, sca
 
 
 def test_bezier_uses_evaluated_ink_in_both_readers():
-    fitz = pytest.importorskip('fitz')
+    fitz = pytest.importorskip('pymupdf')
     handles = [(0., 0.), (0., 100.), (100., 100.), (100., 0.)]
     path = {'items': [('c', *(fitz.Point(*p) for p in handles))]}
     P = flatten_cubic(handles)
@@ -160,7 +160,7 @@ def test_upper_loop_diagonal_keeps_its_original_endpoint(sheets):
 
 @pytest.mark.parametrize('start', [(663.06, 1251.96), (699.12, 1209.66)])
 def test_lower_loop_and_branch_are_not_discarded_as_leaders(sheets, start):
-    import fitz
+    import pymupdf as fitz
     with fitz.open(PDF) as doc:
         strokes = [s for p in doc[4].get_drawings()
                    if (p.get('layer') or '').endswith('N-COMM-DUCT-BANK-PL')

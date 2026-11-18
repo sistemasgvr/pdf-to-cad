@@ -113,7 +113,7 @@ def test_caida_del_proceso_no_cierra_la_app_y_se_puede_reintentar(con_proceso):
 
 
 def test_leyenda_corre_aislada_y_devuelve_error_recuperable(con_proceso):
-    import fitz
+    import pymupdf as fitz
     from ui.asistente.layer_info_panel import LegendWorker
     with fitz.open() as doc:
         doc.new_page().insert_text((30, 30), "Hoja sin leyenda")

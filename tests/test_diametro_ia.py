@@ -265,7 +265,7 @@ def test_permitido_por_normativa():
 
 
 # ── Tarea 4: recorte marcado del plano ─────────────────────────────────
-import fitz  # noqa: E402
+import pymupdf as fitz  # noqa: E402
 
 from hoja import recorte_diametro as RC  # noqa: E402
 

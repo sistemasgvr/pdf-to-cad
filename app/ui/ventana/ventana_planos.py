@@ -26,7 +26,7 @@ import json
 import os
 import tempfile
 
-import fitz
+import pymupdf as fitz
 from PySide6 import QtGui, QtWidgets
 
 from hoja import hoja_calcada

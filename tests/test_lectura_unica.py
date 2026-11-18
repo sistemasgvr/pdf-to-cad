@@ -3,7 +3,7 @@ resultado es el mismo que leyéndola cada vez."""
 import contextlib
 from pathlib import Path
 
-import fitz
+import pymupdf as fitz
 import pytest
 
 from reconocimiento import recognition

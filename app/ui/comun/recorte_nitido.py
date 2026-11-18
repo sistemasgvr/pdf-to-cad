@@ -28,7 +28,7 @@ import math
 from collections import OrderedDict
 from typing import Optional
 
-import fitz
+import pymupdf as fitz
 import numpy as np
 import pymupdf
 from pymupdf import mupdf as _mu

@@ -115,7 +115,7 @@ def choose_page(parent, doc, current: int = 0) -> int | None:
         if row < 0 or row >= n:
             return
         try:
-            import fitz
+            import pymupdf as fitz
             page = doc[row]
             pix = page.get_pixmap(matrix=fitz.Matrix(0.25, 0.25), alpha=False)
             qimg = QtGui.QImage(

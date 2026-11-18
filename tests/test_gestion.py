@@ -25,7 +25,7 @@ def g(tmp_path, monkeypatch):
     import datos
     importlib.reload(datos)
     mods = {}
-    for m in ("drawio", "sitio", "reporte", "publicar", "admin"):
+    for m in ("drawio", "sitio", "reporte", "publicar", "admin_version", "admin_funciones", "admin"):
         mods[m] = importlib.reload(importlib.import_module(m))
     ficha = dst / "catalogo" / "piezas-3d" / "valvulas" / "compuerta"
     ficha.mkdir(parents=True)
@@ -125,7 +125,7 @@ def test_admin_aprueba_rechaza_y_publica_version(g):
     g.admin.accion("version", {"numero": ["2.0.0"], "publicada": ["1"]})
     assert next(v for v in g.D.leer().versiones if v.numero == "2.0.0").publicada
     html = g.admin.pagina_principal(g.D.leer())
-    assert "Administrador" in html and "Todas las funciones" in html
+    assert "Más opciones" in html and "Versiones" in html
 
 
 def test_admin_solo_responde_en_local(g):
@@ -144,7 +144,7 @@ def test_admin_solo_responde_en_local(g):
 
 
 def test_reporte_pdf_y_whatsapp(g):
-    import fitz
+    import pymupdf as fitz
     pdf, txt = g.reporte.generar("2.0.0", destino=str(g.dir / "_salida" / "reportes"))
     with fitz.open(pdf) as doc:
         texto = "".join(p.get_text() for p in doc)
@@ -184,3 +184,165 @@ def test_cada_cambio_de_una_version_va_asociado_a_una_funcion_aprobada(g):
     g.D.guardar_version(v)
     with pytest.raises(ValueError):
         g.publicar.construir()
+
+
+def test_admin_agrega_edita_quita_y_colorea(g):
+    """Pedido 2026-11-17: el administrador agrega funciones/grupos, los edita, los quita y cambia colores."""
+    pr = g.D.leer()
+    raiz = pr.raices()[0].id
+    m, e = g.admin.accion("nuevo_grupo", {"padre": [raiz], "nombre": ["Grupo Nuevo"], "detalle": ["sub"]})
+    assert not e
+    gid = next(x.id for x in g.D.leer().grupos if x.nombre == "Grupo Nuevo")
+    m, e = g.admin.accion("nueva_funcion", {"grupo": [gid], "nombre": ["Mi función"], "estado": ["en_desarrollo"]})
+    f = next(x for x in g.D.leer().funciones if x.nombre == "Mi función")
+    assert not e and f.estado == "en_desarrollo" and f.aprobado and f.grupo == gid
+    otro = pr.grupos[1].id
+    g.admin.accion("editar_funcion", {"id": [f.id], "nombre": ["Renombrada"]})
+    g.admin.accion("editar_funcion", {"id": [f.id], "grupo": [otro]})
+    f2 = next(x for x in g.D.leer().funciones if x.id == f.id)
+    assert f2.nombre == "Renombrada" and f2.grupo == otro
+    # estado propio con su color: se guarda, se usa y el sitio lo pinta
+    g.admin.accion("nuevo_estado", {"nombre": ["Revisión cliente"], "cliente": ["En revisión"],
+                                    "fondo": ["#7b61ff"], "texto": ["#ffffff"]})
+    eid = next(e["id"] for e in g.D.leer().estados)
+    g.admin.accion("estado", {"tipo": ["funcion"], "id": [f.id], "estado": [eid]})
+    pr = g.D.leer()
+    assert next(x for x in pr.funciones if x.id == f.id).estado == eid and not g.D.validar(pr)
+    assert "#7b61ff" in g.sitio.pill(eid)
+    with pytest.raises(ValueError):                          # en uso: no se quita
+        g.admin.accion("quitar_estado", {"id": [eid]})
+    # color de un estado de siempre y volver al original
+    g.admin.accion("estado_color", {"id": ["probado"], "nombre": ["Probado"], "cliente": ["Disponible"],
+                                    "fondo": ["#00aa00"], "texto": ["#ffffff"]})
+    g.D.leer()
+    assert g.D.ESTADOS["probado"][2] == "#00aa00"
+    g.admin.accion("quitar_estado", {"id": ["probado"]})
+    g.D.leer()
+    assert g.D.ESTADOS["probado"][2] == g.D.ESTADOS_BASE["probado"][2]
+    # quitar la función y el grupo vacío
+    assert not g.admin.accion("quitar_funcion", {"id": [f.id]})[1]
+    assert not g.admin.accion("quitar_grupo", {"id": [gid]})[1]
+    pr = g.D.leer()
+    assert f.id not in {x.id for x in pr.funciones} and gid not in {x.id for x in pr.grupos}
+    html = g.admin.pagina_principal(pr)
+    assert "Estados y colores" in html and "+ Agregar función" in g.admin_funciones.JS
+
+
+def test_admin_no_quita_una_funcion_usada_en_una_version(g):
+    pr = g.D.leer()
+    usada = next(fid for v in pr.versiones for n in v.novedades for fid in n.get("funciones", []))
+    with pytest.raises(ValueError):
+        g.admin.accion("quitar_funcion", {"id": [usada]})
+    assert usada in {x.id for x in g.D.leer().funciones}
+
+
+def test_editor_de_version_arma_la_version_a_mano(g):
+    """Pedido 2026-11-18: el administrador arma la versión sobre la vista del cliente (nada se sugiere): crea la
+    versión, agrega cambios, asocia funciones que elige él o las crea ahí, y se guarda solo."""
+    m, e, destino = g.admin.accion("nueva_version", {"numero": ["9.9.0"], "titulo": ["Prueba"]})
+    assert not e and destino == "/editar/9.9.0"
+    pr = g.D.leer()
+    v = next(x for x in pr.versiones if x.numero == "9.9.0")
+    assert v.novedades == [] and v.titulo == "Prueba"            # vacía: ninguna función sugerida
+    html = g.admin_version.pagina(pr, v)
+    assert "+ Asociar función" in g.admin_version.JS and '"numero": "9.9.0"' in html
+    # el editor manda la versión entera; una función que elijo yo y otra que creo ahí mismo
+    f = pr.funciones[0]
+    grupo = pr.grupos[-1].id
+    nueva = g.admin_version.api("api/funcion", {"grupo": grupo, "nombre": "Función del editor", "estado": "probado"})
+    assert nueva["ok"] and nueva["funcion"]["estado"] == "probado"
+    datos_v = dict(numero="9.9.0", fecha="2026-11-18", titulo="Prueba", resumen="r", novedades=[
+        dict(tipo="nuevo", titulo="  Cambio A ", detalle="d", funciones=[f.id, f.id, nueva["funcion"]["id"]]),
+        dict(tipo="mejora", titulo="", funciones=[])], pendientes=[dict(titulo="Luego", detalle=""), dict(titulo="")])
+    res = g.admin_version.api("api/version", datos_v)
+    assert res["ok"]
+    assert "Hay un cambio sin título" in res["pendientes"]
+    v = next(x for x in g.D.leer().versiones if x.numero == "9.9.0")
+    assert v.novedades[0]["titulo"] == "Cambio A" and v.novedades[0]["funciones"] == [f.id, nueva["funcion"]["id"]]
+    assert [p["titulo"] for p in v.pendientes] == ["Luego"]
+    # una versión publicada no se edita (primero a borrador)
+    v.publicada = True
+    g.D.guardar_version(v)
+    with pytest.raises(ValueError):
+        g.admin_version.actualizar_version(g.D.leer(), "9.9.0", datos_v)
+    m, e, destino = g.admin.accion("version", {"numero": ["9.9.0"], "publicada": ["0"], "volver": ["1"]})
+    assert destino == "/editar/9.9.0" and not next(x for x in g.D.leer().versiones if x.numero == "9.9.0").publicada
+    with pytest.raises(ValueError, match="ya existe"):
+        g.admin.accion("nueva_version", {"numero": ["9.9.0"]})
+
+
+def test_un_segundo_administrador_no_se_pega_al_puerto_del_viejo(g):
+    """Reporte 2026-11-18: con un administrador viejo abierto, abrir otro en Windows tomaba el MISMO puerto y el
+    navegador seguía viendo el viejo. Ahora el puerto es exclusivo y el nuevo usa el siguiente libre."""
+    viejo = g.admin.abrir_servidor(0)
+    puerto = viejo.server_address[1]
+    try:
+        nuevo = g.admin.abrir_servidor(puerto, intentos=5)
+        try:
+            assert nuevo.server_address[1] != puerto
+        finally:
+            nuevo.server_close()
+    finally:
+        viejo.server_close()
+
+
+def test_editor_de_funciones_sobre_la_vista_del_cliente(g):
+    """Pedido 2026-11-18: el diagrama se edita sobre la misma vista del cliente: filas y tarjetas nuevas, nombres,
+    estado y arrastrar filas; cada cambio se guarda al momento."""
+    pr = g.D.leer()
+    html = g.admin_funciones.pagina(pr)
+    assert "+ Agregar función" in g.admin_funciones.JS and "Funciones del proyecto" in html
+    api = g.admin_funciones.api
+    area = pr.raices()[0].id
+    t = api("api/g/nuevo", {"padre": area, "nombre": "Tarjeta nueva"})["grupo"]
+    api("api/g/editar", {"id": t["id"], "detalle": "subtítulo"})
+    f1 = api("api/f/nueva", {"grupo": t["id"], "nombre": "Uno", "estado": "probado"})["funcion"]
+    f2 = api("api/f/nueva", {"grupo": t["id"], "nombre": "Dos", "estado": "en_desarrollo"})["funcion"]
+    api("api/f/editar", {"id": f1["id"], "nombre": "Uno bis", "estado": "falta_probar"})
+    api("api/f/mover", {"id": f2["id"], "grupo": t["id"], "antes": f1["id"]})          # Dos antes que Uno
+    pr = g.D.leer()
+    assert [f.nombre for f in pr.funciones_de(t["id"])] == ["Dos", "Uno bis"]
+    assert pr.grupo(t["id"]).detalle == "subtítulo"
+    uno = next(f for f in pr.funciones if f.id == f1["id"])
+    assert uno.estado == "falta_probar" and uno.aprobado
+    otra = pr.funciones[0].grupo                                                       # a otra tarjeta, al final
+    api("api/f/mover", {"id": f1["id"], "grupo": otra, "antes": None})
+    assert g.D.leer().funciones_de(otra)[-1].id == f1["id"]
+    usada = next(fid for v in pr.versiones for n in v.novedades for fid in n.get("funciones", []))
+    with pytest.raises(ValueError):                                # una función de una versión no se quita
+        api("api/f/quitar", {"id": usada})
+    api("api/g/quitar", {"id": t["id"]})                           # tarjeta con sus funciones
+    pr = g.D.leer()
+    assert pr.grupo(t["id"]) is None and f2["id"] not in {f.id for f in pr.funciones}
+
+
+def test_privado_no_llega_al_cliente_y_la_vista_previa_se_arma_igual(g):
+    """Pedido 2026-11-18: funciones, tarjetas o áreas privadas nunca se publican (sitio ni reporte). La vista previa
+    se arma aunque falte aprobar algo (antes mostraba un error en vez del sitio)."""
+    api = g.admin_funciones.api
+    pr = g.D.leer()
+    area = pr.raices()[0].id
+    t = api("api/g/nuevo", {"padre": area, "nombre": "TARJETA-SECRETA"})["grupo"]
+    api("api/f/nueva", {"grupo": t["id"], "nombre": "FUNCION-EN-TARJETA-SECRETA", "estado": "probado"})
+    api("api/g/editar", {"id": t["id"], "privado": True})
+    suelta = api("api/f/nueva", {"grupo": pr.funciones[0].grupo, "nombre": "FUNCION-SECRETA", "estado": "probado"})
+    api("api/f/editar", {"id": suelta["funcion"]["id"], "privado": True})
+    pr = g.D.leer()
+    assert next(f for f in pr.funciones if f.id == suelta["funcion"]["id"]).privado
+    assert "privado = true" in (g.dir / "funciones.toml").read_text(encoding="utf-8")
+    assert "privado = false" not in (g.dir / "funciones.toml").read_text(encoding="utf-8")
+    # una versión publicada con algo sin aprobar: la vista previa igual se arma, publicar no
+    pr.versiones[-1].publicada = True
+    g.D.guardar_version(pr.versiones[-1])
+    with pytest.raises(ValueError):
+        g.publicar.construir()
+    archivos = g.publicar.construir(estricto=False)
+    texto = "".join((g.dir / "_salida" / "publico" / a).read_text(encoding="utf-8") for a in archivos)
+    for secreto in ("TARJETA-SECRETA", "FUNCION-EN-TARJETA-SECRETA", "FUNCION-SECRETA"):
+        assert secreto not in texto
+    # una novedad con una función privada no se puede publicar
+    v = pr.versiones[-1]
+    v.novedades.append(dict(tipo="nuevo", titulo="X", funciones=[suelta["funcion"]["id"]]))
+    assert any("es privada" in x for x in g.D.pendientes_version(g.D.leer(), v))
+    # la entrada del administrador es el editor; lo demás en /panel
+    assert "Publicar en Cloudflare" in g.admin_funciones.pagina(g.D.leer())

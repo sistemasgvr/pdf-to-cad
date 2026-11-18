@@ -26,7 +26,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
-import fitz
+import pymupdf as fitz
 
 from traduccion.i18n_core import t as _tr   # etiquetas del esquema de hojas
 from nucleo import avance

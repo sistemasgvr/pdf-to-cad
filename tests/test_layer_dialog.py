@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from ui.asistente import layer_dialog

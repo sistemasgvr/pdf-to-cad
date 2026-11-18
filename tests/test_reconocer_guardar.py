@@ -23,7 +23,7 @@ for p in (str(ROOT / "app"), str(ROOT), str(ROOT / "tests")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 
 import project_io  # noqa: E402
 from hoja import interpretacion_guardada as IG  # noqa: E402

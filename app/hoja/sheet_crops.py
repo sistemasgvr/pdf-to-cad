@@ -5,7 +5,7 @@ slot means the full page. PDF pages and OCG layers remain untouched.
 """
 from __future__ import annotations
 
-import fitz
+import pymupdf as fitz
 
 
 def normalize(crops, layout=None):

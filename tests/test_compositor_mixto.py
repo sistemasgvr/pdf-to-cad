@@ -7,7 +7,7 @@ import os
 from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-import fitz
+import pymupdf as fitz
 import pytest
 from PIL import Image
 from PySide6 import QtCore, QtWidgets
@@ -150,7 +150,7 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 for k in ("PDFCAD_SUGERENCIA", "PDFCAD_AREA_SUGERIDA", "PDFCAD_PROCESO"):
     os.environ.setdefault(k, "0")
 sys.path[:0] = [sys.argv[1], sys.argv[2]]
-import fitz
+import pymupdf as fitz
 from PySide6 import QtWidgets
 app = QtWidgets.QApplication([])
 from ui.asistente.composite_dialog import CompositeDialog

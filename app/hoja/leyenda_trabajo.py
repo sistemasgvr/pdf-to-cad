@@ -2,7 +2,7 @@
 
 
 def leer(sources, progreso=None, detener=None):
-    import fitz
+    import pymupdf as fitz
     from hoja import pdf_legend
     out = []
     stop = detener or (lambda: False)

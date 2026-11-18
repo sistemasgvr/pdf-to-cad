@@ -93,7 +93,7 @@ _CALLS = {}
 def run(job):
     pdf, pno, utils, no_ink = job
     import warnings; warnings.filterwarnings("ignore")
-    import fitz; from reconocimiento import recognition as rec
+    import pymupdf as fitz; from reconocimiento import recognition as rec
     if no_ink and not hasattr(rec, "_audit_no_ink"):
         # línea base: solo la 1.ª pasada (sin codos de la tinta ni reetiquetado)
         rec._audit_no_ink = True
@@ -373,7 +373,7 @@ def main():
     pages = None
     if "--pages" in args:
         pages = {int(x) for x in args[args.index("--pages") + 1].split(",")}
-    import fitz
+    import pymupdf as fitz
     jobs = []
     for p in pdfs:
         n = fitz.open(D + PDFS[p]).page_count

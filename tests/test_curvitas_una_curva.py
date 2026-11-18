@@ -306,7 +306,7 @@ PAG, ZONA = 6, (450.0, 900.0, 1150.0, 1250.0)          # recorte alrededor de CB
 
 @pytest.fixture(scope="module")
 def du06_ud205():
-    import fitz
+    import pymupdf as fitz
     with fitz.open(str(DU06)) as doc:
         W, H = doc[PAG].rect.width, doc[PAG].rect.height
         x0, y0, x1, y1 = ZONA

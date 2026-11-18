@@ -73,8 +73,8 @@ def texto_whatsapp(pr, v):
 
 def generar(numero, pr=None, destino=None):
     """→ (ruta del PDF, ruta del .txt)."""
-    import fitz
-    pr = pr or D.leer()
+    import pymupdf as fitz
+    pr = D.publico(pr or D.leer())              # el reporte va al cliente: sin lo privado
     v = _version(pr, numero)
     destino = destino or D.ruta("_salida", "reportes")
     os.makedirs(destino, exist_ok=True)

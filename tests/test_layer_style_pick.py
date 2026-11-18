@@ -2,7 +2,7 @@
 import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
-import fitz
+import pymupdf as fitz
 import pytest
 from PySide6 import QtCore, QtTest, QtWidgets
 

@@ -34,7 +34,7 @@ class _Docs:
         self.d: "OrderedDict[str, dict]" = OrderedDict()
 
     def abrir(self, token, fuente):
-        import fitz
+        import pymupdf as fitz
         from ui.comun.recorte_nitido import Hojas
         if token in self.d:
             return

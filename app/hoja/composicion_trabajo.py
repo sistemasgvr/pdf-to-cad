@@ -14,7 +14,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence
 
-import fitz
+import pymupdf as fitz
 
 import vector_pipeline as VP
 from hoja import composite as C

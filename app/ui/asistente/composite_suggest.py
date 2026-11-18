@@ -28,7 +28,7 @@ import os
 from collections import OrderedDict
 from typing import Dict, Optional, Sequence
 
-import fitz
+import pymupdf as fitz
 from PySide6 import QtCore, QtWidgets
 
 from hoja import composite as C

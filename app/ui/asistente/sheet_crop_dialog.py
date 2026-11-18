@@ -1,7 +1,7 @@
 """Pick the plan area within one PDF sheet without changing the PDF."""
 from __future__ import annotations
 
-import fitz
+import pymupdf as fitz
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from traduccion.i18n import t as _tr

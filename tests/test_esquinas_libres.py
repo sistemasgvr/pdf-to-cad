@@ -13,7 +13,7 @@ for p in (os.path.join(ROOT, "app"), ROOT):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 QtWidgets = pytest.importorskip("PySide6.QtWidgets")
 from PySide6 import QtCore  # noqa: E402
 

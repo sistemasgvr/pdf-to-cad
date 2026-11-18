@@ -6,7 +6,7 @@ la otra."""
 import math
 import os
 
-import fitz
+import pymupdf as fitz
 import pytest
 
 from hoja import composicion_ficha as F, composicion_sugerida as G

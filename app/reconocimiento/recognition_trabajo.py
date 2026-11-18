@@ -99,7 +99,7 @@ def _valvulas_adelantadas(doc, page_index):
 def reconocer_hoja(pdf_path, page_index, zoom=1.0, utilities=("ELECTRICO",), hidden_ocgs=(),
                    layer_roles=None, roles_by_utility=None, join_routes=True, scale_ft_per_pt=None,
                    letters_off=(), progreso: Optional[Callable] = None, perfiles_de=()):
-    import fitz
+    import pymupdf as fitz
     from reconocimiento import recognition as rec
     utilities = rec.normalize_utilities(utilities)
     roles_by_utility = {str(k): dict(v or {}) for k, v in (roles_by_utility or {}).items()}

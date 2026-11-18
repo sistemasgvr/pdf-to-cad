@@ -1,7 +1,7 @@
 """Texto contextual del PDF alrededor del recorrido (no implica asociación de diámetro)."""
 from __future__ import annotations
 
-import fitz
+import pymupdf as fitz
 
 from hoja.recorte_diametro import _cercano, zona
 

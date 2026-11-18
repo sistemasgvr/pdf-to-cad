@@ -15,7 +15,7 @@ for p in (str(ROOT / "app"), str(ROOT)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-pytest.importorskip("fitz")
+pytest.importorskip("pymupdf")
 from PySide6 import QtCore, QtGui, QtWidgets  # noqa: E402
 
 from hoja import composite as C  # noqa: E402

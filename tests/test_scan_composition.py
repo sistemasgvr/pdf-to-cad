@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
-import fitz
+import pymupdf as fitz
 from PIL import Image
 from PySide6 import QtCore, QtWidgets, QtTest
 from hoja import composite as C

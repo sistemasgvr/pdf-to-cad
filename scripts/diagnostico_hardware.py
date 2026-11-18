@@ -62,7 +62,7 @@ def main():
     else:
         report["cuda"] = {"disponible": False, "nota": "No cargado o no disponible; véase registro"}
     if args.pdf:
-        import fitz
+        import pymupdf as fitz
         from hoja import leyenda_trazos as T, pdf_styles
         start = time.perf_counter()
         with fitz.open(args.pdf) as doc, pdf_styles.lectura_unica(doc):

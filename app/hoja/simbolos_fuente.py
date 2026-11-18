@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import List
 
-import fitz
+import pymupdf as fitz
 
 from hoja import pdf_styles
 

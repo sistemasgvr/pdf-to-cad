@@ -16,10 +16,12 @@ SALIDA = lambda: D.ruta("_salida")                     # noqa: E731
 PUBLICO = lambda: D.ruta("_salida", "publico")         # noqa: E731
 
 
-def construir(pr=None):
+def construir(pr=None, estricto=True):
+    """`estricto=False` = vista previa: se arma aunque haya algo que impida publicar (antes la vista previa daba
+    un error mientras una versión publicada tuviera funciones sin aprobar)."""
     pr = pr or D.leer()
     errores = D.validar(pr)
-    if errores:
+    if errores and estricto:
         raise ValueError("Datos con problemas:\n  " + "\n  ".join(errores))
     return sitio.generar(pr, PUBLICO())
 

@@ -104,7 +104,7 @@ def test_anillo_de_buzon_y_tuberia_en_contorno():
 class _Q:
     """fitz.Quad mínimo (esquinas ul, ur, lr, ll)."""
     def __init__(self, x0, y0, x1, y1):
-        import fitz
+        import pymupdf as fitz
         self.ul, self.ur, self.lr, self.ll = (fitz.Point(x0, y0), fitz.Point(x1, y0),
                                               fitz.Point(x1, y1), fitz.Point(x0, y1))
 
@@ -194,7 +194,7 @@ def test_hoja_compuesta_13_14_la_principal_no_se_corta_en_el_lateral(tmp_path):
     """Reportado por el usuario: en la hoja compuesta DU06 13+14 la principal se
     cortaba en el hueco del linetype junto al lateral de x=632.6 (el lateral
     TOCA la punta del guión y `join_touching_ends` los cosía como esquina)."""
-    import fitz
+    import pymupdf as fitz
     from hoja import composite as C
     src = fitz.open(DU06)
     W, H = src[12].rect.width, src[12].rect.height

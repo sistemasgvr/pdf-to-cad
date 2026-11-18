@@ -37,7 +37,7 @@ import time
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-import fitz
+import pymupdf as fitz
 
 from ui.comun.busy import busy, detalle_de
 from ui.comun import fondo_pdf, fondo_trabajo

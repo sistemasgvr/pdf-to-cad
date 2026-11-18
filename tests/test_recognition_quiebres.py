@@ -96,7 +96,7 @@ def test_la_vista_previa_dibuja_la_curva_y_no_la_esquina():
 
 @needs_du06
 def test_du06_h4_la_esquina_bajo_la_sc_entra_como_curva():
-    import fitz
+    import pymupdf as fitz
     with fitz.open(str(DU06)) as doc:
         res = rec.recognize_page(None, 3, utility="TELECOM", zoom=Z, doc=doc)
     curvas = RQ.curvas_de_quiebres([res], Z).get(id(res), {})

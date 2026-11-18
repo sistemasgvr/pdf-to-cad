@@ -20,7 +20,7 @@ for p in (str(ROOT / "app"), str(ROOT), str(ROOT / "tests")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 from PySide6 import QtWidgets  # noqa: E402
 
 from hoja import composite as C  # noqa: E402

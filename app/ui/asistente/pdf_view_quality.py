@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 
-import fitz
+import pymupdf as fitz
 from PySide6 import QtCore, QtGui
 from hoja.sheet_crops import page_rect
 from ui.comun.teselas_vista import TeselasItem

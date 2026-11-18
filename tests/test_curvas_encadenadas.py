@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 
 from reconocimiento import recognition as rec
 from reconocimiento import recognition_arc_chain as chain

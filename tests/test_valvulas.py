@@ -307,7 +307,7 @@ for _p in (str(ROOT / "app"), str(ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 ezdxf = pytest.importorskip("ezdxf")
 
 from nucleo import valvulas as V  # noqa: E402

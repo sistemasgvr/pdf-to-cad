@@ -27,7 +27,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-import fitz
+import pymupdf as fitz
 
 from hoja import composite as C
 from hoja import borde_inclinado as BI

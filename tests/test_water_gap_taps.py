@@ -63,7 +63,7 @@ def test_ud213_principal_continua_con_tomas_en_t(zoom):
 
 @pytest.mark.skipif(not PDF.is_file(), reason="PDF DU06 no disponible")
 def test_ud213_en_hoja_compuesta_conserva_las_tomas():
-    import fitz
+    import pymupdf as fitz
     from hoja import composite as C
 
     with fitz.open(PDF) as src:

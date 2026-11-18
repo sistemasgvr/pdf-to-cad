@@ -20,7 +20,7 @@ def main():
     comun.preparar(con_qt=True)
     from PySide6 import QtWidgets
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    import fitz
+    import pymupdf as fitz
     import vector_pipeline as VP
     from hoja import composite as C
     from reconocimiento import lectura_retenida as LR

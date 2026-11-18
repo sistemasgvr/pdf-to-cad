@@ -190,9 +190,10 @@ def novedades_html(v, nombres_funcion=None):
             det = f'<div class="det">{E(n.get("detalle", ""))}</div>' if n.get("detalle") else ""
             fun = ""
             if nombres_funcion and n.get("funciones"):
+                vis = [fid for fid in n["funciones"] if fid in nombres_funcion]      # nunca las privadas
                 fun = '<div class="mas">' + " · ".join(
-                    f'<a href="index.html#f-{E(fid)}">{E(nombres_funcion.get(fid, fid))}</a>'
-                    for fid in n["funciones"]) + "</div>"
+                    f'<a href="index.html#f-{E(fid)}">{E(nombres_funcion[fid])}</a>'
+                    for fid in vis) + "</div>" if vis else ""
             partes.append(f'<div class="nov"><b>{E(n.get("titulo", ""))}</b>{det}{obs}{fun}</div>')
     if v.pendientes:
         partes.append("<h2>Para la próxima entrega</h2>")
@@ -238,7 +239,9 @@ def catalogo(pr, publico=True, ruta_img=lambda fi, a: f"catalogo/{fi.id}/{a}"):
 # ───────────────────────── generar ─────────────────────────
 
 def generar(pr, destino):
-    """Escribe el sitio público en `destino` (lo vacía antes). Devuelve la lista de archivos."""
+    """Escribe el sitio público en `destino` (lo vacía antes). Devuelve la lista de archivos. Lo privado nunca
+    entra (`D.publico`)."""
+    pr = D.publico(pr)
     if os.path.isdir(destino):
         shutil.rmtree(destino)
     os.makedirs(destino)

@@ -41,7 +41,7 @@ def _versiones():
     import importlib
     from importlib import metadata
     # (paquete, módulo, atributo): en el .exe PyInstaller no siempre copia los metadatos
-    cuales = (("pymupdf", "fitz", "VersionBind"), ("numpy", "numpy", "__version__"),
+    cuales = (("pymupdf", "pymupdf", "VersionBind"), ("numpy", "numpy", "__version__"),
               ("PySide6", "PySide6", "__version__"), ("shapely", "shapely", "__version__"),
               ("ezdxf", "ezdxf", "__version__"), ("opencv-python", "cv2", "__version__"))
     out = []

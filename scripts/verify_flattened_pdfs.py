@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "app"), str(ROOT)]
 
-import fitz
+import pymupdf as fitz
 from hoja import pdf_layers
 from reconocimiento import recognition as rec
 

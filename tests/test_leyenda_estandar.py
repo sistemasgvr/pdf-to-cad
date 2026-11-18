@@ -131,7 +131,7 @@ def test_leyenda_agrupa_por_utilidad_y_estado():
 def du06_h5():
     if not DU06.exists():
         pytest.skip("PDF de prueba DU06 no está en el repo")
-    import fitz
+    import pymupdf as fitz
     from hoja import pdf_layers
     from PySide6 import QtWidgets
     from ui.asistente import layer_dialog
@@ -193,7 +193,7 @@ def test_du06_la_leyenda_toma_lo_mismo_que_el_reconocimiento(page_i):
     h.3 las bóvedas de un xref recortado fuera de la vista no se pintan, no se
     reconocen y tampoco van a la leyenda ni se resaltan. En h.2 hay bóvedas de capas que
     no están en la lista de capas del PDF (`…(A2_TRIM)|V-ELEC-MANH`): se toman por nombre."""
-    import fitz
+    import pymupdf as fitz
     from hoja import pdf_layers
     from reconocimiento import recognition as rec
     with fitz.open(str(DU06)) as doc:

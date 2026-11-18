@@ -20,7 +20,7 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 import requests
-import fitz  # PyMuPDF
+import pymupdf as fitz  # PyMuPDF
 import ezdxf
 from PIL import Image
 from pyproj import Transformer

@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-fitz = pytest.importorskip("fitz")
+fitz = pytest.importorskip("pymupdf")
 from PySide6 import QtCore, QtGui, QtWidgets  # noqa: E402
 
 import test_agregar_utilidad as TA  # noqa: E402

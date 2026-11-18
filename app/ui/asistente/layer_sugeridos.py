@@ -39,7 +39,7 @@ def sugerencia_de_hoja(doc, hoja: int):
 
 
 def textos_de_fuentes(fuentes) -> list:
-    import fitz
+    import pymupdf as fitz
     out = []
     for s in fuentes or ():
         clave = (s.get("name"), len(s.get("data") or b"") or s.get("path"))

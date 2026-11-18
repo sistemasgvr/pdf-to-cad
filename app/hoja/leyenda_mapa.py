@@ -333,7 +333,7 @@ def symbol_layer(clave, fuente: str) -> str:
 
 def _circulo(cx, cy, r) -> List[tuple]:
     """Círculo como 4 Béziers (como lo devuelve `get_drawings`)."""
-    import fitz
+    import pymupdf as fitz
     k = 0.5523 * r
     P = fitz.Point
     return [("c", P(cx + r, cy), P(cx + r, cy + k), P(cx + k, cy + r), P(cx, cy + r)),
@@ -344,7 +344,7 @@ def _circulo(cx, cy, r) -> List[tuple]:
 
 def simbolos_capas(page) -> List[dict]:
     """Trazos virtuales de los símbolos de la hoja que la leyenda describe (ver docstring)."""
-    import fitz
+    import pymupdf as fitz
     doc = page.parent
     cache = doc.__dict__.setdefault("_pdfcad_simbolos_capas", {})
     if page.number in cache:
