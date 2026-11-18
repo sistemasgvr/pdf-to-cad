@@ -114,6 +114,7 @@ def _sin_composicion_sugerida_en_segundo_plano(monkeypatch):
     pruebas (cada diálogo revisaría todas las hojas); sus pruebas lo encienden."""
     monkeypatch.setenv("PDFCAD_SUGERENCIA", "0")
     monkeypatch.setenv("PDFCAD_AREA_SUGERIDA", "0")      # ni el «Área sugerida» (composite_area_suggest)
+    monkeypatch.setenv("PDFCAD_GEOREF_AUTO", "0")        # ni la georreferencia automática (test_georef_auto*)
     yield
 
 

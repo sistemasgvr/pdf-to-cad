@@ -129,7 +129,7 @@ def test_flujo_con_mezcla_va_al_editor_y_se_interpreta(monkeypatch):
     interpretadas = []
     win = SimpleNamespace(src_pdfs=[], composite=None, hidden_ocgs_by_source={}, page_idx=0,
                           canvas=SimpleNamespace(pixmap_item=None), _respaldo=None,
-                          _apply_composite=lambda: None, _info=lambda msg: None, _soltar_pasos=lambda: None,
+                          _apply_composite=lambda: None, _info=lambda msg: None, _soltar_pasos=lambda: None, _georef_automatica=lambda: None,
                           _refrescar_panel_reconocer=lambda: None,
                           _interpretar_hoja=lambda: interpretadas.append(1))
     assert Main._wizard_sheet_flow(win, 0)

@@ -2,7 +2,8 @@
 
 Para RESULTADOS que no piden decidir nada («DXF exportado», «Todo en orden», «Bancoducto guardado»),
 con una acción opcional («Abrir carpeta», «Deshacer»). Las preguntas y los errores siguen siendo
-cuadros de diálogo. Uno a la vez: uno nuevo reemplaza al anterior. Lo usa `Main.aviso_breve`, que sin
+cuadros de diálogo. Lo ubica el centro de avisos (`centro_avisos`, 2026-11-18): apilado con las tarjetas de carga y
+los demás avisos, sin taparse; uno igual a otro que se ve lo reemplaza. Lo usa `Main.aviso_breve`, que sin
 la ventana en pantalla (pruebas) muestra el mensaje de siempre.
 
 Abajo lleva una barra de CUENTA REGRESIVA (pedido del usuario 2026-10-30) de `BARRA_PX` de alto y el ancho del
@@ -13,6 +14,7 @@ donde quedó. Mientras se ve, la barra de herramientas del plano se corre a la i
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from traduccion.i18n import t as _tr
+from ui.comun import centro_avisos
 from ui.comun import theme as _theme
 from ui.comun.icons import icon as _icon
 
@@ -111,22 +113,11 @@ class AvisoBreve(QtWidgets.QFrame):
         self._reloj.start()
         self._t = QtCore.QTimer(self, interval=PASO_MS, timeout=self._avanzar)
         self._t.start()
-        win.installEventFilter(self)
         self._win = win
 
     def colocar(self):
-        """Abajo a la derecha del área central (sobre la barra de estado)."""
-        w = self._win
-        cw = w.centralWidget()
-        caja = cw.geometry() if cw is not None else w.rect()
-        self.adjustSize()
-        self.move(caja.right() - self.width() - 16, caja.bottom() - self.height() - 16)
-        self.raise_()
-
-    def eventFilter(self, obj, ev):
-        if obj is self._win and ev.type() == QtCore.QEvent.Resize:
-            self.colocar()
-        return False
+        """La ubica el centro de avisos (abajo a la derecha del plano, apilada con las demás)."""
+        centro_avisos.centro(self._win).colocar()
 
     def _avanzar(self):
         self._queda -= self._reloj.restart()
@@ -146,35 +137,20 @@ class AvisoBreve(QtWidgets.QFrame):
         super().leaveEvent(e)
 
     def cerrar(self):
-        try:
-            self._win.removeEventFilter(self)
-        except RuntimeError:
-            pass
         if getattr(self._win, "_aviso_breve", None) is self:
             self._win._aviso_breve = None
         self._t.stop()
         self.hide()
+        try:
+            centro_avisos.centro(self._win).quitar(self)
+        except RuntimeError:
+            pass
         self.deleteLater()
-        _recolocar_barra(self._win)
-
-
-def _recolocar_barra(win):
-    """La barra de herramientas del plano se corre (o vuelve) según el aviso."""
-    if getattr(win, "barra_plano", None) is not None:
-        from ui.ventana import ventana_flotantes
-        ventana_flotantes.colocar(win)
 
 
 def mostrar(win, titulo, detalle="", accion=None, tono="ok"):
-    anterior = getattr(win, "_aviso_breve", None)
-    if anterior is not None:
-        try:
-            anterior.cerrar()
-        except RuntimeError:
-            pass
     a = AvisoBreve(win, titulo, detalle, accion, tono)
     win._aviso_breve = a
     a.show()
-    a.colocar()
-    _recolocar_barra(win)
+    centro_avisos.centro(win).agregar(a, centro_avisos.AVISO, clave="%s|%s" % (titulo, detalle))
     return a

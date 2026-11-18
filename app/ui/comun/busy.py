@@ -137,7 +137,17 @@ class BusyOverlay(QtWidgets.QWidget):
         if len(self._stack) > 1 and self._seg is not None:
             self._seg.etapa(text + (" · " + detail if detail else ""))
         self.raise_()                 # por si se agregaron hijos al host después
+        self._avisar_centro()
         self.pump()
+
+    def _avisar_centro(self):
+        """Los avisos y cargas del rincón (`centro_avisos`) van ENCIMA de esta tarjeta: si cambió de alto (o
+        apareció / se fue), se recolocan."""
+        alto = self.alto_tarjeta() if self._stack else 0.0
+        if abs(alto - getattr(self, "_alto_avisado", 0.0)) > 0.5:
+            self._alto_avisado = alto
+            from ui.comun import centro_avisos
+            centro_avisos.recolocar(self._host)
 
     def step(self, text: str | None = None, detail: str | None = None,
              done: int | None = None, total: int | None = None, pump: bool = True, clave: str | None = None,
@@ -163,6 +173,8 @@ class BusyOverlay(QtWidgets.QWidget):
             # texto cambie (p. ej. el nombre de cada capa)
             self._seg.etapa(top["text"] + (" · " + top["detail"] if top["detail"] else ""),
                             done if total else None, total, clave=clave)
+        if text is not None or detail is not None:
+            self._avisar_centro()
         if pump:
             self._angle = (self._angle + 40.0) % 360.0
             self.pump()
@@ -177,6 +189,7 @@ class BusyOverlay(QtWidgets.QWidget):
             if self._seg is not None:
                 top = self._stack[-1]
                 self._seg.etapa(top["text"] + (" · " + top["detail"] if top["detail"] else ""))
+            self._avisar_centro()
             self.pump()
             return
         seg, self._seg = self._seg, None
@@ -185,6 +198,7 @@ class BusyOverlay(QtWidgets.QWidget):
         self._timer.stop()
         self._caja = None
         self.hide()
+        self._avisar_centro()
         if self._foto is not None:
             self._foto = None
             self.setAttribute(QtCore.Qt.WA_OpaquePaintEvent, False)
@@ -265,7 +279,7 @@ class BusyOverlay(QtWidgets.QWidget):
 
     # ── eventos: tapar el host y bloquear la entrada ─────────────────────
     def eventFilter(self, obj, ev):
-        if obj is self._host:
+        if obj is getattr(self, "_host", None):       # (al cerrar Python el objeto ya no tiene atributos)
             et = ev.type()
             if et == QtCore.QEvent.Resize:
                 self.setGeometry(self._host.rect())
@@ -340,6 +354,10 @@ class BusyOverlay(QtWidgets.QWidget):
             bw = QtGui.QFontMetrics(self.font()).horizontalAdvance(_tr("Cancelar")) + 24
             r_boton = QtCore.QRectF(card.right() - _PAD - bw, r_barra.bottom() + 8, bw, _BTN_H)
         return card, r_titulo, r_detalle, r_barra, r_boton
+
+    def alto_tarjeta(self) -> float:
+        """El alto de la tarjeta a la vista (el centro de avisos apila las demás encima)."""
+        return self._geometria()[0].height() if self._stack else 0.0
 
     def _region(self) -> QtGui.QRegion:
         """Lo que hay que repintar: la tarjeta de ahora y la de antes. Con toda la capa, cada repintado volvía a

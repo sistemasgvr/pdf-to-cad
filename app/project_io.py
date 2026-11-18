@@ -203,6 +203,31 @@ def reconocer_a_dict(win):
     ov = getattr(win, "_rec_hoja", None)
     if ov:                                       # «Agregar utilidad»: la hoja que se reconoce es la del PDF nuevo
         out["hoja_agregada"] = {k: ov.get(k) for k in ("hoja", "firma", "desde", "grupo")}
+    planos = getattr(win, "_rec_planos", None) or {}
+    if planos:                                   # los demás planos de la hoja (ventana_reconocer_planos)
+        out["planos"] = {str(int(g)): _plano_a_dict(IG, RE, foto) for g, foto in planos.items()}
+    return out
+
+
+def _plano_a_dict(IG, RE, foto):
+    interp = foto.get("interpretacion")
+    return {"estado": RE.a_dict(foto["estado"]) if foto.get("estado") is not None else None,
+            "interpretacion": _codificar_o_nada(IG, None if interp is None else
+                                                {k: v for k, v in interp.items() if k not in IG.SIN_GUARDAR}),
+            "roles": _codificar_o_nada(IG, foto.get("roles") or {}, {}), "hoja": foto.get("hoja")}
+
+
+def _planos_de_dict(IG, RE, d):
+    """Los demás planos guardados → {grupo: foto} (un plano roto se salta: se interpreta al elegirlo)."""
+    out = {}
+    for g, v in (d or {}).items():
+        try:
+            interp, roles = IG.de_ligera(v)
+            out[int(g)] = dict(estado=RE.al_abrir(RE.de_dict(v.get("estado"))) if v.get("estado") else None,
+                               interpretacion=interp, roles=roles if isinstance(roles, dict) else {},
+                               resultados={}, cache=None, hoja=v.get("hoja"))
+        except Exception:                        # noqa: BLE001
+            continue
     return out
 
 
@@ -228,7 +253,8 @@ def reconocer_de_model(model, pipes):
     except Exception:                            # noqa: BLE001 — sin interpretación: «Interpretar la hoja»
         interp, roles = None, None
     return {"estado": RE.al_abrir(RE.de_dict(rec.get("estado"))), "interpretacion": interp,
-            "roles": roles if isinstance(roles, dict) else {}, "hoja_agregada": rec.get("hoja_agregada")}
+            "roles": roles if isinstance(roles, dict) else {}, "hoja_agregada": rec.get("hoja_agregada"),
+            "planos": _planos_de_dict(IG, RE, rec.get("planos"))}
 
 
 def _anotaciones(lista):

@@ -112,6 +112,7 @@ class ReconocerColaMixin:
             self._soltar_rec_hoja()
         self._interpretacion = None
         self._reconocer_escaneo = False
+        self._rec_planos = {}                            # (los planos de la hoja anterior, ventana_reconocer_planos)
         if getattr(self, "reconocer_estado", None) is not None:
             self.reconocer_estado = RE.nuevo()
             self._refrescar_panel_reconocer()

@@ -116,6 +116,7 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     visor (`_colocar` en su Resize), interruptores `rediseno.Interruptor` en lugar de casillas (mismos `chk`,
     `_capas`, `chk_suelo`), ficha + editor apilados (las pruebas esperan el editor visible al elegir: SIN selector
     Ficha/Editar). Tarjetas con cabecera FUERA del contenido y botón «–» (`_flotante(cabecera=)`, `_minimizar`; 2026-10-30), la de la ficha a todo el alto (`_colocar`; la tabla de `FichaPanel` sin tope de 360 px). Chat: `PreguntaDialog.incrustado()` (lo llama `PanelAsistente.chat`; suelto, igual que antes).
+    **Centro de avisos** (2026-11-18, «que no se tapen ni se desborden»): `ui/comun/centro_avisos.centro(host)` ubica TODO lo de abajo a la derecha (CARGA = `TarjetaAvance`, `ProgresoReconocimiento` y `AvisoCambioTema` —estas dos son ventanitas: se mueven en coords de pantalla—; AVISO = `AvisoBreve`; ninguna se ubica sola; la tarjeta de `busy.BusyOverlay` la pinta su capa: el centro le reserva el lugar de abajo, `alto_tarjeta`, y ella avisa con `centro_avisos.recolocar`): sobre el área VISIBLE del plano (viewport) sin los paneles, «Cargando…» abajo, luego cargas y avisos encima, `MAX_AVISOS`=3, misma clave = reemplaza, sin alto se cierran los avisos viejos; `ventana_flotantes.colocar` corre la barra del plano a la izquierda de todas. Tarjeta nueva del rincón = registrarla ahí. Tests: `tests/test_centro_avisos.py`.
     Avisos breves: `ui/comun/aviso_breve.py` (2026-10-30: barra `_Cuenta` de `BARRA_PX`=15 abajo, `DURACION_MS`=5000 /
     `DURACION_ACCION_MS`=9000, se descuenta con `QElapsedTimer` y se PAUSA con el ratón encima; al mostrarse/cerrarse
     `ventana_flotantes.colocar` corre la barra del plano a su izquierda si se tocan) + `Main.aviso_breve(titulo, detalle, accion)` (sin la ventana en
@@ -1478,6 +1479,58 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     red es imagen) → no encaja; se avisa (~15 s). OJO: «Componer hoja…» normal sobre la hoja combinada vuelve a
     reconocer todo sobre ella (las utilidades superpuestas); si se le suman hojas fuera del marco, el marco se quita
     (`cabe_en_marco`). Tests: `tests/test_agregar_utilidad.py`.
+    **Otra cuadrícula u otro dibujo** (pedido 2026-11-17, Indian School): `calcar` hace primero lo de siempre (1.ª
+    pasada, sin cambios) y lo que queda sin cubrir (piezas sin pareja o cubiertas < `COBERTURA_MIN`) va a
+    `hoja/calcado_completar.completar`: PDF que ya compartió trazos idénticos → `_por_trazos` (exacto, escala conocida,
+    contra las piezas sin cubrir); los demás → `_por_imagen` con `hoja/encaje_imagen` (la hoja del editor DIBUJADA como
+    tinta binarizada, correlación FFT a 6 → 2 → 1 pt/px con búsqueda de escala; acepta con pico del nivel fino ≥
+    `Z_LIBRE`=13, o `Z_CONOCIDA`=11 con la escala de la serie, y ≥`MIN_SERIE`=2 hojas a la misma escala ±0.5 %; la
+    «dominancia» y una prueba nula con la hoja corrida NO separan: los lotes se parecen a sí mismos corridos). El de
+    drenaje de Phoenix trae los LOTES COMO IMAGEN: ningún método por trazos lo encaja. `hoja/calcado_parcial.repartir`
+    = área útil (recuadro del mapa o la hoja) llevada a la hoja compuesta, solapes partidos por la mitad, recortada a
+    las piezas sin cubrir y sin lo ya tomado. Medido (agua Sur 18 hojas): + drenaje Sur → 18/18 con 14 hojas, escala
+    0.2493–0.2505, lotes uno sobre otro (~80 s; ~4 s por hoja con la escala conocida); + alcantarillado Norte → rechazado
+    (~24 s); + alcantarillado Sur → igual (3 s). Sin coincidencias, `_sin_coincidencias` = aviso informativo con
+    «Elegir otro PDF…» (no parece un error). Tests: `tests/test_calcado_parcial.py`, `tests/test_agregar_otra_cuadricula.py`.
+    **Compositor al instante** (pedido 2026-11-18, la 3.ª utilidad tardaba minutos sin mostrar nada): «Agregar» abre
+    «Componer hoja» SIN calcar antes; `ui/ventana/agregar_busqueda.BusquedaAgregar` corre `calcar_trabajo` en el
+    trabajador «agregar» y avisa cada pieza (`calcar(al_ubicar=)` → `progreso("ubicada", f, h, pieza, m)`); el
+    compositor (`ui/asistente/composite_agregar.AgregarCompositorMixin`, `compose_sheet(agregar=)`) pone el estado en
+    cada miniatura, una tarjeta con «Marcar las N» y, al marcar una hoja ubicada, sus piezas calcadas. Al aceptar,
+    `_agregando_recolocar` busca AHORA solo lo marcado sin ubicar (`calcar(solo=, ocupado=)`) y una hoja entera toma
+    sus piezas calcadas. OJO: la 2.ª pasada (imagen) solo avisa al final. `hoja_calcada.referencia`: con varios planos
+    se busca con UNO (el 0 + lo que los demás cubren de más). Tests: `test_agregar_utilidad.py` (los 4 del final).
+    **Celdas = georreferencia de los mapas en cuadrícula** (mismo día, pedido: «que el plano entrante tome solo su
+    lugar»): los PDF de Phoenix no traen GeoPDF ni coordenadas, pero cada hoja dice su cuarto de sección
+    (`composicion_ficha.ficha(page).celda`, también las de drenaje). `calcado_completar._por_imagen(celdas=)`: una hoja
+    va sobre la pieza del editor de su MISMA celda (`celdas_editor`: etiqueta «· 17-13» o la ficha); la primera de cada
+    PDF se busca solo en esa celda y sus vecinas (`encaje_imagen.ubicar(zona=)`), las demás se PREVÉN (pieza de su celda ∘
+    inversa de la de la primera ∘ m de la primera) y solo se comprueban (`ubicar_cerca`); celda fuera del editor = no
+    se busca. `calcado_parcial.repartir_celdas`: UNA pieza por hoja = el cuadro de su celda menos lo ocupado. Sin
+    puentes si hubo 2.ª pasada. Pendiente: coordenadas reales con la cuadrícula de cuartos de sección de Phoenix.
+    **Georreferencia AUTOMÁTICA** (2026-11-18, spec/plan `docs/superpowers/{specs,plans}/2026-11-18-georref-automatica*`):
+    `app/geo/auto/` (PURO): `indice_mapas` = índices de mapas en cuadrícula como DATOS (`app/geo/indices/<id>.json.gz`, hoy
+    `phoenix_qs`: capa pública STR_QSMapIndex, EPSG 2868 = NAD83(HARN) Arizona Central en pie internacional, cs `AZHP-CIF`,
+    polígono real + PLSS de cada celda; claves por TEXTO: «24-04» (R1W) ≠ «24-4» (R1E); `recuadro_ft`=2800 = ancho del
+    recuadro del mapa: la escala del cajetín «1"=100'» es falsa en estos PDF reducidos); lo regenera
+    `scripts/datos/indice_phoenix_qs.py` (la app nunca usa la red). `fuentes.ubicar(page, ficha)` = la celda de
+    `Ficha.celda` CONFIRMADA por el PLSS del cajetín o el nombre de la ciudad (un «17-10» solo no basta) → ancla centro de
+    `composicion_encaje.caja` → centroide. `ajuste.georref_hoja(comp, docs, zoom)` → `Resultado` (similaridad; 1 pieza =
+    escala del recuadro y giro 0; aceptada si RMS ≤25 ft, pieza ≤60 ft, escala ±2 %). Ventana `ventana_georef_auto`
+    (`_georef_automatica` tras componer, trabajador «georef»; solo sin georreferencia; dudosa = aviso «Aplicar igual»).
+    `PDFCAD_GEOREF_AUTO=0` la apaga (conftest). Medido Indian School: Sewer North RMS 4.2 ft, cruces de avenidas reales a
+    ≤1.1 ft (`tests/datos/phoenix_cruces.json`); Water South 80 ft = error de su composición → dudosa. Otra fuente (GeoPDF,
+    PLSS de la BLM, coordenadas escritas) = otra función en `fuentes.FUENTES`. Tests: `tests/test_georef_auto*.py`.
+    «Georreferenciar…» en cualquier sistema: `geo/georef_sistema.py` (`SistemaGeorefMixin` de `GeorefDialog`): `self.epsg` =
+    el de la georreferencia del proyecto (o 2229), campo EPSG, pares «world» (o «utm» viejo); fuera de 2229 sin NavigateLA:
+    `zona_de_direccion` (geocodificador genérico reproyectado) + teselas en ese EPSG, clic sin imán. Tests: `tests/test_georef_sistema.py`.
+    **Un panel «Reconocer» por plano** (reporte 2026-11-17: tras agregar, solo quedaban las filas de la hoja agregada):
+    `ui/ventana/ventana_reconocer_planos.PlanosReconocerMixin` — `_rec_planos` = {grupo: foto (estado, interpretación,
+    roles, resultados, `_rec_hoja`)} de los planos NO activos (en `respaldo_editor.CLAVES`, .digproj `reconocer.planos`);
+    el activo sigue en los atributos de siempre. `_agregado_compuesto` guarda el plano de antes; el selector «Plano» del
+    panel (`PanelReconocer.plano`) → `rec_cambiar_plano` (sin foto: interpreta). El plano del editor de antes se lee en
+    `solo_grupos(comp, [0])` con SU firma de antes (las filas reconocidas se conservan). Test:
+    `test_agregar_utilidad.py::test_el_plano_anterior_conserva_su_panel_reconocer`.
     **Sin trabas con hojas grandes** (reporte del usuario 2026-10-23: con 36 + 36 mapas la ventana quedó «No
     responde» en «Preparando la vista previa…»). Los pasos de datos que comparten la vista previa
     (`recognition_quiebres.curvas_de_quiebres`) y la importación (`Main._importar_datos`, separado de

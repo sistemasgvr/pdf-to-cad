@@ -29,7 +29,7 @@ MODULOS_POR_NOMBRE = (
     # clases de la interpretación guardada en el .digproj (`hoja.interpretacion_guardada.CLASES`)
     "hoja.estilos_sugeridos", "hoja.leyenda_mapa",
     "reconocimiento.lectura_retenida", "reconocimiento.recognition_trabajo", "ui.comun.fondo_trabajo",
-    "ui.ventana.calculo_fondo",
+    "ui.ventana.calculo_fondo", "geo.auto.ajuste",
     "diagnostico_equipo", "nucleo.equipo_sistema", "ui.comun.equipo_opengl", "ui.dialogos.diagnostico_dialog",
 )
 # Lo que la ventana necesita para abrir y lo pesado de cada flujo (importarlos detecta un paquete que no viajó).
@@ -83,6 +83,12 @@ def _datos():
             fallas["entrenamiento_ia"] = f"falta {ruta}"
     except BaseException as e:                     # noqa: BLE001
         fallas["entrenamiento_ia"] = f"{type(e).__name__}: {e}"
+    try:
+        from geo.auto import indice_mapas
+        if len(indice_mapas.cargar("phoenix_qs").celdas) < 3000:
+            fallas["indices_mapas"] = "phoenix_qs incompleto"
+    except BaseException as e:                     # noqa: BLE001
+        fallas["indices_mapas"] = f"{type(e).__name__}: {e}"
     try:
         _superficies()
     except BaseException as e:                     # noqa: BLE001

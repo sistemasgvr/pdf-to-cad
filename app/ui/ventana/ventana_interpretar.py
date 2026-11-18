@@ -241,6 +241,7 @@ class InterpretarMixin:
         rec = rec or {}
         self._soltar_rec_hoja()
         self._rec_hoja = self._rec_hoja_de_proyecto(rec.get("hoja_agregada"))
+        self._rec_planos = dict(rec.get("planos") or {})          # los demás planos (ventana_reconocer_planos)
         self._interpretacion = rec.get("interpretacion")
         roles = rec.get("roles")
         self._layer_roles_by_utility = dict(roles or {})          # los de la hoja guardada (o ninguno)

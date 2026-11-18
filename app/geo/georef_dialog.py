@@ -475,15 +475,19 @@ class _FetchWorker(QtCore.QObject):
     done = QtCore.Signal(object)      # (lines, parcels, matched, arc_centers)
     failed = QtCore.Signal(str)
 
-    def __init__(self, buffer_ft, addr=None, center=None):
+    def __init__(self, buffer_ft, addr=None, center=None, epsg=TARGET_EPSG):
         """addr: dirección a geocodificar. center: (X,Y) en pies 2229 ya
         conocido (p.ej. al reabrir un plano ya georreferenciado) — se salta
         el geocode y descarga directo alrededor de ese punto."""
         super().__init__()
-        self.addr = addr; self.buffer_ft = buffer_ft; self.center = center
+        self.addr = addr; self.buffer_ft = buffer_ft; self.center = center; self.epsg = int(epsg)
 
     def run(self):
         try:
+            if not GS.con_calles(self.epsg):       # otro sistema: sin calles de referencia, solo dónde mirar
+                _c, ext, matched = GS.zona_de_direccion(self.addr, self.epsg, self.buffer_ft)
+                self.done.emit(([], [], matched, [], ext))
+                return
             if self.center is not None:
                 cx_ft, cy_ft = self.center; matched = _tr("zona ya georreferenciada")
             else:
@@ -510,7 +514,10 @@ class _FetchWorker(QtCore.QObject):
             self.failed.emit(str(e))
 
 
-class GeorefDialog(QtWidgets.QDialog):
+from geo import georef_sistema as GS  # noqa: E402
+
+
+class GeorefDialog(GS.SistemaGeorefMixin, QtWidgets.QDialog):
     def __init__(self, parent, plan_qimage, pipes, ref_centerlines=None, init_georef=None, img_escala=1.0):
         super().__init__(parent)
         self._main = parent
@@ -633,7 +640,8 @@ class GeorefDialog(QtWidgets.QDialog):
         self._loader_timer = QtCore.QTimer(self)
         self._loader_timer.timeout.connect(self._loader_tick)
         mv.addWidget(map_holder, 1)
-        flotar_en(map_holder, [self.ed_addr, QtWidgets.QLabel(_tr("Radio")), self.sp_buffer, self.b_fetch], "arriba")
+        flotar_en(map_holder, [self.ed_addr, QtWidgets.QLabel(_tr("Radio")), self.sp_buffer, self.b_fetch]
+                  + self._armar_sistema(init_georef), "arriba")
         split.addWidget(map_w)
 
         # Que ninguno de los dos paneles imponga un ancho mínimo grande: así el
@@ -717,16 +725,20 @@ class GeorefDialog(QtWidgets.QDialog):
         # y descargar sola la zona real (calles/parcelas) alrededor de esos
         # puntos, para que el mapa NO quede vacío al reabrir — se puede editar
         # (agregar/quitar puntos, recalcular) sin tener que rebuscar la dirección.
+        self._aplicar_modo_sistema()                 # georef_sistema: 2229 con calles, otro sistema sin ellas
         if init_georef is not None and init_georef.points:
             world_pts = []
             for p in init_georef.points:
-                px = tuple(p.get("px", ())); wd = tuple(p.get("world", ())) if p.get("world") else None
+                px = tuple(p.get("px", ())); wd = GS.mundo_de(p)
                 if len(px) == 2 and wd and len(wd) == 2:
                     m = self.pdf.add_mark(px[0], px[1], "#5fd35f")
                     self.pairs.append({"px": px, "world": wd, "label": p.get("label", ""), "mark": m})
                     world_pts.append(wd)
             self._refresh_list()
-            if world_pts:
+            if world_pts and not GS.con_calles(self.epsg):
+                self._zona_txt = _tr("Zona de la georreferencia")
+                self._abrir_sin_calles(world_pts)
+            elif world_pts:
                 cx_ft = sum(w[0] for w in world_pts) / len(world_pts)
                 cy_ft = sum(w[1] for w in world_pts) / len(world_pts)
                 xs = [w[0] for w in world_pts]; ys = [w[1] for w in world_pts]
@@ -789,7 +801,7 @@ class GeorefDialog(QtWidgets.QDialog):
         addr = self.ed_addr.text().strip()
         if not addr:
             QtWidgets.QMessageBox.information(self, _tr("Falta dirección"), _tr("Escribe una dirección o intersección.")); return
-        self._start_fetch(_FetchWorker(self.sp_buffer.value(), addr=addr),
+        self._start_fetch(_FetchWorker(self.sp_buffer.value(), addr=addr, epsg=self.epsg),
                           _tr("Buscando dirección y descargando calles/parcelas…"))
 
     def _loader_tick(self):
@@ -831,7 +843,13 @@ class GeorefDialog(QtWidgets.QDialog):
         self._hide_loader()
 
     def _on_fetch_done(self, result):
-        lines, parcels, matched, centers = result
+        lines, parcels, matched, centers = result[:4]
+        if not lines and len(result) > 4 and not GS.con_calles(self.epsg):   # otro sistema: solo el mapa de fondo
+            self._extension = result[4]; self._zona_txt = matched or ""
+            self.hint.setText(_tr("{zona}. Clic en el plano y luego en el mismo punto del mapa (sin imán).")
+                              .format(zona=matched))
+            self._draw_map_base(); self._draw_map_markers(); self._actualizar_pasos()
+            return
         if not lines:
             self.hint.setText(_tr("No se encontraron calles en esa zona. Prueba un radio mayor."))
             return
@@ -906,8 +924,10 @@ class GeorefDialog(QtWidgets.QDialog):
     def _on_map_click(self, x, y):
         if self._pending_px is None:
             self.hint.setText(_tr("Primero clic en el plano (izquierda).")); return
-        if not self.centerlines:
+        if not self.centerlines and GS.con_calles(self.epsg):
             self.hint.setText(_tr("Primero descarga las calles de la zona.")); return
+        if not self.centerlines and getattr(self, "_extension", None) is None:
+            self.hint.setText(_tr("Primero busca la zona (dirección o intersección).")); return
         # Prioridad del imán, de más preciso a menos:
         #   1) CENTRO del radio de una esquina redondeada de parcela — es un
         #      punto geométrico exacto (no un vértice aproximado del arco), así
@@ -915,7 +935,9 @@ class GeorefDialog(QtWidgets.QDialog):
         #   2) cruce exacto de dos ejes de calle
         #   3) punto más cercano sobre un eje de calle
         ac = self._snap_arc_center((x, y))
-        if ac is not None:
+        if not self.centerlines:
+            sx, sy = x, y                          # otro sistema: sin calles, el punto tal cual
+        elif ac is not None:
             sx, sy = ac
         else:
             ip, _idx = snap_to_intersection((x, y), self.centerlines, SNAP_FT)
@@ -1042,7 +1064,7 @@ class GeorefDialog(QtWidgets.QDialog):
         matrix, rms, ttype = self._fit_result
         pts = [{"px": list(p["px"]), "world": list(p["world"]), "label": p.get("label", "")}
                for p in self.pairs]
-        self.result_georef = georef_mod.Georef(matrix=matrix, epsg=TARGET_EPSG, kind=ttype,
+        self.result_georef = georef_mod.Georef(matrix=matrix, epsg=self.epsg, kind=ttype,
                                                rms=rms, points=pts, cs_code=cs_code)
         self._main._push()                               # Ctrl+Z vuelve a la georreferencia anterior
         self._main.georef = self.result_georef; self._main._dirty = True
@@ -1063,7 +1085,7 @@ class GeorefDialog(QtWidgets.QDialog):
             return
         QtWidgets.QMessageBox.information(self, _tr("Georreferenciación guardada"),
             _tr("✓ Guardado en el proyecto:\n{archivo}\n\nEPSG: {epsg}\nRMSE: {rms} ft").format(
-                archivo=saved_to, epsg=TARGET_EPSG, rms=f"{rms:.2f}"))
+                archivo=saved_to, epsg=self.epsg, rms=f"{rms:.2f}"))
         self._dialog_dirty = False
         self.accept()
 
@@ -1100,7 +1122,8 @@ class GeorefDialog(QtWidgets.QDialog):
         clic (agregar/borrar un par), rehaciendo el mapa base entero cada vez
         — la causa principal de la lentitud al marcar puntos."""
         c = self.canvas_map; c.clear(); self._map_markers = []
-        if not self.centerlines:
+        ext = getattr(self, "_extension", None)
+        if not self.centerlines and ext is None:
             c.redraw(); return
         xs, ys = [], []
         # RENDIMIENTO: una sola LineCollection por capa en vez de un ax.plot()
@@ -1136,6 +1159,8 @@ class GeorefDialog(QtWidgets.QDialog):
                          [a[1] for a in self.arc_centers],
                          s=32, facecolors="#3ecf5c", edgecolors="#ffffff",
                          linewidths=1.0, zorder=4)
+        if not xs and ext is not None:              # otro sistema (georef_sistema): lo que hay que mirar
+            xs, ys = [ext[0], ext[2]], [ext[1], ext[3]]
         if not xs:
             c.redraw(); return
         pad = 100
@@ -1157,7 +1182,7 @@ class GeorefDialog(QtWidgets.QDialog):
             for k in order:
                 _name, _url = _TILE_PROVIDERS[k]
                 try:
-                    cx.add_basemap(c.ax, crs=f"EPSG:{TARGET_EPSG}", source=_url,
+                    cx.add_basemap(c.ax, crs=f"EPSG:{self.epsg}", source=_url,
                                    zoom=zoom, attribution=f"© {_name}", attribution_size=6,
                                    zorder=0, interpolation="nearest")
                     self._basemap_provider_i = k

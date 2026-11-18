@@ -53,6 +53,7 @@ from ui.asistente.composite_scan_ui import ScanToolsMixin
 from ui.asistente.composite_mixto import MixtoMixin
 from ui.asistente.composite_choice import ChosenSheetMixin
 from ui.asistente.composite_suggest import SuggestionMixin
+from ui.asistente.composite_agregar import AgregarCompositorMixin
 from ui.asistente.composite_encimadas import EncimadasMixin
 from ui.asistente.composite_area_suggest import AreaSugeridaMixin
 from ui.asistente.tool_strip import ToolStrip
@@ -159,12 +160,12 @@ def _banner(color: str) -> tuple[QtWidgets.QFrame, QtWidgets.QLabel]:
     return box, lbl
 
 
-class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanToolsMixin, MixtoMixin, SuggestionMixin,
+class CompositeDialog(NoEscapeClose, AgregarCompositorMixin, ChosenSheetMixin, SourcePageMixin, ScanToolsMixin, MixtoMixin, SuggestionMixin,
                      EncimadasMixin,
                       AreaSugeridaMixin, QtWidgets.QDialog):
     def __init__(self, parent, sources: List[dict], comp: Optional[C.Composite],
                  hidden_by_source: Optional[Dict[str, List[str]]], current_page: int = 0, manual: bool = False,
-                 sugerencia: bool = True):
+                 sugerencia: bool = True, agregar=None):
         super().__init__(parent)
         self.sources = [dict(s) for s in sources]
         # «Agregar utilidad» (ventana_agregar): la hoja ya viene calcada sobre la del editor;
@@ -230,6 +231,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
             self._choose_page()            # la hoja entera del editor: la hoja del editor
         self._go_tab(start)
         self._sug_iniciar()                # composición sugerida: aparte, en otro hilo
+        self._agr_iniciar(agregar)         # «Agregar utilidad»: dónde cae cada hoja, en segundo plano
 
     def _start_position(self, current_page: int) -> tuple[int, int]:
         """PDF y hoja con que se abre: donde el usuario estaba trabajando, no el
@@ -279,6 +281,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
         root.addWidget(self.tabs)
         self._sug_tarjeta = self._sug_card()   # «Composición sugerida» (composite_suggest)
         root.addWidget(self._sug_tarjeta)
+        root.addWidget(self._agr_card())        # «Agregar utilidad» (composite_agregar)
 
         t = _theme.tokens()
         self.stack = QtWidgets.QStackedWidget()
@@ -1302,6 +1305,7 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
 
     def close_docs(self):
         self._sug_desconectar()
+        self._agr_desconectar()
         self._area_cerrar()
         self._thumb_timer.stop()
         self._thumb_queue = []
@@ -1317,13 +1321,17 @@ class CompositeDialog(NoEscapeClose, ChosenSheetMixin, SourcePageMixin, ScanTool
 
 def compose_sheet(parent, sources: List[dict], comp: Optional[C.Composite],
                   hidden_by_source: Optional[Dict[str, List[str]]], current_page: int = 0, manual: bool = False,
-                  sugerencia: bool = True, vivo: Optional[dict] = None):
+                  sugerencia: bool = True, vivo: Optional[dict] = None, agregar=None):
     """Abre el compositor. Devuelve ``(composite, sources, hidden_by_source)`` o
     None si se cancela. `sources` son dicts ``{name, data(bytes), path?}``.
     `vivo` (dict de la ventana, `ventana_pasos`): al aceptar el diálogo queda ahí, oculto; si se
     vuelve a pedir con lo mismo que devolvió, se muestra TAL CUAL (sin volver a dibujar hojas ni
     piezas). Cancelar lo suelta."""
     dlg = vivo.pop("comp", None) if vivo is not None else None
+    if dlg is not None and dlg._agregar is not agregar:     # cada «Agregar utilidad» trae su búsqueda
+        dlg.soltar_vivo()
+        dlg.deleteLater()
+        dlg = None
     if dlg is not None and not dlg.sirve_para(sources, comp, hidden_by_source, manual, sugerencia):
         dlg.soltar_vivo()
         dlg.deleteLater()
@@ -1334,7 +1342,7 @@ def compose_sheet(parent, sources: List[dict], comp: Optional[C.Composite],
         with busy(parent, _tr("Abriendo «Componer hoja»…"),
                   _tr("Preparando las hojas del PDF")):
             dlg = CompositeDialog(parent, sources, comp, hidden_by_source, current_page, manual=manual,
-                                  sugerencia=sugerencia)
+                                  sugerencia=sugerencia, agregar=agregar)
         dlg._vivo = vivo is not None
     aceptado = False
     try:

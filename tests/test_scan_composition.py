@@ -87,7 +87,8 @@ def test_manual_flow_skips_layers_and_recognition(monkeypatch):
     win = SimpleNamespace(src_pdfs=[], composite=None, hidden_ocgs_by_source={}, page_idx=1,
                           canvas=SimpleNamespace(pixmap_item=None), _respaldo=None,
                           _apply_composite=lambda: None, _info=lambda msg: None, _soltar_pasos=lambda: None,
-                          _refrescar_panel_reconocer=lambda: None, _interpretar_hoja=unexpected)
+                          _refrescar_panel_reconocer=lambda: None, _interpretar_hoja=unexpected,
+                          _georef_automatica=lambda: None)
     assert Main._wizard_sheet_flow(win, 1, manual=True)
     assert win._dirty and win._reconocer_escaneo          # el panel «Reconocer» dice que es un escaneo
 

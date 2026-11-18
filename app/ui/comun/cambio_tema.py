@@ -76,23 +76,20 @@ class AvisoCambioTema(QtWidgets.QFrame):
             self._timer.stop()
 
     def _ubicar(self):
+        """El lugar lo pone el centro de avisos de la ventana (apilada con las demás tarjetas del rincón)."""
         self.adjustSize()
         v = self._ventana
         if v is None:
             self.move(QtGui.QCursor.pos())
             return
-        abajo = MARGEN
-        sb = v.statusBar() if isinstance(v, QtWidgets.QMainWindow) else None
-        if sb is not None and sb.isVisible():
-            abajo += sb.height()
-        esquina = v.mapToGlobal(QtCore.QPoint(v.width(), v.height()))
-        self.move(esquina - QtCore.QPoint(self.width() + MARGEN, self.height() + abajo))
+        from ui.comun import centro_avisos
+        centro_avisos.centro(v).agregar(self, centro_avisos.CARGA)
 
     def mostrar(self):
         self.barra.setValue(0)
-        self._ubicar()
         self._timer.start()
         self.show()
+        self._ubicar()
         self.raise_()
 
     def listo(self):
@@ -104,6 +101,12 @@ class AvisoCambioTema(QtWidgets.QFrame):
     def terminar(self):
         self._timer.stop()
         self.hide()
+        if self._ventana is not None:
+            from ui.comun import centro_avisos
+            try:
+                centro_avisos.centro(self._ventana).quitar(self)
+            except RuntimeError:
+                pass
 
 
 def cambiar(ventana: QtWidgets.QWidget, aplicar, texto: str, al_terminar=None):

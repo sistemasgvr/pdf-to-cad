@@ -17,7 +17,7 @@ from __future__ import annotations
 from PySide6 import QtCore, QtWidgets
 
 from traduccion.i18n import t as _tr
-from ui.comun import theme
+from ui.comun import centro_avisos, theme
 
 MARGEN = 16
 ANCHO = 340
@@ -66,7 +66,7 @@ class TarjetaAvance(QtWidgets.QFrame):
         fila_b.addWidget(self.pct)
         lay.addLayout(fila_b)
         self.setFixedWidth(ANCHO)
-        host.installEventFilter(self)
+        centro_avisos.centro(host).agregar(self, centro_avisos.CARGA)
 
     def poner(self, texto=None, detalle=None, hecho=None, total=None):
         if texto is not None:
@@ -85,45 +85,12 @@ class TarjetaAvance(QtWidgets.QFrame):
         self.pct.setText(cifra(frac, medida))
 
     def _ubicar(self):
-        self.adjustSize()
-        caja = self._caja_libre()
-        if caja is not None:
-            # sobre el PLANO, abajo a la derecha: nunca encima de los paneles (reporte 2026-11-17: el borde del
-            # panel Propiedades la cruzaba)
-            x, y = caja.right() + 1 - self.width() - MARGEN, caja.bottom() + 1 - self.height() - MARGEN
-            self.move(max(caja.left(), x), max(0, y))
-        else:
-            abajo = MARGEN
-            sb = self.host.statusBar() if isinstance(self.host, QtWidgets.QMainWindow) else None
-            if sb is not None and sb.isVisible():
-                abajo += sb.height()
-            self.move(max(0, self.host.width() - self.width() - MARGEN),
-                      max(0, self.host.height() - self.height() - abajo))
-        self.raise_()
-
-    def _caja_libre(self):
-        """El rectángulo del lienzo (en coords del host) sin lo que tapan los paneles desplegados encima, o None si
-        el host no tiene lienzo (otra ventana: va abajo a la derecha de ella)."""
-        cv = getattr(self.host, "canvas", None)
-        if not isinstance(cv, QtWidgets.QWidget) or not cv.isVisible():
-            return None
-        try:
-            caja = QtCore.QRect(cv.mapTo(self.host, QtCore.QPoint(0, 0)), cv.size())
-            tapado = getattr(self.host, "_inicio_tapado", None)
-            izq, der = tapado() if callable(tapado) else (0, 0)
-        except RuntimeError:
-            return None
-        caja = caja.adjusted(izq, 0, -der, 0)
-        return caja if caja.width() >= self.width() + 2 * MARGEN else None
-
-    def eventFilter(self, obj, ev):
-        if obj is self.host and ev.type() == QtCore.QEvent.Resize:
-            self._ubicar()
-        return False
+        """La ubica el centro de avisos (`centro_avisos`: apilada con las demás, sobre el plano)."""
+        centro_avisos.centro(self.host).colocar()
 
     def cerrar(self):
-        self.host.removeEventFilter(self)
         self.hide()
+        centro_avisos.centro(self.host).quitar(self)
         self.deleteLater()
 
 

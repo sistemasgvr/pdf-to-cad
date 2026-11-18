@@ -40,7 +40,8 @@ _MODELO = ("cur_pts", "pipes", "leaders", "text_marks", "erase_regions", "_erase
 _CAMBIOS = ("_dirty_flag", "_clean_sig", "_forzar_cambios")
 # …y el panel «Reconocer» (`ventana_reconocer_cola`): `_reset_model` lo vacía al cargar otra hoja; se REEMPLAZAN (nunca
 # se cambian en su lugar mientras el asistente corre), así que guardarlos por referencia basta.
-_RECONOCER = ("reconocer_estado", "_resultados_partes", "_cache_partes", "_interpretacion", "_reconocer_escaneo")
+_RECONOCER = ("reconocer_estado", "_resultados_partes", "_cache_partes", "_interpretacion", "_reconocer_escaneo",
+              "_rec_planos")
 CLAVES = _HOJA + _MODELO + _CAMBIOS + _RECONOCER
 # Trabajo que «Cancelar» no debe perder. Sin nada de esto el asistente sigue como
 # siempre (cancelar en «Capas» deja cargada la hoja nueva, para dibujar a mano).

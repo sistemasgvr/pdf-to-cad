@@ -84,6 +84,7 @@ from ui.ventana.ventana_valvulas import ValvulasMixin
 from ui.ventana.ventana_superficies import SuperficiesMixin
 from ui.ventana.ventana_lista_superficies import ListaSuperficiesMixin
 from ui.ventana.ventana_prop_superficie import PropSuperficieMixin
+from ui.ventana.ventana_georef_auto import GeorefAutoMixin
 from ui.ventana.ventana_flujo import FlujoMixin
 from ui.ventana.ventana_panel_izq import PanelIzquierdoMixin
 from ui.ventana.ventana_panel_der import PanelDerechoMixin
@@ -143,7 +144,7 @@ from ui.ventana.ventana_pasos import PasosVivosMixin
 
 class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, SinAccesorioMixin, ListaAccesoriosMixin, DibujarAccesoriosMixin, SeleccionAccesorioMixin, PerfilMixin, AccionesIAMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
-           AgregarUtilidadMixin, ImportarParteMixin, ReconocerMixin, OrtoPolarMixin, TextoPlanoMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, FlujoMixin, SuperficiesMixin, ListaSuperficiesMixin, PropSuperficieMixin, QtWidgets.QMainWindow):
+           AgregarUtilidadMixin, ImportarParteMixin, ReconocerMixin, OrtoPolarMixin, TextoPlanoMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, FlujoMixin, SuperficiesMixin, ListaSuperficiesMixin, PropSuperficieMixin, GeorefAutoMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"
@@ -609,7 +610,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             res = composite_dialog.compose_sheet(
                 self, elegido[0], elegido[1], elegido[2], current_page=page_idx,
                 manual=manual, vivo=self._pasos() if hasattr(self, "_pasos") else None,
-                **({"sugerencia": False} if agregando else {}))
+                **({"sugerencia": False, "agregar": self._agregando.get("busqueda")} if agregando else {}))
             if res is None:
                 return False
             comp, sources, hidden_by_source = res
@@ -618,9 +619,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
                 # utilidad agregada: el lugar de cada hoja lo pone su mapa base (ventana_agregar)
                 comp = self._agregando_recolocar(comp, sources)
                 if comp is None:
-                    self.informar(_tr("Agregar utilidad"), _tr(
-                        "Ninguna de las hojas elegidas coincide con la hoja del editor."))
-                    continue
+                    continue                      # (ya avisó) de vuelta al compositor
             elif comp.marco is not None:
                 # hoja con una utilidad agregada (marco fijo) a la que se le sumaron hojas por
                 # fuera: vuelve a crecer con sus piezas, como cualquier hoja compuesta
@@ -669,6 +668,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         if getattr(self, "_respaldo", None) is not None:
             self._soltar_respaldo()                   # hoja nueva en el editor: la anterior ya no vuelve
         self._dirty = True
+        self._georef_automatica()                     # ventana_georef_auto: mapas que dicen dónde están (2026-11-18)
         if comp.manual:
             self._reconocer_escaneo = True
             self._refrescar_panel_reconocer()
@@ -951,12 +951,14 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
 
     def _soltar_respaldo(self):
         """Hoja nueva en el editor (importar): el respaldo ya no vuelve."""
+        self._parar_busqueda_agregar()
         self._agregando = None
         r, self._respaldo = self._respaldo, None
         respaldo_editor.soltar(self, r)
 
     def _reponer_respaldo(self, msg):
         """Editor a como estaba al abrir el asistente. False si no había respaldo."""
+        self._parar_busqueda_agregar()
         self._agregando = None
         r, self._respaldo = self._respaldo, None
         if r is None:

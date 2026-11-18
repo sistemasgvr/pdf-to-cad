@@ -3900,8 +3900,6 @@ EN: dict[str, str] = {
     'Dibujando la hoja en pantalla ({w} × {h} px)…': 'Drawing the sheet on screen ({w} × {h} px)…',
     'Dibujando la hoja en pantalla…': 'Drawing the sheet on screen…',
     # agregar utilidad (por «Componer hoja»); «Capas»: utilidades y planos de fondo (ventana_capas/planos)
-    '{n} de {t} hojas de la hoja del editor tienen su hoja en «{pdf}»: elige cuáles agregar.':
-        '{n} of {t} sheets of the editor sheet have their sheet in «{pdf}»: choose which ones to add.',
     'Plano {n}': 'Plan {n}',
     'Todos': 'All',
     'Mostrando el plano: {p}…': 'Showing the plan: {p}…',
@@ -4743,14 +4741,21 @@ EN: dict[str, str] = {
     'La hoja del editor es un PDF imagen/escaneo: no tiene un mapa base vectorial con el que ubicar otra utilidad.':
         'The editor sheet is an image/scanned PDF: it has no vector base map to place another utility with.',
     'No se pudo leer el PDF:\n\n{e}': 'The PDF could not be read:\n\n{e}',
-    'Ninguna hoja de «{pdf}» dibuja el mismo lugar que la hoja del editor (su mapa base de lotes y calles no '
-    'coincide con el de la hoja), así que no se puede ubicar sobre ella.':
-        'No sheet of «{pdf}» draws the same place as the editor sheet (its base map of lots and streets does not '
-        'match the sheet\'s), so it cannot be placed on it.',
+    '«{pdf}» no dibuja la zona de la hoja del editor.': '«{pdf}» does not show the area of the editor sheet.',
+    'Revisé cada hoja buscando el mismo mapa base (calles, lotes) que tiene la hoja del editor, '
+    'también si está dibujado de otra manera o como imagen, y ninguna cae sobre ella. Lo más común '
+    'es que sea el PDF de otra zona (por ejemplo «North» en vez de «South»). El editor no cambió.':
+        'I checked every sheet for the same base map (streets, lots) as the editor sheet, also when it is '
+        'drawn differently or as an image, and none falls on it. Most often it is the PDF of another area '
+        '(for example «North» instead of «South»). The editor was not changed.',
+    'Cada plano de la hoja (cada PDF agregado) se reconoce en su propia hoja.':
+        'Each plan of the sheet (each added PDF) is recognized on its own sheet.',
+    'Espera a que termine lo que se está reconociendo o interpretando para cambiar de plano.':
+        'Wait until the current recognition or interpretation finishes to change plan.',
+    'Panel Reconocer: plano {p}.': 'Recognize panel: plan {p}.',
+    'Elegir otro PDF…': 'Choose another PDF…',
+    'Buscando hojas que caen entre las del editor…': 'Looking for sheets that fall between the editor sheets…',
     'Agregar utilidad: elige su PDF': 'Add utility: choose its PDF',
-    'La hoja del editor viene de {n} PDF. ¿Agregar también estos de la misma utilidad?\n\n{lista}':
-        'The editor sheet comes from {n} PDFs. Also add these of the same utility?\n\n{lista}',
-    'Ubicando «{pdf}» sobre la hoja del editor…': 'Placing «{pdf}» on the editor sheet…',
     'Buscando en cada hoja el mismo mapa base (lotes, calles)': 'Looking for the same base map in each sheet (lots, streets)',
     'Agregar utilidad cancelado — el editor queda como estaba.': 'Add utility cancelled — the editor stays as it was.',
     'No se pudo ubicar el PDF sobre la hoja del editor:\n\n{e}': 'The PDF could not be placed on the editor sheet:\n\n{e}',
@@ -6125,4 +6130,64 @@ EN: dict[str, str] = {
         'Copy report',
     'Copiado':
         'Copied',
+    # agregar utilidad: compositor al instante y búsqueda de fondo (2026-11-18)
+    'Pone en la hoja compuesta las hojas que caen sobre la hoja del editor, cada una con su área y en su lugar':
+        'Puts on the composite sheet the sheets that fall on the editor sheet, each with its area and in its place',
+    '✔ Cae en la hoja del editor':
+        '✔ Falls on the editor sheet',
+    'Su mapa base coincide con el de la hoja del editor: al marcarla queda en su lugar.':
+        "Its base map matches the editor sheet's: when you check it, it goes to its place.",
+    'No cae en la hoja del editor':
+        'Does not fall on the editor sheet',
+    'Su mapa base no coincide con ninguna parte de la hoja del editor: es de otra zona.':
+        'Its base map does not match any part of the editor sheet: it is from another area.',
+    'Se está buscando dónde cae sobre la hoja del editor.':
+        'Looking for where it falls on the editor sheet.',
+    '<b>Buscando dónde cae cada hoja</b> de «{pdf}» sobre la hoja del editor…':
+        '<b>Looking for where each sheet</b> of «{pdf}» falls on the editor sheet…',
+    'Ya encajan {k} hojas (✔ en la lista). Puedes ir mirando y marcando: al continuar se ubican las que falten.':
+        '{k} sheets fit so far (✔ in the list). You can browse and check sheets meanwhile: when you continue, the missing ones are placed.',
+    'No se pudo terminar la búsqueda: {e}<br>Puedes marcar hojas igual: al continuar se ubican.':
+        'The search could not finish: {e}<br>You can still check sheets: they are placed when you continue.',
+    '<b>{k} de {t} hojas</b> de «{pdf}» caen sobre la hoja del editor (✔ en la lista). Márcalas y continúa.':
+        '<b>{k} of {t} sheets</b> of «{pdf}» fall on the editor sheet (✔ in the list). Check them and continue.',
+    'Marcar las {n}':
+        'Check the {n}',
+    'Ninguna hoja de «{pdf}» cae sobre la hoja del editor. Lo más común es que sea el PDF de otra zona: cancela y elige otro PDF.':
+        'No sheet of «{pdf}» falls on the editor sheet. Most likely it is the PDF of another area: cancel and choose another PDF.',
+    'Elige las hojas de «{pdf}» que agregar: mientras tanto se busca dónde cae cada una sobre la hoja del editor.':
+        'Choose the sheets of «{pdf}» to add: meanwhile, where each one falls on the editor sheet is being found.',
+    'Ubicando las hojas elegidas sobre la hoja del editor…':
+        'Placing the chosen sheets on the editor sheet…',
+    'Se dejó de ubicar las hojas elegidas — vuelves a «Componer hoja».':
+        'Stopped placing the chosen sheets — back to «Compose sheet».',
+    'Encontré otro PDF de la misma utilidad en la carpeta.':
+        'I found another PDF of the same utility in the folder.',
+    'Encontré otros {n} PDF de la misma utilidad en la carpeta.':
+        'I found {n} other PDFs of the same utility in the folder.',
+    'Elegiste «{pdf}», pero la hoja del editor está armada con {n} PDF (por ejemplo North y South). Es probable que la utilidad también continúe en:\n\n{lista}\n\nSi lo incluyes, se buscan las hojas de todos y la utilidad puede cubrir toda la hoja del editor. Si no, solo se agrega la zona que dibuja el PDF que elegiste.':
+        'You chose «{pdf}», but the editor sheet is built from {n} PDFs (for example North and South). The utility probably continues in:\n\n{lista}\n\nIf you include it, the sheets of all of them are searched and the utility can cover the whole editor sheet. If not, only the area drawn by the PDF you chose is added.',
+    'Incluirlo también':
+        'Include it too',
+    'Incluirlos también':
+        'Include them too',
+    'Solo el que elegí':
+        'Only the one I chose',
+    'Buscando…': 'Searching…',
+    'Georreferenciada sola por cuarto de sección': 'Georeferenced on its own by quarter section',
+    '{celdas} · error {e} ft': '{celdas} · error {e} ft',
+    'No se georreferenció sola': 'Not georeferenced on its own',
+    'Las hojas no coinciden con sus cuadros ({celdas}): error {e} ft. Revisa la composición.': 'The sheets do not match their cells ({celdas}): error {e} ft. Check the composition.',
+    'Aplicar igual': 'Apply anyway',
+    'Zona de la georreferencia': 'Georeference area',
+    '{zona}. Clic en el plano y luego en el mismo punto del mapa (sin imán).': '{zona}. Click on the plan and then on the same point of the map (no snapping).',
+    'Primero busca la zona (dirección o intersección).': 'First search for the area (address or intersection).',
+    'Sistema de coordenadas (código EPSG) en el que se georreferencia. 2229 = Los Ángeles, con calles y parcelas de referencia. Otro sistema: mapa de fondo y búsqueda de dirección, sin imán a las calles.': 'Coordinate system (EPSG code) used to georeference. 2229 = Los Angeles, with reference streets and parcels. Another system: background map and address search, no snapping to streets.',
+    'EPSG': 'EPSG',
+    'Dirección o intersección… ej: 67th Ave & Indian School Rd, Phoenix': 'Address or intersection… e.g. 67th Ave & Indian School Rd, Phoenix',
+    'Buscar la dirección y mostrar el mapa de fondo': 'Search the address and show the background map',
+    'Sistema EPSG {epsg} ({nombre}): sin calles de referencia. Clic en el plano y luego en el mismo punto del mapa de fondo (sin imán). Mínimo 3 pares.': 'EPSG system {epsg} ({nombre}): no reference streets. Click on the plan and then on the same point of the background map (no snapping). At least 3 pairs.',
+    'Sistema de coordenadas': 'Coordinate system',
+    'EPSG {epsg} no es un sistema proyectado conocido.': 'EPSG {epsg} is not a known projected system.',
+    'Los pares están en EPSG {epsg}. Quítalos («Limpiar todos») antes de cambiar de sistema.': 'The pairs are in EPSG {epsg}. Remove them («Clear all») before changing the system.',
 }

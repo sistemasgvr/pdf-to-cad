@@ -216,8 +216,7 @@ def test_agregar_utilidad_interpreta_solo_la_hoja_nueva(ventana, monkeypatch, tm
     antes = dict(pipes=json.dumps(w.pipes, sort_keys=True, default=repr), undo=len(w._undo),
                  tam=w.canvas.tam_hoja())
     monkeypatch.setattr(QtWidgets.QFileDialog, "getOpenFileNames", lambda *a, **k: ([cloaca], ""))
-    monkeypatch.setattr(app_window.composite_dialog, "compose_sheet",
-                        lambda parent, sources, comp, hidden, **kw: (comp, sources, hidden))
+    monkeypatch.setattr(app_window.composite_dialog, "compose_sheet", TA.componer_ubicadas)
     w.agregar_utilidad()
     # lo de antes, intacto; la hoja del editor ya tiene las dos utilidades
     assert json.dumps(w.pipes, sort_keys=True, default=repr) == antes["pipes"]
@@ -303,8 +302,7 @@ def test_reabrir_con_utilidad_agregada_reconoce_en_su_hoja(ventana, monkeypatch,
     for nombre in ("information", "warning"):
         monkeypatch.setattr(QtWidgets.QMessageBox, nombre, lambda *a, **k: None)
     monkeypatch.setattr(QtWidgets.QFileDialog, "getOpenFileNames", lambda *a, **k: ([cloaca], ""))
-    monkeypatch.setattr(app_window.composite_dialog, "compose_sheet",
-                        lambda parent, sources, comp, hidden, **kw: (comp, sources, hidden))
+    monkeypatch.setattr(app_window.composite_dialog, "compose_sheet", TA.componer_ubicadas)
     w.agregar_utilidad()
     esperar_interpretacion(w)
     firma = w._rec_hoja["firma"]

@@ -25,7 +25,7 @@ hiddenimports = [
     "hoja.estilos_sugeridos", "hoja.indice_texto", "hoja.interpretar_trabajo",
     "hoja.hoja_calcada", "hoja.leyenda_mapa", "hoja.leyenda_trabajo", "hoja.planos_trabajo", "nucleo.modelo3d",
     "reconocimiento.lectura_retenida", "reconocimiento.recognition_trabajo", "ui.comun.fondo_trabajo",
-    "ui.ventana.calculo_fondo",
+    "ui.ventana.calculo_fondo", "geo.auto.ajuste",
     # Superficies (2.1.0): el lector de GeoTIFF de Pillow se carga por formato, no por import (la autoprueba lo prueba)
     "PIL.TiffImagePlugin",
     # Diagnóstico del equipo (`--diagnostico`, Ayuda): se importan dentro de funciones
@@ -35,6 +35,8 @@ hiddenimports = [
 # Iconos SVG MDI (app/icons/mdi/*.svg) — sin esto el exe muestra X rojas
 # (_fallback_icon). Destino 'icons' al lado de icons.py en _MEIPASS.
 datas += [('app/icons', 'icons')]
+# Índices de mapas en cuadrícula (georreferencia automática, 2026-11-18): `geo.auto.indice_mapas.carpeta()`
+datas += [('app/geo/indices', 'geo/indices')]
 
 # Paquetes cuyo código + DATOS + submódulos hay que empaquetar completos para que
 # funcionen dentro del .exe. Si alguno no está instalado, se ignora (no rompe el build).

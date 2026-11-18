@@ -153,17 +153,12 @@ class ProgresoReconocimiento(QtWidgets.QFrame):
         self.ensurePolished()
         self.layout().activate()
         self.adjustSize()
-        point = self.viewport.mapToGlobal(QtCore.QPoint(0, 0))
-        x = point.x() + max(0, self.viewport.width() - self.width() - 14)
-        y = point.y() + max(0, self.viewport.height() - self.height() - 14)
-        toolbar = getattr(self.host, "_flot_barra_win", None)
-        if toolbar is not None and toolbar.isVisible():
-            rect = toolbar.geometry()
-            if rect.intersects(QtCore.QRect(x, y, self.width(), self.height())):
-                y = max(point.y(), rect.top() - self.height() - 8)
-        self.move(x, y)
+        # el lugar lo pone el centro de avisos (apilada con las demás tarjetas del rincón, 2026-11-18); la barra de
+        # herramientas del plano se corre a su izquierda
+        from ui.comun import centro_avisos
         if not self.isVisible():
             self.show()
+        centro_avisos.centro(self.host).agregar(self, centro_avisos.CARGA)
 
     def mostrar_cancelando(self):
         """Un clic o Esc bastan: desde aquí la tarjeta dice que se está cancelando."""
@@ -191,6 +186,8 @@ class ProgresoReconocimiento(QtWidgets.QFrame):
         self._vigilados = []
         self._cancel = None
         self.hide()
+        from ui.comun import centro_avisos
+        centro_avisos.centro(self.host).quitar(self)
         self.host.canvas._recognition_readonly = self._old_readonly
         self.host.canvas._pan = False
         self.host.canvas.setCursor(QtCore.Qt.ArrowCursor)

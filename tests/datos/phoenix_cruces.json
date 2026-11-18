@@ -1,0 +1,11 @@
+{
+  "nota": "Cruces de avenidas = esquinas de sección (verdad independiente de la georreferencia). 'mundo': capa pública Public/STR_StreetIntersections de Phoenix (EPSG 2868), 2026-11-18. 'pdf_pt': cruce de los ejes de calle DIBUJADOS (líneas de 0.36 pt, la más larga en cada sentido) en QS Sewer_Indian School_North, hoja visible.",
+  "fuente_url": "https://maps.phoenix.gov/pub/rest/services/Public/STR_StreetIntersections/MapServer/0",
+  "pdf": "QS Sewer_Indian School_North",
+  "cruces": [
+    {"nombre": "N 67TH AVE & W INDIAN SCHOOL RD", "hoja": 2, "pdf_pt": [1249.9, 992.4], "mundo": [612641.41, 907683.92]},
+    {"nombre": "N 59TH AVE & W INDIAN SCHOOL RD", "hoja": 4, "pdf_pt": [1251.1, 988.0], "mundo": [617759.99, 907758.06]},
+    {"nombre": "W INDIAN SCHOOL RD & N 55TH AVE", "hoja": 6, "pdf_pt": [320.2, 990.2], "mundo": [620437.95, 907731.87]},
+    {"nombre": "N 39TH AVE & W INDIAN SCHOOL RD", "hoja": 10, "pdf_pt": [325.7, 989.5], "mundo": [631019.42, 907700.88]}
+  ]
+}

@@ -184,14 +184,15 @@ def colocar(win):
     b = win._flot_barra_win
     b.adjustSize()
     bx, by = o.x() + (W - b.width()) // 2, o.y() + H - b.height() - MARGEN
-    aviso = getattr(win, "_aviso_breve", None)            # el aviso breve abajo a la derecha: la barra se corre
-    try:                                                   # a su izquierda si la taparía (2026-10-30)
-        if aviso is not None and aviso.isVisible():
-            ra = QtCore.QRect(aviso.mapToGlobal(QtCore.QPoint(0, 0)), aviso.size())
-            if QtCore.QRect(bx, by, b.width(), b.height()).intersects(ra.adjusted(-MARGEN, 0, 0, 0)):
-                bx = max(o.x() + dx + MARGEN, ra.left() - MARGEN - b.width())
-    except RuntimeError:                                   # el aviso ya se borró
-        pass
+    # las tarjetas del rincón (avisos y cargas, `centro_avisos`): la barra se corre a su izquierda si la taparía
+    from ui.comun import centro_avisos
+    for t in centro_avisos.centro(win).tarjetas():
+        try:
+            ra = QtCore.QRect(t.mapToGlobal(QtCore.QPoint(0, 0)), t.size())
+        except RuntimeError:
+            continue
+        if QtCore.QRect(bx, by, b.width(), b.height()).intersects(ra.adjusted(-MARGEN, 0, 0, 0)):
+            bx = max(o.x() + dx + MARGEN, ra.left() - MARGEN - b.width())
     _poner_en(b, ver, QtCore.QPoint(bx, by))
     c = win._flot_chip_win
     c.adjustSize()

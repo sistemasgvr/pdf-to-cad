@@ -9,6 +9,7 @@ from nucleo import reconocer_estado as RE
 from ui.ventana.ventana_capas_estilos import CapasEstilosMixin
 from ui.ventana.ventana_interpretar import InterpretarMixin
 from ui.ventana.ventana_reconocer_cola import ReconocerColaMixin
+from ui.ventana.ventana_reconocer_planos import PlanosReconocerMixin
 from ui.ventana.ventana_reconocer_vista import ReconocerVistaMixin
 
 
@@ -32,11 +33,12 @@ def panel_reconocer(win):
     p.ir_a_verificar.connect(win._verificar_ir)
     p.visto.connect(win._verificar_visto)
     p.aviso.connect(win._aviso_reconocer)
+    p.plano.connect(win.rec_cambiar_plano)
     win._refrescar_panel_reconocer()
     return p
 
 
-class ReconocerMixin(ReconocerColaMixin, ReconocerVistaMixin, CapasEstilosMixin, InterpretarMixin):
+class ReconocerMixin(PlanosReconocerMixin, ReconocerColaMixin, ReconocerVistaMixin, CapasEstilosMixin, InterpretarMixin):
     reconocer_estado = None          # nucleo.reconocer_estado.Estado (la crea `panel_reconocer`)
     _reconocer_ultimo = None         # (parte, cuántos) de lo último reconocido: pie del panel
 
@@ -58,7 +60,7 @@ class ReconocerMixin(ReconocerColaMixin, ReconocerVistaMixin, CapasEstilosMixin,
                   escaneo=bool(getattr(self, "_reconocer_escaneo", False)),
                   unidad_capas="estilos" if estilos else "capas",
                   interpretando=bool(getattr(self, "_interp_tarea", None) is not None),
-                  diametros=self._diametros_por_revisar())
+                  diametros=self._diametros_por_revisar(), planos=self.rec_planos(), plano=self._rec_grupo())
 
     def _diametros_por_revisar(self):
         """(dudosas, sin dato): tuberías con el aviso «Diámetro del plano» (`diametro_plano.avisos`: el plano no dijo

@@ -294,6 +294,7 @@ class PanelReconocer(QtWidgets.QWidget):
     ir_a_verificar = QtCore.Signal(str, int)  # un «Para verificar» guardado: ir a su lugar (parte, posición)
     visto = QtCore.Signal(str, int, bool)     # ✔ revisado de ese punto
     aviso = QtCore.Signal(str)               # por qué un ▶ / 👁 no hace nada
+    plano = QtCore.Signal(int)               # otro plano de la hoja (utilidades agregadas: ventana_reconocer_planos)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -304,6 +305,19 @@ class PanelReconocer(QtWidgets.QWidget):
         raiz = QtWidgets.QVBoxLayout(self)
         raiz.setContentsMargins(0, 0, 0, 0)
         cont, cl = R.columna((12, 6, 12, 12), 8)
+        # el plano cuyas filas se ven (solo con utilidades agregadas desde otros PDF)
+        self.caja_plano = R.transparente(QtWidgets.QWidget())
+        pl = QtWidgets.QVBoxLayout(self.caja_plano)
+        pl.setContentsMargins(0, 0, 0, 0)
+        pl.setSpacing(4)
+        pl.addWidget(R.texto("Plano", "t3", False))
+        self.cmb_plano = QtWidgets.QComboBox()
+        self.cmb_plano.setMinimumHeight(32)
+        self.cmb_plano.setToolTip(_tr("Cada plano de la hoja (cada PDF agregado) se reconoce en su propia hoja."))
+        self.cmb_plano.activated.connect(self._al_elegir_plano)
+        pl.addWidget(self.cmb_plano)
+        self.caja_plano.hide()
+        cl.addWidget(self.caja_plano)
         # cabecera: texto arriba, botones debajo (memoria «tarjetas»)
         self.lbl_resumen = R.texto("", "t2", True, traducir=False)
         cl.addWidget(self.lbl_resumen)
@@ -430,13 +444,30 @@ class PanelReconocer(QtWidgets.QWidget):
         self.lbl_interp.setText(detalle or "")
 
     # ── datos ─────────────────────────────────────────────────────────────
+    def _al_elegir_plano(self, i):
+        g = self.cmb_plano.itemData(i)
+        if g is not None:
+            self.plano.emit(int(g))
+
+    def _poner_planos(self, planos, activo):
+        planos = list(planos or ())
+        self.caja_plano.setVisible(len(planos) > 1)
+        self.cmb_plano.blockSignals(True)
+        self.cmb_plano.clear()
+        for g, nombre in planos:
+            self.cmb_plano.addItem(nombre, int(g))
+        i = self.cmb_plano.findData(int(activo or 0))
+        self.cmb_plano.setCurrentIndex(max(0, i))
+        self.cmb_plano.blockSignals(False)
+
     def mostrar(self, estado, ultimo=None, escaneo=False, unidad_capas="capas", interpretando=False,
-                diametros=None):
+                diametros=None, planos=(), plano=0):
         """`ultimo` = (parte, cuántos) de lo último reconocido; `unidad_capas` = «capas» o «estilos»
         (hoja sin capas: cada utilidad cuenta los estilos de trazo asignados); `interpretando` = la hoja se está
         interpretando en segundo plano (el panel se llena solo al terminar); `diametros` = (dudosas, sin dato) de
         las tuberías del editor (fila «Diámetros»)."""
         self._estado = estado or RE.nuevo()
+        self._poner_planos(planos, plano)
         self._diametros = diametros
         self._ultimo, self._escaneo, self._unidad = ultimo, escaneo, unidad_capas
         self._interpretando = bool(interpretando)

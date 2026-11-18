@@ -159,7 +159,7 @@ class SourcePageMixin:
             if self.lst_pages.viewMode() == QtWidgets.QListView.ListMode:     # 2.0.0: lista de la izquierda
                 item.setSizeHint(QtCore.QSize(0, 62))
             else:
-                item.setSizeHint(QtCore.QSize(THUMB_W + 20, int(THUMB_W * 0.72) + 46))
+                item.setSizeHint(QtCore.QSize(THUMB_W + 20, int(THUMB_W * 0.72) + 46 + getattr(self, "_agr_extra", 0)))
             self._label_page_item(item, i)
         row = self._cur_page if 0 <= self._cur_page < doc.page_count else 0
         self.lst_pages.setCurrentRow(row)
@@ -186,6 +186,10 @@ class SourcePageMixin:
             text += "\n" + (_tr("{n} piezas").format(n=taken) if taken > 1 else
                             _tr("Hoja completa") if self._is_full(mine[0]) else _tr("Área tomada"))
             tips.append(_tr("Esta hoja ya está en la hoja compuesta."))
+        agr = self._agr_linea(page) if hasattr(self, "_agr_linea") else None
+        if agr is not None:
+            text += "\n" + agr[0]
+            tips.append(agr[1])
         if flat:
             tips.append(_tr("Hoja sin capas originales: sus líneas se agrupan por estilo (color y "
                             "grosor) y en «Capas de la hoja» se asigna el de la red a su utilidad. "
@@ -193,7 +197,7 @@ class SourcePageMixin:
         item.setText(text)
         item.setToolTip("\n\n".join(tips))
         font = item.font(); font.setBold(bool(taken)); item.setFont(font)
-        if flat:
+        if flat or (agr is not None and agr[2]):
             item.setForeground(QtGui.QColor(_theme.tokens().text_muted))
         else:
             item.setData(QtCore.Qt.ForegroundRole, None)

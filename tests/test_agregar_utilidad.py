@@ -341,6 +341,14 @@ class _Trabajador:
         t._fin(None, "cancelado")
 
 
+def componer_ubicadas(parent, sources, comp, hidden, **kw):
+    """«Componer hoja» al agregar una utilidad (2026-11-18): el usuario espera la búsqueda y pulsa «Marcar las N»."""
+    b = kw["agregar"]
+    b.esperar()
+    piezas = [C.Piece.from_dict(d) for k in b.ubicadas() for d in b.piezas[k]]
+    return (C.Composite(piezas, scale_ft_per_pt=b.escala), sources, hidden) if piezas else None
+
+
 def _stubs(monkeypatch, win, cloaca, vista_previa):
     """«Agregar utilidad» con el flujo desde el editor (plan 2026-11-16, Tarea 9): «Componer hoja» acepta las
     hojas ubicadas, la hoja calcada queda «interpretada» (fila ALCANTARILLADO pendiente; la interpretación tiene sus
@@ -370,11 +378,18 @@ def _stubs(monkeypatch, win, cloaca, vista_previa):
     monkeypatch.setattr(win, "_interpretar_hoja", interpretar)
 
     def componer(parent, sources, comp, hidden, **kw):
-        # «Componer hoja» (2026-10-26: siempre, como al abrir un PDF): acepta las hojas ubicadas
-        vio["componer"] = [(p.source, p.page) for p in comp.pieces]
-        if vista_previa == "componer":
+        # «Componer hoja» (2026-11-18: se abre al instante, sin nada elegido; la búsqueda corre aparte): el
+        # usuario espera la tarjeta y pulsa «Marcar las N» (las piezas calcadas, en su lugar)
+        b = kw["agregar"]
+        vio["al_abrir"] = (comp.to_dict() if comp is not None else None, b.terminada)
+        b.esperar()
+        piezas = [C.Piece.from_dict(d) for k in b.ubicadas() for d in b.piezas[k]]
+        vio["componer"] = [(p.source, p.page) for p in piezas]
+        if vista_previa == "componer" or not piezas:
             return None
-        return comp, sources, hidden
+        if vista_previa == "enteras":                     # marcó las hojas enteras antes de que se ubicaran
+            piezas = [C.Piece(s, h, [0.0, 0.0, 1.0, 1.0]) for s, h in dict.fromkeys(vio["componer"])]
+        return C.Composite(piezas, scale_ft_per_pt=b.escala), sources, hidden
     monkeypatch.setattr(app_window.composite_dialog, "compose_sheet", componer)
     vio["trabajador"] = falso
     return vio
@@ -390,6 +405,7 @@ def test_agregar_utilidad_queda_sobre_la_hoja_del_editor(win, pdfs, monkeypatch)
     _Reconocer.lineas = [tubo]
     vio = _stubs(monkeypatch, win, cloaca, "import")
     win.agregar_utilidad()
+    assert vio["al_abrir"][0] is None                      # el compositor abre sin nada elegido, sin esperar
     # la hoja reconocida era la del alcantarillado, del tamaño de la del editor y su tubería en su lugar
     assert vio["tam"] == pytest.approx(antes["hoja"])
     r, _g, b = vio["rojo"]
@@ -477,3 +493,120 @@ def test_hoja_combinada_que_crece_deja_su_marco():
     assert C.cabe_en_marco(comp, sizes)
     comp.pieces.append(C.Piece(0, 1, [0, 0, 1, 1], x=650.0))
     assert not C.cabe_en_marco(comp, sizes)
+
+
+def test_el_plano_anterior_conserva_su_panel_reconocer(win, pdfs, monkeypatch):
+    """Reporte 2026-11-17: tras agregar una utilidad, el panel «Reconocer» solo tenía las filas de la hoja agregada.
+    Cada plano conserva su estado; el selector del panel cambia de uno a otro (cada uno en SU hoja)."""
+    from nucleo import reconocer_estado as RE
+    import project_io
+    agua, cloaca = pdfs
+    _editor_con_agua(win, agua)
+    win.reconocer_estado = RE.nuevo()
+    win.reconocer_estado.firma_hoja = "firma-del-agua"
+    win.reconocer_estado.filas["AGUA"].estado = "reconocida"
+    win._interpretacion = {"layers": [], "marca": "agua"}
+    tubo = [_px(win, 0, *TUBO["cloaca"][0]), _px(win, 0, *TUBO["cloaca"][1])]
+    _px_esperado[0] = tubo[0]
+    _Reconocer.lineas = [tubo]
+    _stubs(monkeypatch, win, cloaca, "import")
+    win.agregar_utilidad()
+    assert [g for g, _n in win.rec_planos()] == [0, 1] and win._rec_grupo() == 1
+    assert win.reconocer_estado.filas["ALCANTARILLADO"].estado == "reconocida"
+    assert win.reconocer_estado.filas["AGUA"].estado != "reconocida"
+    assert win.panel_reconocer.caja_plano.isVisibleTo(win.panel_reconocer)
+    leidas = []
+    monkeypatch.setattr(win, "_interpretar_hoja", lambda: leidas.append(win._rec_grupo()))
+    win.rec_cambiar_plano(0)                                # el agua, como estaba: sin volver a interpretar
+    assert win._rec_grupo() == 0 and leidas == []
+    assert win.reconocer_estado.filas["AGUA"].estado == "reconocida"
+    assert win._interpretacion["marca"] == "agua"
+    assert win._rec_hoja["firma"] == "firma-del-agua" and win._firma_hoja_actual() == "firma-del-agua"
+    # el proyecto guarda los dos planos
+    rec = project_io.reconocer_de_model({"reconocer": project_io.reconocer_a_dict(win)}, win.pipes)
+    assert rec["planos"][1]["estado"].filas["ALCANTARILLADO"].estado == "reconocida"
+    win.rec_cambiar_plano(1)                                # y de vuelta el alcantarillado
+    assert win._rec_grupo() == 1
+    assert win.reconocer_estado.filas["ALCANTARILLADO"].estado == "reconocida"
+    assert win._rec_planos[0]["estado"].filas["AGUA"].estado == "reconocida"
+
+
+# ───────── 2026-11-18: compositor al instante, búsqueda de fondo, una capa del mapa base ─────────
+def test_busqueda_con_dos_planos_usa_una_sola_capa(pdfs):
+    """Con una utilidad ya agregada la hoja trae un plano por grupo, uno ENCIMA del otro: se busca con uno."""
+    agua, cloaca = pdfs
+    da, dc = fitz.open(agua), fitz.open(cloaca)
+    ed = _editor(da)
+    cal = H.calcar(ed, [da], [dc], ["QS Sewer_Prueba.pdf"])
+    tam = lambda p: (da[p.page].rect.width, da[p.page].rect.height)   # noqa: E731
+    comb = H.combinar(ed, cal.comp, 1, H.marco_de(ed, tam))
+    docs = [da, dc]
+    sizes = lambda p: (docs[p.source][p.page].rect.width, docs[p.source][p.page].rect.height)   # noqa: E731
+    assert H.referencia(comb, sizes, comb.target_scale()) == [0, 1]       # solo el plano 0
+    # y calcar sobre la hoja de dos planos da lo mismo que sobre la del editor sola
+    otra = H.calcar(comb, docs, [dc], ["QS Sewer_Prueba.pdf"])
+    assert [(u.fuente, u.hoja) for u in otra.ubicaciones] == [(u.fuente, u.hoja) for u in cal.ubicaciones]
+    for a, b in zip(otra.comp.pieces, cal.comp.pieces):
+        assert (a.source, a.page) == (b.source, b.page) and a.clip == pytest.approx(b.clip)
+
+
+def test_calcar_solo_las_hojas_pedidas_y_avisa_cada_una(pdfs):
+    agua, cloaca = pdfs
+    da, dc = fitz.open(agua), fitz.open(cloaca)
+    vistas = []
+    cal = H.calcar(_editor(da), [da], [dc], ["QS Sewer_Prueba.pdf"], solo=[(0, 1)],
+                   al_ubicar=lambda f, h, q, m: vistas.append((f, h, q.page)))
+    assert {(u.fuente, u.hoja) for u in cal.ubicaciones} == {(0, 1)}
+    assert vistas == [(0, 1, 1)]
+
+
+def test_marco_hojas_enteras_antes_de_que_se_ubiquen(win, pdfs, monkeypatch):
+    """El usuario marca hojas en el compositor antes de que la búsqueda de fondo las ubique: al continuar se
+    ubican AHORA (solo esas) y entra su área calcada, no la hoja entera con su cajetín."""
+    from ui.ventana import agregar_busqueda, app_window
+    agua, cloaca = pdfs
+    _editor_con_agua(win, agua)
+    tubo = [_px(win, 0, *TUBO["cloaca"][0]), _px(win, 0, *TUBO["cloaca"][1])]
+    _px_esperado[0] = tubo[0]
+    _Reconocer.lineas = [tubo]
+    vio = _stubs(monkeypatch, win, cloaca, "import")
+    monkeypatch.setattr(agregar_busqueda.BusquedaAgregar, "iniciar", lambda self: None)   # aún no encontró nada
+
+    def componer(parent, sources, comp, hidden, **kw):
+        vio["busqueda"] = kw["agregar"]
+        return C.Composite([C.Piece(0, 1, [0.0, 0.0, 1.0, 1.0])]), sources, hidden    # solo la hoja 2, entera
+    monkeypatch.setattr(app_window.composite_dialog, "compose_sheet", componer)
+    win.agregar_utilidad()
+    nuevas = [p for p in win.composite.pieces if p.grupo == 1]
+    assert [(p.source, p.page) for p in nuevas] == [(1, 1)]               # la hoja 2 del alcantarillado
+    assert nuevas[0].clip != [0.0, 0.0, 1.0, 1.0]                          # su área calcada
+    assert list(vio["busqueda"].m) == [(0, 1)]                            # se buscó solo esa
+    assert [p["layer"] for p in win.pipes] == ["AGUA", "ALCANTARILLADO"]
+
+
+def test_compositor_dice_donde_cae_cada_hoja_y_marca_las_ubicadas(app, pdfs):
+    from ui.asistente.composite_dialog import CompositeDialog
+    from ui.ventana.agregar_busqueda import BusquedaAgregar
+    agua, cloaca = pdfs
+    da = fitz.open(agua)
+    ed = _editor(da)
+    nuevas = [{"name": "QS Sewer_Prueba.pdf", "data": open(cloaca, "rb").read(), "path": cloaca}]
+    b = BusquedaAgregar(ed.to_dict(), [open(agua, "rb").read()], nuevas, 1.0 / AGUA["escala"], ["QS Water_Prueba.pdf"])
+    b.iniciar()
+    dlg = CompositeDialog(None, nuevas, None, {}, 0, sugerencia=False, agregar=b)
+    try:
+        assert not dlg.comp.pieces
+        assert dlg.agr_card.isVisibleTo(dlg)
+        assert b.esperar()
+        app.processEvents()
+        textos = [dlg.lst_pages.item(i).text() for i in range(dlg.lst_pages.count())]
+        assert all("Cae en la hoja del editor" in t for t in textos)
+        assert dlg.btn_agr_marcar.isVisibleTo(dlg) and "2" in dlg.btn_agr_marcar.text()
+        dlg.btn_agr_marcar.click()
+        assert sorted((p.source, p.page) for p in dlg.comp.pieces) == [(0, 0), (0, 1)]
+        assert sorted(p.to_dict()["clip"] for p in dlg.comp.pieces) == sorted(
+            d["clip"] for v in b.piezas.values() for d in v)
+        assert not dlg.btn_agr_marcar.isVisibleTo(dlg)
+    finally:
+        dlg.close_docs()
+        dlg.deleteLater()
