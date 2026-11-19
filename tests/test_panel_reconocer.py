@@ -327,3 +327,99 @@ def test_unir_tramos_se_guarda_en_la_fila(win):
     win._refrescar_panel_reconocer()
     win.panel_reconocer.unir_tramos.emit("AGUA", False)
     assert win.reconocer_estado.filas["AGUA"].unir_tramos is False
+
+
+# ── capas de red en IMAGEN que no se sabe de qué red son (plan 2026-11-18, Tarea 8) ──────────
+
+_AZUL = 'PDF_STYLE:["img","line",[0,77,168]]'
+_ROJO = 'PDF_STYLE:["img","line",[200,30,30]]'
+
+
+def _dudosas():
+    from hoja.certeza_capas import CapaCerteza
+    return [CapaCerteza(_AZUL, "DRENAJE", False, ["nombre"], ["varios_colores"], []),
+            CapaCerteza(_ROJO, None, False, [], ["sin_evidencia"], [])]
+
+
+def test_porque_en_una_frase():
+    from hoja.certeza_capas import CapaCerteza
+    from ui.comun.tarjeta_capa_imagen import porque
+    a, b = _dudosas()
+    assert porque(a) == t("{fuente} dice {u}, pero hay varios colores de línea en la hoja.").format(
+        fuente=t("El nombre del PDF"), u=t("Drenaje"))
+    assert porque(b) == t("Ni el nombre del PDF, ni la leyenda, ni el texto del plano dicen de qué red es.")
+    c = CapaCerteza(_AZUL, "DRENAJE", False, ["nombre"], ["contradice:AGUA"], [])
+    assert "Agua" in porque(c) and "Drenaje" in porque(c)
+    for clave in ("fino", "acromatico"):
+        frase = porque(CapaCerteza(_AZUL, None, False, [], [clave], []))
+        assert frase and frase.endswith(".") and "\n" not in frase
+
+
+def test_tarjetas_de_las_dudosas(panel, app):
+    from ui.comun.tarjeta_capa_imagen import TarjetaCapaImagen
+    elegidas, ubicar = _espia(panel.capa_elegida), _espia(panel.capa_ubicar)
+    panel.poner_dudosas(_dudosas())
+    app.processEvents()
+    tarjetas = panel.findChildren(TarjetaCapaImagen)
+    assert len(tarjetas) == 2 and all(x.isVisibleTo(panel) for x in tarjetas)
+    azul = next(x for x in tarjetas if x.capa == _AZUL)
+    # candidatas primero, luego «Otra…» y «No es una red»
+    textos = [b.text() for b in azul.botones]
+    assert textos == [t("Drenaje"), t("Otra…"), t("No es una red")]
+    # texto ARRIBA de los botones, a todo el ancho
+    assert azul.lbl_titulo.geometry().bottom() < azul.botones[0].mapTo(azul, QtCore.QPoint(0, 0)).y()
+    azul.botones[0].click()
+    assert elegidas == [(_AZUL, "DRENAJE")]
+    azul.btn_ubicar.click()
+    assert ubicar == [(_AZUL,)]
+    # «No es una red» = None
+    azul.botones[-1].click()
+    assert elegidas[-1] == (_AZUL, None)
+    # «Otra…» ofrece las demás utilidades (sin la candidata)
+    acciones = [a.data() for a in azul.botones[1].menu().actions()]
+    assert "DRENAJE" not in acciones and "AGUA" in acciones
+    rojo = next(x for x in tarjetas if x.capa == _ROJO)            # sin candidatas: solo el menú y «No es»
+    assert [b.text() for b in rojo.botones] == [t("Elegir la red…"), t("No es una red")]
+    panel.poner_dudosas([])
+    app.processEvents()
+    assert not panel.findChildren(TarjetaCapaImagen)
+
+
+def test_dudosas_ocultas_sin_interpretar(panel, app):
+    from ui.comun.tarjeta_capa_imagen import TarjetaCapaImagen
+    panel.poner_dudosas(_dudosas())
+    panel.mostrar(RE.nuevo())
+    app.processEvents()
+    assert not any(x.isVisibleTo(panel) for x in panel.findChildren(TarjetaCapaImagen))
+
+
+def test_asignada_por(panel):
+    panel.poner_asignadas({"DRENAJE": ["nombre", "rotulos"]})
+    assert t("Asignada por: {pistas}").format(pistas=t("nombre del PDF") + ", " + t("rótulos")) \
+        in panel.filas["DRENAJE"].detalle.text()
+    panel.poner_asignadas({})
+    assert t("Asignada por") not in panel.filas["DRENAJE"].detalle.text()
+
+
+def test_tarjeta_en_claro_y_oscuro(app):
+    """La tarjeta se dibuja con los tokens del tema (claro y oscuro); con PDFCAD_FOTOS deja las fotos."""
+    from ui.comun import theme
+    from ui.comun.tarjeta_capa_imagen import TarjetaCapaImagen
+    viejo = theme.tokens()
+    try:
+        for tema in (theme.LIGHT, theme.DARK):
+            theme._current = tema
+            theme.THEME_BUS.changed.emit(tema.name)
+            app.setStyleSheet(theme.build_stylesheet(tema))
+            w = TarjetaCapaImagen(_dudosas()[0])
+            w.resize(300, 10)
+            w.resize(300, w.sizeHint().height())
+            img = w.grab()
+            assert not img.isNull() and img.width() == 300
+            if os.environ.get("PDFCAD_FOTOS"):
+                img.save(os.path.join(os.environ["PDFCAD_FOTOS"], "tarjeta_%s.png" % tema.name))
+            w.deleteLater()
+    finally:
+        theme._current = viejo
+        theme.THEME_BUS.changed.emit(viejo.name)
+        app.setStyleSheet(theme.build_stylesheet(viejo))

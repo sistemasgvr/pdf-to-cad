@@ -140,11 +140,12 @@ from ui.ventana.ventana_inicio import InicioMixin
 from ui.ventana.ventana_shell_paneles import RevisionMixin
 from ui.ventana.ventana_inventario import InventarioMixin
 from ui.ventana.ventana_pasos import PasosVivosMixin
+from ui.ventana.ventana_capas_imagen import CapasImagenMixin
 
 
 class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzquierdoMixin, PanelDerechoMixin, ModosMixin, ClicsMixin, UtilidadesMixin, CatalogoMixin, SeleccionMixin, ListasMixin, MarcasMixin, DibujoMixin, ConflictosMixin, CoordsMixin, BuzonesMixin, MoverPrecisoMixin, CurvasMixin, HerramientasMixin, BancoductosMixin, EdicionBloqueMixin, InformeMixin, IAMixin, SolucionesMixin, SinAccesorioMixin, ListaAccesoriosMixin, DibujarAccesoriosMixin, SeleccionAccesorioMixin, PerfilMixin, AccionesIAMixin, Vista3DMixin, Edicion3DMixin, ConflictosListaMixin, HojasEditorMixin,
            VerticesMixin, TrazoMixin, CalculoPlanoMixin, CalculoFondoMixin, EstadosPreviosMixin,
-           AgregarUtilidadMixin, ImportarParteMixin, ReconocerMixin, OrtoPolarMixin, TextoPlanoMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, FlujoMixin, SuperficiesMixin, ListaSuperficiesMixin, PropSuperficieMixin, GeorefAutoMixin, QtWidgets.QMainWindow):
+           AgregarUtilidadMixin, ImportarParteMixin, ReconocerMixin, OrtoPolarMixin, TextoPlanoMixin, PlanosFondoMixin, CapasMixin, ShellMixin, RevisionMixin, RecientesMixin, InicioMixin, InventarioMixin, PasosVivosMixin, DiametroIAMixin, AnotacionesMixin, ValvulasMixin, FlujoMixin, SuperficiesMixin, ListaSuperficiesMixin, PropSuperficieMixin, GeorefAutoMixin, CapasImagenMixin, QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self._base_title = f"Asistente C3D  (v{VERSION})"
@@ -160,6 +161,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         self.hidden_ocgs = []   # capas OCG ocultas en el paso «Capas de la hoja» (por PDF abierto)
         self.hidden_ocgs_by_source = {}  # selección de capas por PDF de la organización
         self._layer_roles_by_utility = {}  # roles OCG manuales separados por utilidad
+        self.capas_imagen_respuestas = {}  # {sha1 del PDF: {capa de imagen: utilidad | NO_RED}} (ventana_capas_imagen)
         self._layer_roles_hoja = None      # hoja (`_clave_hoja`) en la que se eligieron esos roles
         self._letters_off = set()  # capas que NO se reconocen por las letras de su línea (paso «Capas»)
         self._legend_cache = {}    # leyenda del PDF ya leída (paso «Capas»), por PDF de origen
@@ -310,7 +312,9 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
                                georef=self.georef.to_dict() if getattr(self, "georef", None) is not None else None,
                                bitacora_vigentes=bitacora.vigentes(self.bitacora),
                                # filas del panel «Reconocer»: deshacer un ▶ las deja como estaban
-                               reconocer=self._rec_para_deshacer()),
+                               reconocer=self._rec_para_deshacer(),
+                               # respuestas sobre las capas de red en imagen (ventana_capas_imagen)
+                               capas_imagen_respuestas=getattr(self, "capas_imagen_respuestas", None) or {}),
                           getattr(self, "_ultimo_paso", None))
         self._ultimo_paso = p
         return p
@@ -349,6 +353,8 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             bitacora.marcar(self.bitacora, s["bitacora_vigentes"])
         if "reconocer" in s:
             self._rec_al_deshacer(s["reconocer"])
+        if "capas_imagen_respuestas" in s:
+            self._capas_imagen_al_deshacer(s["capas_imagen_respuestas"])
         if "duct_banks" in s:
             self.duct_banks = s["duct_banks"]
             if not (0 <= getattr(self, "sel_db", -1) < len(self.duct_banks)):
@@ -408,6 +414,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             self.hidden_ocgs_by_source = {}
             self._layer_roles_by_utility = {}
             self._layer_roles_hoja = None
+            self.capas_imagen_respuestas = {}    # otro PDF: sus capas de imagen se deciden otra vez
             self._letters_off = set()
             self._recognition_utilities = _recognition.DEFAULT_UTILITIES
             self.sheet_layout = None
@@ -1710,6 +1717,7 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
             _reg = data.get("conflictos_registro")
             self._conf_registro = _conf_mod.Registro.de_dict(_reg) if _reg else None
             self.capas_apagadas = set(data.get("capas_apagadas") or ())   # «Capas» (ventana_capas)
+            self.capas_imagen_respuestas = dict(data.get("capas_imagen_respuestas") or {})   # (ventana_capas_imagen)
             if data.get("pdf_opacidad") is not None:                       # opacidad y fondo del lienzo
                 self.canvas.set_pdf_opacity(float(data["pdf_opacidad"]))
                 self.lbl_opacity.setText(f"{round(self.canvas.pdf_opacity * 100)}%")

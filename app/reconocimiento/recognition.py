@@ -44,6 +44,8 @@ from reconocimiento import recognition_vault_snap as vault_snap_mod
 from reconocimiento import recognition_vault_through as vault_through_mod
 from reconocimiento import recognition_style_nodes as style_nodes_mod
 from reconocimiento import recognition_ink_lines as ink_lines_mod
+from reconocimiento import recognition_imagen_piezas as img_piezas_mod
+from reconocimiento import recognition_imagen_rectas as imagen_rectas_mod
 from reconocimiento import recognition_map_vaults as map_vaults_mod
 from reconocimiento import recognition_taps as taps_mod
 from reconocimiento import recognition_indice as indice_mod
@@ -1431,7 +1433,28 @@ def recognize_page(
         # Tubería dibujada con sus dos PAREDES (o paredes + eje): una sola línea, la
         # del medio. Todas las utilidades; ver `recognition_walls` (qué NO es pared).
         wall_changes: List[dict] = []
+        # hoja COMPUESTA: dónde empieza cada pieza (costuras de `recognition_ink_lines`; None en una suelta)
+        piezas_inicio = lectura_mod.inicios_de_piezas(page) if any(
+            style_nodes_mod.is_style_layer(o) for o in by_ocg) else None
+        # capas de IMAGEN de una compuesta: «continua» o núcleo POR PIEZA (`recognition_imagen_piezas`; las
+        # demás capas y las hojas sueltas, como siempre)
+        grupos_img = {}
         for ocg in list(by_ocg):
+            g_img = img_piezas_mod.grupos(ocg, by_ocg[ocg], piezas_inicio, ink_lines_mod.continuous_layer)
+            if g_img is not None:
+                grupos_img[ocg] = g_img
+        for ocg in list(by_ocg):
+            if ocg in grupos_img:
+                nuevos = []
+                for continua, ps in grupos_img[ocg]:
+                    if not continua:
+                        others = [q for o, qs in by_ocg.items() if o != ocg for q in qs]
+                        ps, ch = walls_mod.merge_walls(ps, others, geom._Rect)
+                        wall_changes += ch
+                    nuevos.append((continua, ps))
+                grupos_img[ocg] = nuevos
+                by_ocg[ocg] = [q for _c, ps in nuevos for q in ps]
+                continue
             # (mapa SIG: capa por estilo de trazo CONTINUO, cada tubería es UN trazo de su eje;
             # dos paralelas son dos tuberías —Water North h.15: dos laterales a 2.7 pt quedaban en
             # una línea al medio, sin tinta debajo—. El CAD aplanado, a guiones, sigue igual.)
@@ -1463,9 +1486,8 @@ def recognize_page(
         n_ink_layers = 0
         ink_ocgs: set = set()
         ink_stats: dict = {}
-        # hoja COMPUESTA: dónde empieza cada pieza (costuras de `recognition_ink_lines`; None en una suelta)
-        piezas_inicio = lectura_mod.inicios_de_piezas(page) if any(
-            style_nodes_mod.is_style_layer(o) for o in by_ocg) else None
+        paths_res: dict = {}                           # índice en `results` → sus trazos (grupo de una capa de imagen)
+        tinta_res: dict = {}                           # índice en `results` → ¿la tinta es el eje?
         trazos_total = sum(len(p) for p in by_ocg.values())
         trazos_hechos = 0
         for k_capa, (ocg, paths) in enumerate(sorted(by_ocg.items())):
@@ -1479,6 +1501,22 @@ def recognize_page(
             # trazos sueltos («TE» = asta + travesaño + «E» de tres trazos), como las de
             # Metro del perfil TELECOM (`stroke_letters`; DU08 h.26: cobertura 99.8 → 100 %)
             opts = replace(geom_opts, stroke_letters=True) if ocg in letter_layers else geom_opts
+            if ocg in grupos_img:
+                contactos = (paths[0].get("contact_pts") if paths else None)
+                for continua, ps in grupos_img[ocg]:
+                    ps = img_piezas_mod.con_contactos(ps, contactos)
+                    paths_res[len(results)] = ps
+                    tinta_res[len(results)] = continua
+                    if continua:
+                        g_res = ink_lines_mod.ink_reconstruct(ps, vault_paths, opts, stats=ink_stats,
+                                                              inicios=piezas_inicio, on_polyline=al_polilinea)
+                    else:                       # (una pieza: solo las bóvedas de su zona)
+                        g_res = geom.reconstruct(ps, img_piezas_mod.bovedas_cerca(ps, vault_paths, 100.0), opts,
+                                                 on_polyline=al_polilinea)
+                    results.append((False, ocg, g_res))
+                if any(c for c, _ps in grupos_img[ocg]):
+                    n_ink_layers += 1
+                continue
             # capa por ESTILO de trazos continuos (mapa SIG aplanado): la tinta es el eje;
             # el núcleo es para tipos de línea a guiones (`recognition_ink_lines`)
             # (las acometidas son trazos cortos de UNA tubería cada uno: siempre tinta)
@@ -1618,7 +1656,7 @@ def recognize_page(
             return pieces
 
         def _emit(pl, ocg, ab, route_id, n_segments, through=None, ink=None, strokes=None,
-                  arcs=None, ink_lines=None, through_ink=None, cut_ctx=None, glyph_boxes=None):
+                  arcs=None, ink_lines=None, through_ink=None, cut_ctx=None, glyph_boxes=None, tinta=None):
             pts = [px(p) for p in pl.pts]
             clean, kinds = [], []
             for p, k in zip(pts, pl.kinds):
@@ -1626,7 +1664,7 @@ def recognize_page(
                     clean.append(p); kinds.append(k)
             if len(clean) < 2:
                 return None
-            if ocg in ink_ocgs and _NET_KIND.get(utility) == "pressure":
+            if ((ocg in ink_ocgs) if tinta is None else tinta) and _NET_KIND.get(utility) == "pressure":
                 # mapa sin capas, red a PRESIÓN (agua, gas): en Civil 3D no hay tubos curvos
                 # (cada quiebre es un codo), así que la curva queda como la dibuja la tinta
                 # —vértices SOBRE ella—; un codo «esquina + radio» dejaba la tubería en la
@@ -1664,9 +1702,11 @@ def recognize_page(
             avance_mod.avisar(_tr("Uniendo las líneas en rutas y ajustando sus curvas…"),
                               hecho_ajuste, sum(pesos_ajuste))
             hecho_ajuste += pesos_ajuste[k_ajuste]
+            paths_k = paths_res.get(k_ajuste, by_ocg.get(ocg, []))     # (grupo de una capa de imagen: lo suyo)
+            tinta_k = tinta_res.get(k_ajuste)
             # una línea que llega a otra por un tramo SIN tinta propia más largo que el
             # hueco del linetype no llega ahí (el núcleo prolongó su extremo)
-            ink_pdf = [(a, b) for st in ink_strokes(by_ocg.get(ocg, []), lambda q: (q[0], q[1]))
+            ink_pdf = [(a, b) for st in ink_strokes(paths_k, lambda q: (q[0], q[1]))
                        for a, b in zip(st, st[1:])]
             g_polys = ends_mod.trim_inkless_tails(g.polylines, ink_pdf, g.pattern, getattr(g, "glyphs", ()),
                                                   geom.Polyline)
@@ -1702,7 +1742,7 @@ def recognize_page(
             # Tinta de ESTA capa (px del lienzo): los trazos del PDF y sus puntos.
             # Se reparten por ruta para que una paralela cercana no entre en el
             # ajuste del codo vecino.
-            st_all = ink_strokes(by_ocg.get(ocg, []), px)
+            st_all = ink_strokes(paths_k, px)
             corridor = FILLET_INK_CORRIDOR_PT * zoom
             st_j = strokes_by_polyline(st_all, [[px(p) for p in r.pl.pts] for r in joined], corridor)
             st_r = strokes_by_polyline(st_all, [[px(p) for p in r.pl.pts] for r in raw], corridor)
@@ -1728,7 +1768,7 @@ def recognize_page(
             thr_ink_j = _through_dirs([r.pl for r in joined], ("tee", "junction", "end"), 0.5 * zoom)
             thr_ink_r = _through_dirs([r.pl for r in raw], ("tee", "junction", "end"), 0.5 * zoom)
             # recortes de esta capa (borde de la vista, pieza de la hoja compuesta)
-            clip_polys = sorted({pg for pth in by_ocg.get(ocg, []) for pg in (pth.get("clip_polys") or ())})
+            clip_polys = sorted({pg for pth in paths_k for pg in (pth.get("clip_polys") or ())})
             clip_px = [[px(q) for q in pg] for pg in clip_polys]
             cortes_px.extend(clip_px)
             glyphs_px = [(*px((gl.cx, gl.cy)), gl.size * zoom) for gl in getattr(g, "glyphs", ())]
@@ -1739,7 +1779,7 @@ def recognize_page(
                 v = mp_joined.verdict[rid]
                 ab = _ab(v, _dbl(mp_joined, rid))
                 rec_pl = _emit(r.pl, ocg, ab, rid, r.n_segments, through_j, ink_j[rid], st_j[rid],
-                               arcs_j[rid], lines_j[rid], thr_ink_j, cut_j, gboxes)
+                               arcs_j[rid], lines_j[rid], thr_ink_j, cut_j, gboxes, tinta=tinta_k)
                 if rec_pl is not None:
                     polylines_joined.append(rec_pl)
                     n_routes += 1
@@ -1760,7 +1800,7 @@ def recognize_page(
             for rid, r in enumerate(raw):
                 rec_pl = _emit(r.pl, ocg, _ab(mp_raw.verdict[rid], _dbl(mp_raw, rid)), rid, 1,
                                through_r, ink_r[rid], st_r[rid], arcs_r[rid], lines_r[rid], thr_ink_r, cut_r,
-                               gboxes)
+                               gboxes, tinta=tinta_k)
                 if rec_pl is not None:
                     polylines_raw.append(rec_pl)
             if g.pattern is not None:
@@ -1952,6 +1992,13 @@ def recognize_page(
                 if not any(math.hypot(snap["to"][0] - q[0], snap["to"][1] - q[1]) < 0.5 * zoom
                            for q in vault_snaps_px):
                     vault_snaps_px.append(snap["to"])
+        # Red en IMAGEN (pedido del usuario 2026-11-19): rectas de buzón a buzón, sin el serrucho de la banda ni
+        # codos (`recognition_imagen_rectas`); las capas vectoriales no pasan por aquí.
+        cortes_diam = imagen_rectas_mod.cortes_a_puntos(grosor_mapa_cuenta)
+        for variant in (polylines_joined, polylines_raw):
+            imagen_rectas_mod.enderezar(variant, vaults_geo, zoom)
+        imagen_rectas_mod.puntos_a_cortes(grosor_mapa_cuenta, cortes_diam)
+        polylines[:] = list(polylines_joined if join_routes else polylines_raw)
         # Ángulo de cada quiebre a pasos de 0.25° (pedido del usuario 2026-10-17: no hay codos
         # de 45.648°): paso aparte, al final; cada vértice se mueve lo mínimo y nada más cambia
         # (`recognition_angulos`). Las bóvedas y puntas marcadas siguen a su vértice.
@@ -3118,6 +3165,8 @@ def pipes_from_recognition(result: RecognitionResult, layer: str = UTILITY_HINT,
             # acometida de un mapa sin capas: en gravedad/conductos sus nodos son nulos
             # (`nucleo.acometidas`)
             **({"acometida": True} if acometidas_mapa.es_capa(getattr(pl, "layer_ocg", "") or "") else {}),
+            # red en IMAGEN: rectas de buzón a buzón, sus quiebres NO se vuelven curva (`nucleo/quiebres_curvas`)
+            **({"solo_rectas": True} if img_piezas_mod.es_capa_imagen(getattr(pl, "layer_ocg", "") or "") else {}),
             # codos: vértice → radio en pies (px / zoom × pies/pt)
             "fillets": {int(i): round(f["r_px"] / max(zoom, 1e-9) * result.scale_ft_per_pt, 3)
                         for i, f in (pl.fillets or {}).items()},

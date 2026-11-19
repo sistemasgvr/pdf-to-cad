@@ -57,7 +57,9 @@ def symbol_name(font, key):
 
 
 def is_symbol(name):
-    return name.startswith(PREFIX + '["sym"')
+    """Capa de SÍMBOLOS: glifos de una fuente (`symbol_name`) o símbolos de una imagen
+    (`imagen_ejes`, `["img","sym",…]`)."""
+    return name.startswith(PREFIX + '["sym"') or name.startswith(PREFIX + '["img","sym"')
 
 
 def style_width(name):
@@ -160,6 +162,9 @@ def style_label(name):
 
 
 def _style_label(name):
+    from hoja import imagen_ejes
+    if imagen_ejes.es_imagen(name):
+        return imagen_ejes.etiqueta(name)
     if is_symbol(name):
         _s, fuente, glyphs = json.loads(name[len(PREFIX):])
         marca = fuente.split("+")[-1] + " " if "ESRI" in fuente else ""
@@ -289,6 +294,10 @@ def _drawings(page, extended, cache):
         # (una vez por hoja dentro de `lectura_unica`: las dos formas de la lectura —con y sin recortes— piden
         # los mismos glifos; en una compuesta de 54 mapas son 49 mil círculos, ~3 s cada vez)
         out.extend(dict(p) for p in memo(page, "simbolos_fuente", lambda: simbolos_fuente.capas(page)))
+    # La red que viene como IMAGEN (Phoenix SD): ejes, símbolos y rellenos de cada color de las imágenes,
+    # al final y sin recorte ([] al instante en cualquier hoja sin imágenes de red; `imagen_ejes`).
+    from hoja import imagen_ejes
+    out.extend(dict(p) for p in memo(page, "imagen_ejes", lambda: imagen_ejes.capas(page, paths)))
     return out
 
 

@@ -27,7 +27,7 @@ MODULOS_POR_NOMBRE = (
     "hoja.hoja_calcada", "hoja.indice_texto", "hoja.interpretar_trabajo", "hoja.leyenda_trabajo",
     "hoja.planos_trabajo", "nucleo.modelo3d",
     # clases de la interpretación guardada en el .digproj (`hoja.interpretacion_guardada.CLASES`)
-    "hoja.estilos_sugeridos", "hoja.leyenda_mapa",
+    "hoja.estilos_sugeridos", "hoja.certeza_capas", "hoja.imagen_ejes", "hoja.leyenda_mapa",
     "reconocimiento.lectura_retenida", "reconocimiento.recognition_trabajo", "ui.comun.fondo_trabajo",
     "ui.ventana.calculo_fondo", "geo.auto.ajuste",
     "diagnostico_equipo", "nucleo.equipo_sistema", "ui.comun.equipo_opengl", "ui.dialogos.diagnostico_dialog",

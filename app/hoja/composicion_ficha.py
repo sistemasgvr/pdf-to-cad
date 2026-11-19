@@ -78,6 +78,9 @@ class Ficha:
     marco: Optional[List[Tuple[float, float]]] = None
     # lo que `borde_inclinado.marco_calculado` halló con `vista` y `lineas` (para no dibujar las franjas dos veces)
     marco_calc: Optional[dict] = None
+    # dónde está en el MUNDO (mapa en cuadrícula con su celda confirmada por el texto: `geo.auto.fuentes`):
+    # (EPSG, celda «16-10», x, y del centroide de la celda); None = no se sabe. Lo usa `composicion_geo`.
+    geo: Optional[Tuple[int, str, float, float]] = None
 
     @property
     def clave(self) -> Tuple[int, int]:
@@ -432,6 +435,15 @@ def _vista_mapa(clips: Sequence[Rect]) -> Optional[Rect]:
     return min(clips, key=lambda v: (v[2] - v[0]) * (v[3] - v[1]))
 
 
+def _geo(celda, lineas_t):
+    try:
+        from geo.auto import fuentes as GF
+        g = GF.celda_en_mundo(celda, " \n".join(t.texto for t in lineas_t))
+    except Exception:
+        return None
+    return None if g is None else (g[2], g[1], float(g[3][0]), float(g[3][1]))
+
+
 def ficha(page: fitz.Page, doc_index: int = 0) -> Ficha:
     """Ficha de una hoja. El dibujo solo se lee si el texto dice que la hoja tiene
     match lines o número de cuadrícula (la mayoría de las demás no lo necesita)."""
@@ -442,6 +454,8 @@ def ficha(page: fitz.Page, doc_index: int = 0) -> Ficha:
     f.numero = _numero(lineas_t, tam)
     f.serie = serie_de(f.numero)
     f.celda, f.vecinas, f.por_bordes = _celda_y_origen(lineas_t, tam)
+    if f.celda is not None:
+        f.geo = _geo(f.celda, lineas_t)
     if not f.rotulos and f.celda is None:
         return f
     paths = page.get_drawings(extended=True)

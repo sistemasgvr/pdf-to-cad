@@ -200,7 +200,10 @@ class FilaParte(QtWidgets.QFrame):
         self.ok, self.clave, self.datos = RE.puede(self.panel._estado, self.parte)
         if getattr(self, "act_unir", None) is not None:
             self.act_unir.setChecked(bool(fila.unir_tramos))
-        self.detalle.setText(self._texto(fila, unidad_capas))
+        texto, por = self._texto(fila, unidad_capas), self.panel._asignada_por.get(self.parte)
+        if por and fila.estado != "reconociendo":           # red en imagen asignada sola (Tarea 8 del plan 11-18)
+            texto += " · " + _tr("Asignada por: {pistas}").format(pistas=por)
+        self.detalle.setText(texto)
         self.btn_play.setProperty("bloqueado", not self.ok)
         tip = texto_motivo(self.clave, self.datos) if not self.ok else _tr(
             "Reconocer de nuevo" if fila.estado in ("reconocida", "desactualizada") else "Reconocer")
@@ -295,6 +298,8 @@ class PanelReconocer(QtWidgets.QWidget):
     visto = QtCore.Signal(str, int, bool)     # ✔ revisado de ese punto
     aviso = QtCore.Signal(str)               # por qué un ▶ / 👁 no hace nada
     plano = QtCore.Signal(int)               # otro plano de la hoja (utilidades agregadas: ventana_reconocer_planos)
+    capa_elegida = QtCore.Signal(str, object)  # red en imagen dudosa: (capa, utilidad | None = «No es una red»)
+    capa_ubicar = QtCore.Signal(str)           # ⌖ de su tarjeta
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -302,6 +307,7 @@ class PanelReconocer(QtWidgets.QWidget):
         self._estado = RE.nuevo()
         self._unidad = "capas"
         self._diametros = None                   # (dudosas, sin dato) de las tuberías del editor
+        self._asignada_por = {}                  # utilidad → «nombre del PDF, rótulos» (red en imagen asignada sola)
         raiz = QtWidgets.QVBoxLayout(self)
         raiz.setContentsMargins(0, 0, 0, 0)
         cont, cl = R.columna((12, 6, 12, 12), 8)
@@ -373,6 +379,13 @@ class PanelReconocer(QtWidgets.QWidget):
         self.btn_interpretar.setMinimumHeight(34)
         self.btn_interpretar.clicked.connect(self.interpretar.emit)
         cl.addWidget(self.btn_interpretar)
+        # capas de red en IMAGEN que no se sabe de qué red son: una tarjeta por capa (`tarjeta_capa_imagen`)
+        from ui.comun.tarjeta_capa_imagen import CajaDudosas
+        self.caja_dudosas = CajaDudosas()
+        self.caja_dudosas.elegida.connect(self.capa_elegida.emit)
+        self.caja_dudosas.ubicar.connect(self.capa_ubicar.emit)
+        self.caja_dudosas.hide()
+        cl.addWidget(self.caja_dudosas)
         # filas
         self.lista = R.transparente(QtWidgets.QWidget())
         ll = QtWidgets.QVBoxLayout(self.lista)
@@ -477,6 +490,7 @@ class PanelReconocer(QtWidgets.QWidget):
         sin_interp = all(f.estado == "sin_interpretar" for f in filas.values())
         vacio = escaneo or sin_interp
         self.lista.setVisible(not vacio)
+        self.caja_dudosas.setVisible(not vacio and bool(self.caja_dudosas.tarjetas()))
         self.lbl_vacio.setVisible(vacio)
         self.lbl_vacio.setText(_tr("Hoja escaneada: no hay nada que reconocer.") if escaneo
                                else _tr("Interpretando la hoja…") if interpretando
@@ -505,6 +519,21 @@ class PanelReconocer(QtWidgets.QWidget):
         if self.caja_verificar.isVisibleTo(self):
             self._llenar_verificar()
         self._estilo()
+
+    def poner_dudosas(self, capas):
+        """Una tarjeta por capa de red en imagen dudosa sin respuesta (`certeza_capas.CapaCerteza`), arriba de las filas."""
+        self.caja_dudosas.poner(capas)
+        self.caja_dudosas.setVisible(bool(capas) and self.lista.isVisibleTo(self))
+
+    def poner_asignadas(self, por_utilidad):
+        """{utilidad: [pistas de `certeza_capas`]} de la red en imagen que se asignó sola: lo dice su fila."""
+        from ui.comun.tarjeta_capa_imagen import pistas_texto
+        nuevo = {u: pistas_texto(ps) for u, ps in (por_utilidad or {}).items() if pistas_texto(ps)}
+        if nuevo != self._asignada_por:
+            self._asignada_por = nuevo
+            unidad = self._unidad
+            for p, w in self.filas.items():
+                w.poner(self._estado.filas.get(p) or RE.Fila(p), unidad)
 
     # ── «Para verificar» guardados ─────────────────────────────────────────
     def abrir_verificar(self, parte=None, alternar=False):

@@ -63,6 +63,18 @@ class ModoEditorMixin:
         self.tree.scrollToItem(grp, QtWidgets.QAbstractItemView.PositionAtTop)
 
 
+    def enfocar_capa(self, capa):
+        """Selecciona la fila de `capa`, la deja a la vista y la resalta en la hoja (el resaltado de siempre)."""
+        its = self._items_by_name.get(capa) or []
+        if not its:
+            return
+        it = its[0]
+        self.expandir_hasta(it)
+        self.tree.scrollToItem(it, QtWidgets.QAbstractItemView.PositionAtCenter)
+        self.tree.setCurrentItem(it)
+        self._focus_style(it)
+
+
 def previa_de_interpretacion(doc, hoja: int, interp: dict):
     """`capas_previas.Previa` con lo que leyó la interpretación (sin imagen: la hoja se dibuja como siempre). Deja la
     leyenda y los estilos sugeridos en las cachés del documento, donde el diálogo los busca. Las casillas = las capas

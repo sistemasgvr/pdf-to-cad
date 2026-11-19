@@ -363,6 +363,9 @@ class SheetLayersDialog(ModoEditorMixin, ScaleCalibrationMixin, LayerAssignments
                                       "sus líneas de todas las utilidades; para ver solo las de una, "
                                       "márcala en la «Leyenda».").format(
                         u=", ".join(_tr(dict(pdf_layers.UTILITIES).get(u, u)) for u in shared))
+                if L.get("dudosa"):                     # red en imagen: no se sabe de qué red es
+                    it.setIcon(0, _icon("mdi:help-circle-outline", color=_theme.tokens().text_muted))
+                    tip += "\n? " + L["dudosa"]
                 it.setToolTip(0, tip)
                 it.setFlags(QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsUserCheckable
                             | QtCore.Qt.ItemIsSelectable)

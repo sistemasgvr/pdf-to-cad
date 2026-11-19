@@ -3886,6 +3886,8 @@ EN: dict[str, str] = {
         'The composed sheet needs more memory than this computer has free.',
     'No se pudo armar la hoja compuesta.': 'The composed sheet could not be built.',
     'Leyendo los vectores de la hoja…': 'Reading the vectors of the sheet…',
+    'Leyendo la imagen de la hoja… {k} de {n}': 'Reading the image of the sheet… {k} of {n}',
+    'Leyendo la imagen de las hojas… {k} de {n}': 'Reading the images of the sheets… {k} of {n}',
     'Agrupando {n} trazos por su estilo (color, grosor, guiones)…': 'Grouping {n} strokes by style (color, width, dashes)…',
     'Buscando las acometidas (servicios a los predios)…': 'Looking for service taps (connections to lots)…',
     'Ubicando los símbolos de la leyenda (buzones, válvulas…)…': 'Locating the legend symbols (manholes, valves…)…',
@@ -6190,4 +6192,55 @@ EN: dict[str, str] = {
     'Sistema de coordenadas': 'Coordinate system',
     'EPSG {epsg} no es un sistema proyectado conocido.': 'EPSG {epsg} is not a known projected system.',
     'Los pares están en EPSG {epsg}. Quítalos («Limpiar todos») antes de cambiar de sistema.': 'The pairs are in EPSG {epsg}. Remove them («Clear all») before changing the system.',
+    # capas de red en imagen dudosas (plan 2026-11-18, Tarea 8)
+    'nombre del PDF':
+        'PDF name',
+    'leyenda':
+        'legend',
+    'texto del plano':
+        'plan text',
+    'rótulos':
+        'labels',
+    'trayectoria de la red':
+        'network layout',
+    'tu respuesta':
+        'your answer',
+    'El nombre del PDF':
+        'The PDF name',
+    'La leyenda':
+        'The legend',
+    'El texto del plano':
+        'The plan text',
+    '{fuente} dice {u}, pero otras pistas dicen {x}.':
+        '{fuente} says {u}, but other clues say {x}.',
+    'Las pistas no coinciden: unas dicen {u} y otras {x}.':
+        'The clues disagree: some say {u} and others {x}.',
+    '{fuente} dice {u}, pero hay varios colores de línea en la hoja.':
+        '{fuente} says {u}, but the sheet has several line colors.',
+    'Hay varios colores de línea en la hoja y nada dice cuál es la red.':
+        'The sheet has several line colors and nothing says which one is the network.',
+    'Es la línea fina de ese color y no tiene rótulos de tubería propios.':
+        'It is the thin line of that color and has no pipe labels of its own.',
+    'Es negra o gris y ni la leyenda ni los rótulos dicen que sea una red.':
+        'It is black or gray and neither the legend nor the labels say it is a network.',
+    'Ni el nombre del PDF, ni la leyenda, ni el texto del plano dicen de qué red es.':
+        'Neither the PDF name, the legend nor the plan text say which network it is.',
+    'No hay pistas suficientes para saber de qué red es.':
+        'There are not enough clues to know which network it is.',
+    'Hay líneas en la imagen de la hoja que no sé de qué red son':
+        "There are lines in the sheet image and I don't know which network they belong to",
+    'Ver sus líneas en la hoja':
+        'Show its lines on the sheet',
+    'Otra…':
+        'Other…',
+    'Elegir la red…':
+        'Choose the network…',
+    'No es una red':
+        'Not a network',
+    'Asignada por: {pistas}':
+        'Assigned by: {pistas}',
+    'Red en la imagen de la hoja: {n} capa(s) asignadas y {m} sin saber de qué red son (marcadas con «?»). Asígnales la utilidad abajo.':
+        'Network in the sheet image: {n} layer(s) assigned and {m} of unknown network (marked with “?”). Assign their utility below.',
+    'Red en la imagen de la hoja: {n} capa(s) ya asignadas como líneas de {u}. Revísalas y cambia lo que haga falta.':
+        'Network in the sheet image: {n} layer(s) already assigned as {u} lines. Review them and change what is needed.',
 }

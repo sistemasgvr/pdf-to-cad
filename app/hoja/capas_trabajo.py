@@ -46,10 +46,52 @@ def leer_doc(doc, hoja: int, ons: Sequence = (), estilos_ocultos: Sequence[str] 
         from hoja import estilos_sugeridos
         con_sugeridos = True
         try:
-            sugeridos = estilos_sugeridos.sugerir(page)
+            sugeridos = estilos_sugeridos.sugerir(page, nombres=(doc.name,))
         except Exception:                                      # noqa: BLE001 — la ventana lo intenta
+            con_sugeridos = False
+    elif ley is not None and ley.filas and _con_lineas_de_imagen(layers):
+        # red en IMAGEN con leyenda: solo la certeza de sus capas (`Sugerencia.capas`; plan 2026-11-18, Tarea 7)
+        from hoja import estilos_sugeridos
+        con_sugeridos = True
+        try:
+            sugeridos = estilos_sugeridos.sugerir(page, nombres=(doc.name,), leyenda=ley)
+        except Exception:                                      # noqa: BLE001
             con_sugeridos = False
     out = {"layers": layers, "leyenda": ley, "visibles": sorted(visibles)}
     if con_sugeridos:
         out["sugeridos"] = sugeridos
     return out
+
+
+def trazos(ruta: str, hoja: int, ons: Sequence = (), estilos_ocultos: Sequence[str] = (), para_reconocimiento=True,
+           layers=None, progreso=None) -> list:
+    """Las MISMAS listas que «Capas de la hoja» leía en la ventana para resaltar (reporte 2026-11-19: elegir una capa
+    de una compuesta de 36 mapas con la red en imagen congelaba la ventana, sin aviso): con `para_reconocimiento`, la
+    de `layer_dialog_info._all_drawings` (capas de `layers` y de utilidad); si no, la de `_pick_drawings` (todo
+    vector visible; los trazos sin capa, con el nombre de su estilo). Todas las capas encendidas."""
+    import fitz
+    from hoja import leyenda_estandar as le, leyenda_trazos, pdf_layers, pdf_styles
+    with fitz.open(ruta) as doc:
+        with pdf_styles.lectura_unica(doc):
+            pdf_layers.poner_encendidas(doc, ons)
+            doc._pdf_style_hidden = set(estilos_ocultos or ())
+            pdf_layers.set_hidden(doc, ())
+            page = doc[int(hoja)]
+            if para_reconocimiento:
+                names = {L["name"] for L in layers or ()}
+                quiere = le.capas_de_utilidad(layers or [])
+                return leyenda_trazos.trazos_visibles(page, lambda n: n in names or quiere(n))
+            out = []
+            for original, shown in leyenda_trazos.trazos_visibles(page, para_reconocimiento=False):
+                name = original.get("layer") or pdf_styles.style_name(original)
+                if not original.get("layer"):
+                    original = dict(original, layer=name)
+                    shown = dict(shown, layer=name)
+                out.append((original, shown))
+            return out
+
+
+def _con_lineas_de_imagen(layers) -> bool:
+    """¿La hoja trae capas de LÍNEA de red en imagen (`imagen_ejes`)?"""
+    from hoja import imagen_ejes
+    return any(imagen_ejes.tipo_imagen(L.get("name") or "") == "line" for L in layers or ())

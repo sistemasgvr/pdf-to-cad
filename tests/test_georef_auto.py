@@ -92,7 +92,7 @@ def test_ubicar_hoja_water_south():
     p = _doc("QS Water_Indian School_South")[0]
     u = fuentes.ubicar(p, cf.ficha(p, 0))
     assert u.epsg == 2868 and u.cs_code == "AZHP-CIF" and len(u.anclas) == 1
-    assert u.anclas[0].mundo == pytest.approx(indice_mapas.cargar("phoenix_qs").celdas["16-10"].centroide())
+    assert u.anclas[0].mundo == pytest.approx(indice_mapas.cargar("phoenix_qs").celdas["16-10"].centro_caja())
 
 # ─────────────────────────── ajuste de la hoja compuesta ───────────────────────────
 import functools  # noqa: E402
@@ -131,7 +131,7 @@ def test_sewer_north_queda_en_sus_cuadros():
     print("Sewer North: RMS %.1f ft, máx %.1f ft, %d piezas" % (r.rms_ft, max(r.residuos.values()), len(r.residuos)))
     assert r.aceptada and r.epsg == 2868 and r.cs_code == "AZHP-CIF"
     assert len(r.residuos) >= 16
-    assert r.rms_ft <= 10 and max(r.residuos.values()) <= 15
+    assert r.rms_ft <= 3 and max(r.residuos.values()) <= 5          # (con el centroide: 4.2 y 10.6 ft)
 
 
 @PDFS
@@ -158,10 +158,12 @@ def test_cruces_de_calles_caen_en_su_lugar_real():
 
 
 @PDFS
-def test_water_south_queda_dudosa():
+def test_water_south_se_acepta_con_el_centro_del_recuadro_de_la_celda():
+    # 2026-11-19: con el promedio de los VÉRTICES del polígono de cada celda daba 80 ft (se atribuía a la
+    # composición) y quedaba dudosa; con el centro del recuadro de la celda, 0.7 ft (Sewer North 4.2 → 0.7 ft)
     r = _georref_compuesta("QS Water_Indian School_South")
     print("Water South: RMS %.1f ft (%s)" % (r.rms_ft, r.motivo))
-    assert not r.aceptada and r.rms_ft > 25
+    assert r.aceptada and r.rms_ft <= 5
 
 
 @PDFS

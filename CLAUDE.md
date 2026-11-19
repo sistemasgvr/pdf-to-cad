@@ -1515,11 +1515,19 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     recuadro del mapa: la escala del cajetín «1"=100'» es falsa en estos PDF reducidos); lo regenera
     `scripts/datos/indice_phoenix_qs.py` (la app nunca usa la red). `fuentes.ubicar(page, ficha)` = la celda de
     `Ficha.celda` CONFIRMADA por el PLSS del cajetín o el nombre de la ciudad (un «17-10» solo no basta) → ancla centro de
-    `composicion_encaje.caja` → centroide. `ajuste.georref_hoja(comp, docs, zoom)` → `Resultado` (similaridad; 1 pieza =
+    `composicion_encaje.caja` → CENTRO DEL RECUADRO de la celda (`Celda.centro_caja`; el promedio de los vértices,
+    `centroide`, se corría hasta ~360 ft en celdas irregulares). `ajuste.georref_hoja(comp, docs, zoom)` → `Resultado` (similaridad; 1 pieza =
     escala del recuadro y giro 0; aceptada si RMS ≤25 ft, pieza ≤60 ft, escala ±2 %). Ventana `ventana_georef_auto`
     (`_georef_automatica` tras componer, trabajador «georef»; solo sin georreferencia; dudosa = aviso «Aplicar igual»).
-    `PDFCAD_GEOREF_AUTO=0` la apaga (conftest). Medido Indian School: Sewer North RMS 4.2 ft, cruces de avenidas reales a
-    ≤1.1 ft (`tests/datos/phoenix_cruces.json`); Water South 80 ft = error de su composición → dudosa. Otra fuente (GeoPDF,
+    `PDFCAD_GEOREF_AUTO=0` la apaga (conftest). Medido Indian School (2026-11-19, con el centro del recuadro): Sewer North RMS
+    0.7 ft (con el centroide 4.2), Water South 0.7 ft (antes 80 ft, que se atribuían a su composición), cruces de avenidas
+    reales a ≤1.2 ft (`tests/datos/phoenix_cruces.json`). **Composición por georreferencia** (pedido 2026-11-19, SD
+    North + South salía en 8 grupos): `Ficha.geo` = (EPSG, celda, centro del recuadro) si el texto confirma la celda
+    (`fuentes.celda_en_mundo`); `hoja/composicion_geo`: escala k (ft/pt) de cada PDF calibrada con las uniones que el
+    dibujo confirmó (no la del recuadro: SD va a 1"=100', 1.389 ft/pt) → `B = s·A + t` predicho; las parejas sin
+    confirmar se buscan guiadas por esa predicción y, si no, quedan como unión «georef» (peso `GEO_VOTOS`, ciclos con
+    la tolerancia de «marco»), en `composicion_sugerida._por_georreferencia`. SD: 36 hojas en un grupo, la predicción
+    cae a ≤0.4 pt de las uniones del dibujo. Tests: `tests/test_composicion_geo.py`. Otra fuente (GeoPDF,
     PLSS de la BLM, coordenadas escritas) = otra función en `fuentes.FUENTES`. Tests: `tests/test_georef_auto*.py`.
     «Georreferenciar…» en cualquier sistema: `geo/georef_sistema.py` (`SistemaGeorefMixin` de `GeorefDialog`): `self.epsg` =
     el de la georreferencia del proyecto (o 2229), campo EPSG, pares «world» (o «utm» viejo); fuera de 2229 sin NavigateLA:
@@ -1862,6 +1870,22 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     con la relación pies/largo sacada de las líneas ya leídas, no de la escala de la hoja. `leer_hoja` de anotaciones NO
     sirve aquí (577 «multileaders» falsos: toda raya cerca de un texto). Los mapas con leyenda no cambian. Southwest 37
     (red `#008585` + servicios `#FF6921`): 487 de 545 leídas, 636 rótulos. Tests: `tests/test_grosor_registros.py`.
+  - **Red en IMAGEN** (Phoenix «QS SD», 2026-11-18/19, spec/plan `docs/superpowers/{specs,plans}/2026-11-18-ejes-de-imagen*`):
+    `hoja/imagen_ejes.capas(page)` = capas virtuales `PDF_STYLE:["img",…]` (líneas, símbolos, rellenos) desde las tiras de
+    imagen (`imagen_solo`, `imagen_paleta`, `imagen_trazos` + `imagen_esqueleto`/`huecos`/`puentes`/`aros`/`grosores`);
+    compuesta = ejes de cada hoja de ORIGEN (`imagen_compuesta.ejes_de_piezas`, en procesos). Reconocimiento:
+    `reconocimiento/recognition_imagen_rectas.enderezar` (todo recto de buzón a buzón; codos del núcleo conservados;
+    puntas enfrentadas con hueco ≤`HUECO_MAX_PT` unidas, rumbo medido en `RUMBO_PT`) y `recognition_imagen_piezas`.
+    2026-11-19 (proyecto del usuario «Preuba lineas imagen»): `imagen_bandas` = varias bandas «en caja» PEGADAS (60" RCP
+    junto a 30" RGRCP) → una línea por banda, ANTES del cierre por la familia (que las fundía en un «símbolo»);
+    `imagen_grosores.sin_trocitos_finos` = los dos LADOS finos de una rejilla que no se reconoce (par paralelo a 4–14
+    pt, cortos) quedan sin reconocer; las paredes finas de una tubería chica (≤3.5 pt) y lo demás se quedan;
+    `enderezar` refresca su índice tras cada recta (IndexError) y los cortes por diámetro pendientes pasan por
+    puntos (`cortes_a_puntos`/`puntos_a_cortes`; una línea con cortes pendientes no se une por «sin diámetro»);
+    `imagen_cache` = ejes en disco por huella de la hoja + código (`PDFCAD_CACHE_EJES_IMAGEN`, vacía en las pruebas):
+    reabrir 4 hojas 36.7 → 0.8 s, idéntico. Pendiente: lo frío sigue ~30 s por hoja (esqueleto en Python,
+    `imagen_esqueleto.tramos/podar`); bandas pegadas que no se encadenan (bloques fundidos) quedan como antes.
+    Tests: `tests/test_imagen_*.py`.
   - **Válvulas** (pedido 2026-11-05, spec `docs/superpowers/specs/2026-11-05-valvulas-design.md`): `reconocimiento/recognition_valvulas.py` (PURO) lee al final de `reconocer_hoja`, sin tocar las líneas: capas `V-*-VALV`/`-GV-`, símbolos de la leyenda (`_FILA`; tipo y estado por el texto), moño sobre una línea en hojas sin capas ni leyenda (`es_mono`, «por confirmar») y rol `ROLE_VALVULAS`. El tipo sale solo de un texto del plano, nunca de la forma (DU06 usa un moño, LADWP un punto). `hoja/simbolos_fuente.py`: glifos ESRI como capas virtuales asignables (sin leyenda). `Main.valvulas` (`nucleo/valvulas`, `ventana_valvulas`, `ui/comun/capa_valvulas`): aparte de las estructuras; .digproj, deshacer, `respaldo_editor.CLAVES`; capa `valvulas.CAPA` en `capas_apagadas`. Tubería, rumbo y diámetro se calculan al pedirlos (`relacion`), no se guardan: su utilidad a ≤`UNIR_PT`=5 pt; sin utilidad, y para aceptar un moño, ≤`EN_LINEA_PT`=1.5 pt. DXF: `exportar/dxf_valvulas`. Tests: `tests/test_valvulas.py`.
   - **Superficies (terreno)** (pedido 2026-11-11, versión 2.1.0; ejemplos del cliente en `tests/fixtures/superficies/`: Civil 3D,
     UTM en metros, SIN EPSG). PUROS: `nucleo/superficies_leer.py` (`leer(nombre, bytes)` → `[Superficie]`: LandXML = TIN tal cual,

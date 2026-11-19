@@ -68,7 +68,7 @@ class Costura:
     lado: str
     escala: float
     t: Tuple[float, float]
-    metodo: str                 # vectores | continuidad | solape | guiada
+    metodo: str                 # vectores | continuidad | solape | guiada | marco | georef (`composicion_geo`)
     votos: float
     segundo: float = 0.0
     rms: float = 0.0

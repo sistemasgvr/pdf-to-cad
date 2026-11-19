@@ -186,8 +186,11 @@ def _tramos(ln) -> List[list]:
 
 
 def _lineas_pt(page) -> List[Tuple[str, Tuple, float, Tuple[float, float]]]:
+    import fitz
     out = []
-    for b in page.get_text("dict").get("blocks", ()):
+    # «dict» sin conservar las IMÁGENES (mismo texto): con la red en imagen, una compuesta de mapas traía los bytes
+    # de miles de tiras de imagen (15 s con 4 hojas, minutos con 36; 2026-11-19)
+    for b in page.get_text("dict", flags=fitz.TEXTFLAGS_DICT & ~fitz.TEXT_PRESERVE_IMAGES).get("blocks", ()):
         for ln in b.get("lines", ()):
             grupos = _tramos(ln)
             for spans in grupos:

@@ -169,7 +169,9 @@ def page_legend(page) -> List[LegendRow]:
     """Filas de leyenda de una hoja (vacío si la hoja no tiene una)."""
     drawings = [d for d in page.get_drawings() if d.get("type") not in ("clip", "group")]
     candidates = []
-    for block in page.get_text("dict").get("blocks", []):
+    import fitz
+    # sin conservar las imágenes (mismo texto; con imágenes, cada tira de imagen viajaba en el diccionario)
+    for block in page.get_text("dict", flags=fitz.TEXTFLAGS_DICT & ~fitz.TEXT_PRESERVE_IMAGES).get("blocks", []):
         for line in block.get("lines", []):
             text = " ".join(s.get("text", "") for s in line.get("spans", [])).strip()
             if len(text) < 4 or not re.search(r"[A-Za-z]{3}", text):

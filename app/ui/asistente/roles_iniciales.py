@@ -10,13 +10,22 @@ estilos…». `roles_iniciales` repite EXACTAMENTE lo que hacían `LayerAssignme
 armar el diálogo. Una prueba compara con el diálogo de verdad (`tests/test_flujo_abrir_interpretar.py`).
 
 En una hoja CON capas (CAD) el diálogo devolvía los roles tal cual los recibía: aquí también.
+
+Red en IMAGEN (plan 2026-11-18 «Ejes de la red en imagen», Tarea 7): `Sugerencia.capas` (`hoja.certeza_capas`) dice
+por cada capa de línea de imagen de qué utilidad es y si es SEGURO. Lo seguro se asigna solo (líneas de su utilidad y
+sus símbolos como estructuras) y viaja como lo que asigna una leyenda (`CLAVE_LEYENDA`: solo en esta hoja); lo dudoso
+no se asigna. La respuesta del usuario (`respuestas`, {capa: utilidad | `NO_RED`}, las del PDF de origen de la hoja)
+MANDA y queda como asignación a mano (pasa a otras hojas). En esas hojas los estilos vectoriales que deducía el texto
+(`Sugerencia.lineas`) ya no se asignan: la red es la de la imagen.
 """
 from __future__ import annotations
 
-from typing import Callable, Optional
+from typing import Callable, Optional, Sequence
 
 from hoja import estilos_sugeridos as ES, leyenda_mapa
 from reconocimiento import recognition as rec
+
+NO_RED = "NO_RED"                  # respuesta «No es una red» (`ventana_capas_imagen`)
 
 
 def _copia(roles) -> dict:
@@ -25,13 +34,24 @@ def _copia(roles) -> dict:
 
 
 def roles_iniciales(layers, ley=None, sugeridos=None, base_roles=None,
-                    textos_fuentes: Optional[Callable[[], list]] = None) -> dict:
+                    textos_fuentes: Optional[Callable[[], list]] = None, respuestas: Optional[dict] = None,
+                    nombres_fuentes: Optional[Callable[[], Sequence[str]]] = None,
+                    rehacer_imagen: bool = False) -> dict:
     """Los roles por utilidad de la hoja: `layers` = `pdf_layers.page_layers` (los de la interpretación), `ley` = la
     leyenda del mapa (o None), `sugeridos` = `estilos_sugeridos.sugerir` (o None), `base_roles` = los que ya había
     (`Main._roles_de_la_hoja`) y `textos_fuentes()` = el texto de las hojas de ORIGEN (una hoja compuesta: su cajetín
-    quedó fuera del recorte; `layer_sugeridos.textos_de_fuentes`)."""
+    quedó fuera del recorte; `layer_sugeridos.textos_de_fuentes`), `respuestas` = {capa de imagen: utilidad | `NO_RED`}
+    que dio el usuario y `nombres_fuentes()` = los nombres de los PDF de ORIGEN (en una compuesta el PDF de trabajo es
+    un temporal: su nombre no dice la red). Las capas de imagen que traen los roles de OTRA hoja (o todas, con
+    `rehacer_imagen`: deshacer una respuesta) se quitan y se deciden otra vez aquí: lo seguro de esta hoja y las
+    respuestas de SU PDF; así una respuesta dada para otro PDF nunca asigna una capa dudosa de éste."""
     layers = list(layers or ())
     base = _copia(base_roles)
+    capas = list(getattr(sugeridos, "capas", None) or ())
+    esta_hoja = (any(leyenda_mapa.CLAVE_LEYENDA in r for r in base.values())
+                 and not any(r.get(leyenda_mapa.SUMAR_LEYENDA) for r in base.values()))
+    if capas and (rehacer_imagen or not esta_hoja):
+        base = _sin_imagen(base)
     asignadas = {}
     tocadas = set(base)
     cambio = False
@@ -39,8 +59,6 @@ def roles_iniciales(layers, ley=None, sugeridos=None, base_roles=None,
         for rol in (rec.ROLE_LINEAS, rec.ROLE_BUZONES, rec.ROLE_VALVULAS):
             for nombre in r.get(rol, ()):
                 asignadas[nombre] = (u, rol)
-    esta_hoja = (any(leyenda_mapa.CLAVE_LEYENDA in r for r in base.values())
-                 and not any(r.get(leyenda_mapa.SUMAR_LEYENDA) for r in base.values()))
     ley_por_u = None
     con_estilos = any(L.get("source") == "style" for L in layers)
     hubo_leyenda = False
@@ -67,7 +85,7 @@ def roles_iniciales(layers, ley=None, sugeridos=None, base_roles=None,
         if esta_hoja:
             ley_por_u = {u: list(r.get(leyenda_mapa.CLAVE_LEYENDA) or ())
                          for u, r in base.items() if leyenda_mapa.CLAVE_LEYENDA in r}
-        elif con_estilos and sugeridos is not None:
+        elif con_estilos and sugeridos is not None and not getattr(sugeridos, "capas", None):
             # ── `_apply_estilos_sugeridos` ──
             sug = sugeridos
             if sug.utilidad is None and sug.motivo in (ES.OK, ES.SIN_UTILIDAD) and textos_fuentes is not None:
@@ -88,6 +106,13 @@ def roles_iniciales(layers, ley=None, sugeridos=None, base_roles=None,
                     asignadas[nombre] = (sug.utilidad, rec.ROLE_LINEAS)
                     tocadas.add(sug.utilidad)
                     cambio = True
+    if capas and con_estilos:
+        ley_capas = {} if ley_por_u is None else ley_por_u
+        if aplicar_capas(capas, base, asignadas, tocadas, ley_capas, respuestas,
+                         seguras=rehacer_imagen or not esta_hoja,
+                         nombres_fuentes=nombres_fuentes):
+            cambio = True
+            ley_por_u = ley_capas
     if not cambio:
         return base
     # ── `roles_by_utility()` ──
@@ -116,3 +141,73 @@ def roles_iniciales(layers, ley=None, sugeridos=None, base_roles=None,
             roles[leyenda_mapa.CLAVE_LEYENDA] = list(ley_por_u.get(u, ()))
         out[u] = roles
     return out
+
+
+def _sin_imagen(base: dict) -> dict:
+    """`base` sin ninguna capa de imagen (`imagen_ejes`) en sus roles ni en lo que asignó la leyenda."""
+    from hoja import imagen_ejes
+    return {u: {k: [n for n in v if not imagen_ejes.tipo_imagen(n)] if isinstance(v, list) else v
+                for k, v in r.items()}
+            for u, r in base.items()}
+
+
+def _con_nombres(c, nombres):
+    """La capa sin ninguna evidencia (`sin_evidencia` y nada más en contra) con UNA utilidad en el nombre de los PDF
+    de origen: la misma regla que `certeza_capas.evaluar` con ese nombre (el «nombre» pesa más que todo)."""
+    if c.seguro or list(c.en_contra) != ["sin_evidencia"] or not nombres:
+        return c
+    from hoja import composicion_hermanos as CH
+    from hoja.certeza_capas import CapaCerteza
+    us = {u for u in (CH.utilidad(n) for n in nombres) if u}
+    if len(us) != 1:
+        return c
+    return CapaCerteza(c.capa, next(iter(us)), True, ["nombre"] + list(c.a_favor), [], list(c.simbolos))
+
+
+def aplicar_capas(capas, base, asignadas, tocadas, ley_por_u, respuestas=None, seguras=True,
+                  nombres_fuentes=None) -> bool:
+    """Aplica las `CapaCerteza` de la hoja sobre `asignadas` ({capa: (utilidad, rol)}), `tocadas` y `ley_por_u`
+    ({utilidad: capas que asignó «la leyenda»}) → True si cambió algo. La respuesta del usuario manda (sale de donde
+    estuviera y, si no es `NO_RED`, va a mano a su utilidad); lo seguro (solo con `seguras`: en la MISMA hoja con
+    roles elegidos en ella no se vuelve a poner) va como la leyenda, salvo lo ya asignado a mano."""
+    respuestas = respuestas or {}
+    a_mano = {n for r in (base or {}).values()
+              for rol in (rec.ROLE_LINEAS, rec.ROLE_BUZONES, rec.ROLE_VALVULAS) for n in r.get(rol) or ()}
+    nombres = None
+    cambio = False
+    for c in capas:
+        resp = respuestas.get(c.capa)
+        propias = [c.capa] + [s for s in c.simbolos or () if s != c.capa]
+        if resp is not None:
+            if resp != NO_RED and resp not in rec.SUPPORTED_UTILITIES:
+                continue
+            for n in propias:
+                asignadas[n] = (None, rec.ROLE_IGNORAR)          # de nadie (sale de donde estuviera)
+                for lst in ley_por_u.values():
+                    while n in lst:
+                        lst.remove(n)
+            if resp != NO_RED:
+                asignadas[c.capa] = (resp, rec.ROLE_LINEAS)
+                for s in propias[1:]:
+                    asignadas[s] = (resp, rec.ROLE_BUZONES)
+                tocadas.add(resp)
+            cambio = True
+            continue
+        if not seguras:
+            continue
+        if nombres is None:
+            nombres = list(nombres_fuentes() or ()) if nombres_fuentes is not None else []
+        c = _con_nombres(c, nombres)
+        if not c.seguro or c.utilidad not in rec.SUPPORTED_UTILITIES or c.capa in a_mano:
+            continue
+        u = c.utilidad
+        lst = ley_por_u.setdefault(u, [])
+        for n, rol in [(c.capa, rec.ROLE_LINEAS)] + [(s, rec.ROLE_BUZONES) for s in propias[1:]]:
+            if n in a_mano:
+                continue
+            if n not in lst:
+                lst.append(n)
+            asignadas[n] = (u, rol)
+        tocadas.add(u)
+        cambio = True
+    return cambio

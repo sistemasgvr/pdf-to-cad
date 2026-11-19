@@ -21,8 +21,8 @@ binaries = []
 # PyInstaller no ve: sin esto, en el .exe fallan con ModuleNotFoundError. Lo revisa
 # tests/test_empaquetado_trabajos.py.
 hiddenimports = [
-    "hoja.area_sugerida", "hoja.capas_trabajo", "hoja.composicion_trabajo", "hoja.composite_trabajo",
-    "hoja.estilos_sugeridos", "hoja.indice_texto", "hoja.interpretar_trabajo",
+    "hoja.area_sugerida", "hoja.capas_trabajo", "hoja.certeza_capas", "hoja.composicion_trabajo", "hoja.composite_trabajo",
+    "hoja.estilos_sugeridos", "hoja.imagen_ejes", "hoja.indice_texto", "hoja.interpretar_trabajo",
     "hoja.hoja_calcada", "hoja.leyenda_mapa", "hoja.leyenda_trabajo", "hoja.planos_trabajo", "nucleo.modelo3d",
     "reconocimiento.lectura_retenida", "reconocimiento.recognition_trabajo", "ui.comun.fondo_trabajo",
     "ui.ventana.calculo_fondo", "geo.auto.ajuste",

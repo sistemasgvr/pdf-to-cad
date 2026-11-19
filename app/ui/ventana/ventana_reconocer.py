@@ -34,6 +34,8 @@ def panel_reconocer(win):
     p.visto.connect(win._verificar_visto)
     p.aviso.connect(win._aviso_reconocer)
     p.plano.connect(win.rec_cambiar_plano)
+    p.capa_elegida.connect(win._capa_imagen_elegida)      # red en imagen dudosa (`ventana_capas_imagen`)
+    p.capa_ubicar.connect(win._ubicar_capa_imagen)
     win._refrescar_panel_reconocer()
     return p
 
@@ -61,6 +63,9 @@ class ReconocerMixin(PlanosReconocerMixin, ReconocerColaMixin, ReconocerVistaMix
                   unidad_capas="estilos" if estilos else "capas",
                   interpretando=bool(getattr(self, "_interp_tarea", None) is not None),
                   diametros=self._diametros_por_revisar(), planos=self.rec_planos(), plano=self._rec_grupo())
+        dudosas, por = self._capas_imagen_de_hoja() if hasattr(self, "_capas_imagen_de_hoja") else ([], {})
+        p.poner_asignadas(por)
+        p.poner_dudosas(dudosas)
 
     def _diametros_por_revisar(self):
         """(dudosas, sin dato): tuberías con el aviso «Diámetro del plano» (`diametro_plano.avisos`: el plano no dijo

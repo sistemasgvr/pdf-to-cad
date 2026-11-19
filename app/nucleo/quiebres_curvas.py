@@ -401,7 +401,7 @@ def curvas_en_quiebres(pipes, structures, ft_per_px, indices=None, tol=None):
         net = network_kind(p.get("layer") or "")
         pts = p.get("pts") or []
         kinds = p.get("vertex_kinds") or []
-        if p.get("world") or net not in REDES_CON_CURVAS or len(pts) < 3 or len(kinds) != len(pts):
+        if p.get("world") or p.get("solo_rectas") or net not in REDES_CON_CURVAS or len(pts) < 3 or len(kinds) != len(pts):
             continue
         if not any(kinds[i] in KINDS_QUIEBRE and _giro_deg(pts[i - 1], pts[i], pts[i + 1]) > GIRO_MIN_DEG
                    for i in range(1, len(pts) - 1)):

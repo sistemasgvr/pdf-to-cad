@@ -91,6 +91,7 @@ def _recuperacion_en_carpeta_temporal(monkeypatch, tmp_path):
 def _digitalizado_en_carpeta_temporal(monkeypatch, tmp_path):
     """La caché del PDF digitalizado («Exportar DXF», cache_digitalizado) nunca va a %LOCALAPPDATA%."""
     monkeypatch.setenv("PDFCAD_CACHE_DIGITALIZADO", str(tmp_path / "digitalizado"))
+    monkeypatch.setenv("PDFCAD_CACHE_EJES_IMAGEN", "")              # sin caché en disco de los ejes de imagen
     yield
 
 

@@ -131,6 +131,9 @@ class LayerAssignmentsMixin(EstilosSugeridosMixin):
 
     def _effective_layers(self):
         out = pdf_layers.without_letters(self._layers_raw, self._letters_off)
+        dudosas = self._capas_dudosas()                   # red en imagen sin saber de qué red es: «?» + porqué
+        if dudosas:
+            out = [dict(L, dudosa=dudosas[L["name"]]) if L["name"] in dudosas else L for L in out]
         out = [dict(L, legend=self._legend_desc.get(L['name'], ())) if L['name'] in self._legend_desc else L
                for L in out]
         return [dict(L, utility=self._assignments[L['name']][0],

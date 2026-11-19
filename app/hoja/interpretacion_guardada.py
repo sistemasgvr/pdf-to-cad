@@ -19,7 +19,7 @@ from typing import Optional, Tuple
 VERSION = 1
 SIN_GUARDAR = ("letras",)                       # lectura de la hoja: nunca al .digproj
 CLASES = {"hoja.leyenda_mapa:LeyendaMapa", "hoja.leyenda_mapa:FilaMapa",
-          "hoja.estilos_sugeridos:Sugerencia"}
+          "hoja.estilos_sugeridos:Sugerencia", "hoja.certeza_capas:CapaCerteza"}
 
 
 def codificar(v):

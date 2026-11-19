@@ -31,6 +31,13 @@ class Celda:
         n = len(self.poligono)
         return (sum(p[0] for p in self.poligono) / n, sum(p[1] for p in self.poligono) / n)
 
+    def centro_caja(self) -> Tuple[float, float]:
+        """Centro del recuadro de la celda: el mapa de cada hoja va centrado en él (el promedio de los vértices se
+        corre hacia donde el polígono tiene más vértices: 260 pt en «16-25» de Phoenix, 2026-11-19)."""
+        xs = [p[0] for p in self.poligono]
+        ys = [p[1] for p in self.poligono]
+        return ((min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0)
+
 
 @dataclass
 class Indice:

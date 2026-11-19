@@ -257,6 +257,8 @@ class LayerInfoMixin:
         capas encendidas y recortado como lo toma el reconocimiento
         (`leyenda_estandar.trazos_visibles`). Una vez por hoja."""
         if self._drawings is None:
+            self._drawings = self._trazos_en_proceso(True)
+        if self._drawings is None:
             pdf_layers.set_hidden(self._doc, ())
             try:
                 names = {L["name"] for L in self._layers}
@@ -265,6 +267,31 @@ class LayerInfoMixin:
             finally:
                 pdf_layers.set_hidden(self._doc, self.hidden_names())
         return self._drawings
+
+    def _trazos_en_proceso(self, para_reconocimiento: bool):
+        """La lectura para resaltar, en el proceso trabajador y con la tarjeta «Cargando…» (reporte 2026-11-19: en
+        una compuesta de 36 mapas con la red en imagen, leerla aquí congelaba la ventana minutos, sin aviso). En el
+        editor va al trabajador que interpretó la hoja (ya tiene los ejes de imagen de cada hoja en memoria); en el
+        asistente, al «principal» (el de `capas_trabajo.leer`). None = sin proceso o sin el PDF en disco: se lee
+        aquí, como siempre."""
+        from ui.comun import fondo_trabajo, proceso
+        from ui.comun.busy import detalle_de, overlay_for
+        ruta = fondo_trabajo.ruta_de(self._doc)
+        if not proceso.activo() or not ruta:
+            return None
+        ov = overlay_for(self)
+        ov.begin(_tr("Leyendo las líneas de la hoja…"))
+        try:
+            res, err = proceso.ejecutar(
+                "hoja.capas_trabajo:trazos", ruta, int(self._page_index), pdf_layers.encendidas(self._doc),
+                sorted(getattr(self._doc, "_pdf_style_hidden", None) or ()), para_reconocimiento,
+                list(self._layers) if para_reconocimiento else None,
+                nombre=proceso.RETENEDOR if getattr(self, "_editor", False) else "principal",
+                al_avanzar=lambda a: (ov.step(detail=detalle_de(a[1], a[2], a[3]), pump=False)
+                                      if a and a[0] == "detalle" and ov.active else None))
+        finally:
+            ov.end()
+        return None if err or res is None else res
 
     def _visible_layers(self) -> set:
         """Capas con algo visible en la hoja (lo recortado por la vista no cuenta). Con la lectura
@@ -287,6 +314,10 @@ class LayerInfoMixin:
         key = (id(self._doc), self._page_index)
         cached = getattr(self, "_pick_cache", None)
         if cached is None or cached[0] != key:
+            out = self._trazos_en_proceso(False)
+            if out is not None:
+                self._pick_cache = (key, out)
+                return out
             pdf_layers.set_hidden(self._doc, ())
             try:
                 paths = leyenda_trazos.trazos_visibles(self._page, para_reconocimiento=False)

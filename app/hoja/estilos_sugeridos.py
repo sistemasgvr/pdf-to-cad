@@ -61,6 +61,8 @@ class Sugerencia:
     motivo: str = SIN_ROTULOS
     menciones: Dict[str, int] = field(default_factory=dict)
     rotulos: int = 0
+    # capas de LÍNEA de imagen (`imagen_ejes`): utilidad, seguro/dudoso y evidencias (`certeza_capas`)
+    capas: list = field(default_factory=list)
 
 
 def utilidad_de_texto(textos: Iterable[str]) -> Tuple[Optional[str], Dict[str, int]]:
@@ -167,16 +169,25 @@ def _sobre(p, rejilla, propio: str) -> set:
     return hit
 
 
-def sugerir(page, paths=None, corridas=None, textos: Iterable[str] = ()) -> Sugerencia:
+def sugerir(page, paths=None, corridas=None, textos: Iterable[str] = (), nombres: Iterable[str] = (),
+            leyenda=None) -> Sugerencia:
     """Estilos de la red de esta hoja (sin capas ni leyenda). `paths` = `pdf_styles.drawings(page)`
     y `corridas` = `texto_pdf.corridas(page)` si ya se leyeron; `textos` = más texto del documento
-    (hojas de origen de una hoja compuesta: su cajetín quedó fuera del recorte)."""
-    from hoja import pdf_styles, texto_pdf
-    from reconocimiento import recognition_grosor_registros as GR
+    (hojas de origen de una hoja compuesta: su cajetín quedó fuera del recorte); `nombres` = nombres
+    de los PDF (el abierto y, en una compuesta, los de origen). Al final, la certeza de cada capa de
+    LÍNEA de imagen (`certeza_capas.evaluar` → `Sugerencia.capas`; [] en hojas sin red en imagen)."""
+    from hoja import certeza_capas, pdf_styles, texto_pdf
     if paths is None:
         paths = pdf_styles.drawings(page)
     if corridas is None:
         corridas = texto_pdf.corridas(page)
+    sug = _sugerir(page, paths, corridas, textos)
+    sug.capas = certeza_capas.evaluar(paths, corridas, sug.utilidad, list(nombres or ()), leyenda)
+    return sug
+
+
+def _sugerir(page, paths, corridas, textos) -> Sugerencia:
+    from reconocimiento import recognition_grosor_registros as GR
     sug = Sugerencia()
     sug.utilidad, sug.menciones = utilidad_de_texto([page.get_text()] + list(textos))
     rot = [c for c in corridas if c.glifos and GR.RX_DIAM.match((c.texto or "").upper())]

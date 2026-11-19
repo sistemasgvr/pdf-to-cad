@@ -213,7 +213,8 @@ class InterpretarMixin:
             self.doc.__dict__.setdefault("_pdfcad_leyenda_mapa", {}).setdefault(hoja, res["leyenda"])
         roles = RI.roles_iniciales(res.get("layers"), res.get("leyenda"), res.get("sugeridos"),
                                    base_roles=self._roles_de_la_hoja(hoja),
-                                   textos_fuentes=lambda: textos_de_fuentes(self._legend_sources()))
+                                   textos_fuentes=lambda: textos_de_fuentes(self._legend_sources()),
+                                   respuestas=self._respuestas_de_hoja(), nombres_fuentes=self._nombres_de_fuentes)
         self._layer_roles_by_utility = roles
         self._layer_roles_hoja = self._clave_hoja(hoja)
         self.reconocer_estado = RE.de_interpretacion(self._rec_estado(), res, firma, hidden=self.hidden_ocgs,

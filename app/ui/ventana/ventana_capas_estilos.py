@@ -20,11 +20,14 @@ from traduccion.i18n import t as _tr
 class CapasEstilosMixin:
     _capas_estilos_dlg = None
 
-    def abrir_capas_estilos(self, parte=None):
-        """«Capas y estilos…» (de una fila: `parte`; general: None)."""
+    def abrir_capas_estilos(self, parte=None, capa=None):
+        """«Capas y estilos…» (de una fila: `parte`; general: None). `capa` = resaltarla y encuadrarla al abrir (el ⌖
+        de una capa de red en imagen dudosa del panel)."""
         dlg = self._capas_estilos_dlg
         if dlg is not None:                                     # ya abierta: a la vista, en esa utilidad
             dlg.enfocar_parte(parte)
+            if capa:
+                QtCore.QTimer.singleShot(0, dlg, lambda: dlg.enfocar_capa(capa))
             if not self.mostrar_vista(dlg):
                 dlg.raise_()
             return
@@ -56,6 +59,8 @@ class CapasEstilosMixin:
             return
         dlg._doc_propio = doc if propio else None
         dlg.enfocar_parte(parte)
+        if capa:                                                # tras mostrarse: el encuadre necesita su tamaño
+            QtCore.QTimer.singleShot(0, dlg, lambda: dlg.enfocar_capa(capa))
         self._capas_estilos_dlg = dlg
         dlg.finished.connect(lambda codigo, d=dlg: self._capas_estilos_cerrada(d, codigo))
         if self.incrustar_vista(dlg):
@@ -81,21 +86,30 @@ class CapasEstilosMixin:
             self.mostrar_plano()                                # de vuelta al plano, siempre
         if codigo == QtWidgets.QDialog.Accepted:
             from ui.asistente import layer_dialog_editor as LE
-            self._capas_estilos_aplicar(LE.resultado(dlg))
+            self._capas_estilos_aplicar(LE.resultado(dlg), a_mano=set(getattr(dlg, "_assignments", None) or ()))
         dlg.soltar_vivo()
         propio = getattr(dlg, "_doc_propio", None)       # la hoja de la utilidad agregada, abierta solo para esto
         if propio is not None:
             dlg.destroyed.connect(lambda *_a, d=propio: d.close())
         QtCore.QTimer.singleShot(0, dlg.deleteLater)
 
-    def _capas_estilos_aplicar(self, chosen):
-        """Lo elegido en «Capas y estilos…» a la ventana y a las filas del panel."""
+    def _capas_estilos_aplicar(self, chosen, a_mano=()):
+        """Lo elegido en «Capas y estilos…» a la ventana y a las filas del panel. `a_mano` = las capas con utilidad
+        elegida en el diálogo (`_assignments`): una capa de red en imagen dudosa entre ellas queda como respuesta."""
         from hoja import pdf_layers
         antes = (sorted(self.hidden_ocgs or ()), self._scale_override)
         if len(chosen) > 5 and chosen[5] and not self._confirmar_escala(chosen[5]):
             chosen = tuple(chosen[:5]) + (None,) + tuple(chosen[6:])        # la escala de antes queda
         if getattr(self, "_rec_hoja", None) is not None:   # la hoja del PDF agregado: la del editor no cambia
             chosen = (chosen[0], self.page_idx) + tuple(chosen[2:])
+        # red en imagen: una capa dudosa asignada aquí queda como RESPUESTA de su PDF (un solo paso de deshacer)
+        respuestas = {}
+        if len(chosen) > 4 and hasattr(self, "_capas_imagen_de_hoja"):
+            dudosas = [c for c in self._capas_imagen_de_hoja()[0] if c.capa in set(a_mano or ())]
+            respuestas = self._respuestas_de_roles(dudosas, chosen[4])
+        if respuestas:
+            self._push()
+            self._guardar_respuestas_imagen(respuestas)
         self._aplicar_capas_elegidas(chosen, utilidades=False)
         if sorted(self.hidden_ocgs or ()) != antes[0]:
             pdf_layers.set_hidden(self.doc, list(self.hidden_ocgs))

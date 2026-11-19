@@ -298,7 +298,9 @@ def _scale_texts(page):
     except ImportError:                       # vector_pipeline usado sin la app en sys.path
         pass
     out = []
-    for b in page.get_text("dict")["blocks"]:
+    # sin conservar las imágenes (mismo texto): en un mapa con la red en imagen, el diccionario traía los bytes de
+    # miles de tiras de imagen (13 s con 4 hojas compuestas; 2026-11-19)
+    for b in page.get_text("dict", flags=fitz.TEXTFLAGS_DICT & ~fitz.TEXT_PRESERVE_IMAGES)["blocks"]:
         if b.get("type") != 0:
             continue
         for line in b["lines"]:

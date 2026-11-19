@@ -33,6 +33,7 @@ from hoja import composite as C
 from hoja import borde_inclinado as BI
 from hoja import composicion_costuras as K
 from hoja import composicion_encaje as E
+from hoja import composicion_geo as CG
 from hoja.composicion_ficha import Ficha, Rect, estacion_texto
 
 Nodo = Tuple[int, int]                       # (pdf, hoja)
@@ -40,6 +41,7 @@ Nodo = Tuple[int, int]                       # (pdf, hoja)
 TOL_ESTACION_FT = 60.0       # rótulos de una misma costura: misma estación (las erratas medidas: 50 ft)
 TOL_CICLO_PT = 1.0           # una unión de control que no cierra a ≤ esto parte el grupo
 TOL_CICLO_MARCO_PT = 4.0     # …unión «por marco» (atlas borde con borde): cada cuarto de sección tiene su forma
+GEO_VOTOS = 0.5              # peso de una unión solo por georreferencia (`composicion_geo`): menos que cualquiera del dibujo
 DOMINIO_CANDIDATO = 1.5      # varias vecinas confirmadas por el mismo lado: la mejor debe destacar
 LADOS_ADELANTE = ("right", "bottom")
 DIR_LADO = {(1, 0): "right", (-1, 0): "left", (0, 1): "bottom", (0, -1): "top"}
@@ -236,7 +238,7 @@ def _confirmar_mapa(fichas: Dict[Nodo, Ficha], cancelado=None, enc: Encajes = _D
             pend.append((fa, lado, fb))
         else:
             hechas.append(c)
-    descartadas = 0
+    faltan = []
     for fa, lado, fb in pend:
         if cancelado is not None and cancelado():
             break
@@ -246,10 +248,29 @@ def _confirmar_mapa(fichas: Dict[Nodo, Ficha], cancelado=None, enc: Encajes = _D
             guia = (_mediana([r.t[0] for r in ref]), _mediana([r.t[1] for r in ref]))
             c = enc.mapa(fa, fb, lado, escala=_mediana([r.escala for r in ref]), guia=guia)
         if c is None:
-            descartadas += 1
+            faltan.append((fa, lado, fb))
         else:
             hechas.append(c)
-    return hechas, descartadas
+    return hechas, _por_georreferencia(faltan, hechas, fichas, cancelado, enc)
+
+
+def _por_georreferencia(faltan, hechas: List[E.Costura], fichas, cancelado, enc: Encajes) -> int:
+    """Las parejas que el dibujo no confirmó, por la GEORREFERENCIA de sus hojas (`composicion_geo`, pedido
+    2026-11-19): primero el encaje guiado a ≤40 pt de lo que predice; si tampoco, la unión predicha tal cual (método
+    «georef», el peso más bajo: las del dibujo mandan). Devuelve las que quedan descartadas."""
+    ks = CG.calibrar(hechas, fichas)
+    descartadas = 0
+    for fa, lado, fb in faltan:
+        if cancelado is not None and cancelado():
+            break
+        p = CG.prediccion(fa, fb, ks)
+        if p is None:
+            descartadas += 1
+            continue
+        s, t = p
+        c = enc.mapa(fa, fb, lado, escala=s, guia=t)
+        hechas.append(c if c is not None else E.Costura(fa.clave, fb.clave, lado, s, t, "georef", GEO_VOTOS))
+    return descartadas
 
 
 # ─────────────────────────── grupos ───────────────────────────
@@ -289,7 +310,7 @@ def _encadenar(nodos: Sequence[Nodo], costuras: Sequence[E.Costura], fichas: Dic
             continue
         r = _residuo(c, T, fichas)
         peor = max(peor, r)
-        if r > (TOL_CICLO_MARCO_PT if c.metodo == "marco" else TOL_CICLO_PT):
+        if r > (TOL_CICLO_MARCO_PT if c.metodo in ("marco", "georef") else TOL_CICLO_PT):
             malos.append(c)
     return T, rej, peor, malos
 

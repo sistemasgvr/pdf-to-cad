@@ -77,6 +77,9 @@ def build_model_dict(win):
         model["fondo_apagado"] = True
     if getattr(win, "capas_apagadas", None):
         model["capas_apagadas"] = sorted(win.capas_apagadas)
+    # respuestas del usuario sobre las capas de red en imagen ({sha1 del PDF: {capa: utilidad | NO_RED}})
+    if getattr(win, "capas_imagen_respuestas", None):
+        model["capas_imagen_respuestas"] = {str(h): dict(v) for h, v in win.capas_imagen_respuestas.items()}
     # rótulos del plano reconocidos (MLeader / MText, `recognition_anotaciones`; px de la vista)
     if getattr(win, "anotaciones", None):
         model["anotaciones"] = list(win.anotaciones)
@@ -174,7 +177,15 @@ def parse_model(model):
         pdf_fondo_negro=model.get("pdf_fondo_negro"),
         anotaciones=_anotaciones(model.get("anotaciones")),   # retrocompat: sin rótulos reconocidos
         reconocer=reconocer_de_model(model, pipes),            # retrocompat: sin panel «Reconocer»
+        capas_imagen_respuestas=_respuestas_imagen(model.get("capas_imagen_respuestas")),   # retrocompat: {}
     )
+
+
+def _respuestas_imagen(d) -> dict:
+    """{sha1: {capa: utilidad | NO_RED}} leído del .digproj (solo textos); {} si falta o no se entiende."""
+    if not isinstance(d, dict):
+        return {}
+    return {str(h): {str(c): str(u) for c, u in v.items()} for h, v in d.items() if isinstance(v, dict)}
 
 
 def reconocer_a_dict(win):

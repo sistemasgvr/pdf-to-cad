@@ -70,6 +70,19 @@ def _cs_code(epsg: int) -> str:
         return ""
 
 
+def celda_en_mundo(celda: Tuple[int, int], texto: str) -> Optional[Tuple[str, str, int, Pt]]:
+    """(índice, clave de la celda, EPSG, centro del recuadro de su polígono) de la celda `(fila, columna)` que el `texto` de la
+    hoja confirma (`confirma`), o None si ningún índice la tiene o queda ambigua. Lo usa también la composición
+    sugerida (`hoja/composicion_geo`): ubica cada hoja sin leer otra vez la hoja."""
+    for id_ in IM.disponibles():
+        ix = IM.cargar(id_)
+        buenas = [(k, c) for k, c in ix.por_numero(*celda) if confirma(texto, c, ix)]
+        if len(buenas) == 1:
+            k, c = buenas[0]
+            return id_, k, ix.epsg, c.centro_caja()
+    return None
+
+
 def por_indice(page, ficha, texto: Optional[str] = None) -> Optional[Ubicacion]:
     """Índice de mapas en cuadrícula: la celda que dice la hoja, confirmada por su texto → ancla = centro del
     recuadro del mapa → centroide del polígono de la celda (medido: Sewer/Water North ~4 ft)."""
@@ -92,7 +105,7 @@ def por_indice(page, ficha, texto: Optional[str] = None) -> Optional[Ubicacion]:
         k, c = buenas[0]
         centro = ((v[0] + v[2]) / 2.0, (v[1] + v[3]) / 2.0)
         esc = ix.recuadro_ft / (v[2] - v[0]) if ix.recuadro_ft and v[2] > v[0] else 0.0
-        return Ubicacion(ix.epsg, _cs_code(ix.epsg), [Ancla(centro, c.centroide(), id_ + ":" + k, esc)], id_, k)
+        return Ubicacion(ix.epsg, _cs_code(ix.epsg), [Ancla(centro, c.centro_caja(), id_ + ":" + k, esc)], id_, k)
     return None
 
 

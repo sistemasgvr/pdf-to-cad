@@ -29,7 +29,8 @@ _HOJA = ("doc", "work_pdf_path", "_tmp_composite", "src_pdfs", "composite",
          "hidden_ocgs_by_source", "hidden_ocgs", "_scale_override", "_composite_layout",
          "page_idx", "_recognition_utilities", "_letters_off",
          "_layer_roles_by_utility", "_layer_roles_hoja", "_join_routes",
-         "scale", "rot", "W", "H", "derot", "pageH_px", "leader_hpx", "gray", "_vista_fondo", "_fondo_apagado")
+         "scale", "rot", "W", "H", "derot", "pageH_px", "leader_hpx", "gray", "_vista_fondo", "_fondo_apagado",
+         "capas_imagen_respuestas")
 # …lo que vacía `_reset_model`…
 _MODELO = ("cur_pts", "pipes", "leaders", "text_marks", "erase_regions", "_erase_pts",
            "structures", "ref_centerlines", "_cl_pts", "duct_banks", "cross_connections",

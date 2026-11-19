@@ -72,7 +72,10 @@ def test_no_pisa_una_georreferencia_hecha_a_mano(win):
 
 @PDFS
 def test_composicion_con_error_queda_dudosa_y_no_se_aplica(win):
+    # (2026-11-19: Water South ya cierra a 0.7 ft con el centro del recuadro de cada celda; el error se provoca
+    # corriendo una pieza 100 pt ≈ 140 ft)
     _poner(win, "QS Water_Indian School_South")
+    win.composite.pieces[3].x += 100.0
     win._georef_automatica()
     assert win._georef_auto_esperar()
     assert not win.georef.active() and win._georef_auto_dudosa is not None
