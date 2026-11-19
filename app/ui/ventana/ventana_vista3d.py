@@ -8,7 +8,43 @@ archivo y cambios sin guardar, se guarda; sin archivo todavía, copia de recuper
 del autoguardado (no se abre «Guardar como» cada vez)."""
 from __future__ import annotations
 
+from PySide6 import QtCore, QtGui, QtWidgets
+
 from traduccion.i18n import t as _tr
+
+
+class _PuntoAbierta(QtWidgets.QWidget):
+    """Punto en la esquina del botón del riel: «esta ventana sigue abierta» (como el de una app abierta en la
+    barra de tareas). Color de acento con un anillo del color del riel, para que se separe del icono."""
+    LADO = 9
+
+    def __init__(self, boton):
+        super().__init__(boton)
+        self.setObjectName("puntoAbierta")
+        self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
+        self.setFixedSize(self.LADO, self.LADO)
+        boton.installEventFilter(self)
+        self._colocar()
+        from ui.comun import theme
+        theme.al_tema(self, lambda *_a: self.update())
+
+    def _colocar(self):
+        b = self.parentWidget()
+        self.move(b.width() - self.LADO - 4, 4)
+
+    def eventFilter(self, obj, ev):
+        if ev.type() == QtCore.QEvent.Resize:
+            self._colocar()
+        return False
+
+    def paintEvent(self, _e):
+        from ui.comun import theme
+        t = theme.tokens()
+        p = QtGui.QPainter(self)
+        p.setRenderHint(QtGui.QPainter.Antialiasing)
+        p.setPen(QtGui.QPen(QtGui.QColor(t.surface), 2))
+        p.setBrush(QtGui.QColor(t.accent))
+        p.drawEllipse(QtCore.QRectF(1, 1, self.LADO - 2, self.LADO - 2))
 
 
 class Vista3DMixin:
@@ -57,6 +93,38 @@ class Vista3DMixin:
         if dlg.isVisible():
             dlg.close()
         dlg._firma = None
+        dlg._parcheada = False
+
+    def _riel_vista3d_al_dia(self):
+        """El botón «Vista 3D» del riel con un punto mientras la ventana sigue abierta, también minimizada
+        (2026-11-18: minimizada no tiene botón en la barra de tareas y no se sabía que seguía ahí). No se usa el
+        estado «marcado» del riel: ése dice qué página del panel está a la vista."""
+        boton = self._boton_riel_vista3d()
+        if boton is None:
+            return
+        dlg = self.__dict__.get("_vista3d_dlg")
+        abierta = dlg is not None and dlg.isVisible()
+        minimizada = abierta and dlg.isMinimized()
+        punto = boton.findChild(QtWidgets.QWidget, "puntoAbierta")
+        if punto is None:
+            punto = _PuntoAbierta(boton)
+        punto.setVisible(abierta)
+        if minimizada:
+            tip = _tr("Vista 3D: minimizada. Clic para volver a ella (F3).")
+        elif abierta:
+            tip = _tr("Vista 3D: abierta. Clic para traerla al frente (F3).")
+        else:
+            tip = _tr("Vista 3D")
+        boton.setToolTip(tip)
+        boton.setAccessibleDescription(tip)
+
+    def _boton_riel_vista3d(self):
+        from ui.ventana import ventana_shell
+        for k, b in getattr(self, "_riel_btn", None) or []:
+            item = ventana_shell.RIEL[k]
+            if item is not None and item[3] == "abrir_vista3d":
+                return b
+        return None
 
     def _vista3d_al_dia(self):
         """El plano cambió (o la selección): si la vista 3D está abierta, que lo siga."""

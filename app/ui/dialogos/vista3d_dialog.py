@@ -590,6 +590,26 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
     def closeEvent(self, e):
         self._guardar_ajustes()
         super().closeEvent(e)
+        self._estado_al_riel()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self._estado_al_riel()
+
+    def hideEvent(self, e):
+        super().hideEvent(e)
+        self._estado_al_riel()
+
+    def changeEvent(self, e):
+        super().changeEvent(e)
+        if e.type() == QtCore.QEvent.WindowStateChange:
+            self._estado_al_riel()
+
+    def _estado_al_riel(self):
+        """El botón «Vista 3D» del riel muestra si esta ventana sigue abierta (aunque minimizada)."""
+        fn = getattr(self.win, "_riel_vista3d_al_dia", None)
+        if fn is not None:
+            fn()
 
     def _duenio(self):
         """La ventana principal como DUEÑA de esta (transient parent): queda encima de ella sin
@@ -601,6 +621,7 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
             self.winId()                              # crea la ventana nativa de esta
             if self.windowHandle() is not None and self.windowHandle().transientParent() is not h:
                 self.windowHandle().setTransientParent(h)
+            boton_en_barra(self)
         except RuntimeError:
             pass
 
@@ -658,11 +679,11 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         titulo, filas = "", []
         try:
             if tipo == "pipe":
-                tablas = w._tablas_de_datos(solo_pipes={k})          # solo su fila (no las 16 mil)
+                tablas = w._tablas_de_datos(solo_pipes={k}, filas_avisos=False)          # solo su fila (no las 16 mil)
                 titulo, filas = ficha3d.de_utilidad(tablas, w.pipes, self._avisos_dicts(), k,
                                                     w.scale / w.zoom if w.scale and w.zoom else None)
             elif tipo == "struct":
-                tablas = w._tablas_de_datos(solo_estructuras={k})
+                tablas = w._tablas_de_datos(solo_estructuras={k}, filas_avisos=False)
                 titulo, filas = ficha3d.de_estructura(tablas, k, (o or {}).get("z0"),
                                                       (o or {}).get("z1"))
             elif tipo == "conflicto" and o:
@@ -706,6 +727,18 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
             self.win.showMaximized()                     # la principal siempre va maximizada
         self.win.raise_()
         self.win.activateWindow()
+        self._aviso_sigue_abierta()
+
+    def _aviso_sigue_abierta(self):
+        """Minimizada, la 3D se pierde fácil (sobre todo en otro monitor, 2026-11-18): un aviso
+        breve dice dónde quedó y vuelve con un clic. Cada vez: es justo el momento en que uno la pierde."""
+        w = self.win
+        if not (hasattr(w, "_incrustar_ok") and w._incrustar_ok()):
+            return                                       # sin la ventana en pantalla (pruebas): nada
+        from ui.comun import aviso_breve
+        aviso_breve.mostrar(w, _tr("La Vista 3D sigue abierta"),
+                            _tr("Vuelve desde la barra de tareas, con el botón del cubo, a la izquierda, o con F3."),
+                            (_tr("Volver a la Vista 3D"), lambda: abrir(w)), "info")
 
     def deseleccionar(self):
         """Quita la selección (Esc): en 3D, en la ficha y en el plano."""
@@ -814,6 +847,43 @@ class Vista3DDialog(ArmadoMixin, QtWidgets.QDialog):
         return ""
 
 
+WS_EX_APPWINDOW = 0x00040000
+GWL_EXSTYLE = -20
+
+
+def estilo_con_barra(ex):
+    """Estilo extendido de Windows con botón propio en la barra de tareas."""
+    return int(ex) | WS_EX_APPWINDOW
+
+
+def boton_en_barra(w):
+    """Una ventana con DUEÑA no tiene botón en la barra de tareas de Windows y, minimizada, queda como una barrita
+    en una esquina (reporte del usuario 2026-11-18: la 3D minimizada «desaparecía»). WS_EX_APPWINDOW le da su
+    botón; sigue encima de la principal. Devuelve True si lo puso."""
+    import sys
+    from PySide6 import QtGui
+    if (sys.platform != "win32" or w.windowHandle() is None
+            or QtGui.QGuiApplication.platformName() != "windows"):
+        return False
+    try:
+        import ctypes
+        u32 = ctypes.windll.user32
+        hwnd = ctypes.c_void_p(int(w.winId()))
+        u32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
+        u32.GetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        u32.SetWindowLongPtrW.restype = ctypes.c_ssize_t
+        u32.SetWindowLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_ssize_t]
+        ex = u32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
+        if ex == 0 and ctypes.get_last_error():
+            return False
+        nuevo = estilo_con_barra(ex)
+        if nuevo != ex:
+            u32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, nuevo)
+        return True
+    except Exception:                                   # noqa: BLE001  (plataforma sin ventanas nativas)
+        return False
+
+
 def abrir(win, ver=None):
     """Abre (o trae al frente) la vista 3D. `ver` = id de objeto a encuadrar."""
     dlg = getattr(win, "_vista3d_dlg", None)
@@ -828,6 +898,10 @@ def abrir(win, ver=None):
         dlg._primera = True
         dlg.visor.reiniciar()
     dlg._duenio()
+    if dlg.isMinimized():
+        # «Ver en el plano» la minimiza; `show()` NO la restaura (reporte del usuario 2026-11-18: el botón
+        # «no hacía nada» y, en otro monitor, la 3D minimizada ni se veía). Vuelve a su tamaño de antes.
+        dlg.setWindowState((dlg.windowState() & ~QtCore.Qt.WindowMinimized) | QtCore.Qt.WindowActive)
     dlg.show(); dlg.raise_(); dlg.activateWindow()
     dlg.actualizar()
     if ver:

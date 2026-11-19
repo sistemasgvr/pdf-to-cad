@@ -135,29 +135,34 @@ class ClicsMixin:
         curve_thr = 22.0 / max(1e-6, self.canvas.transform().m11())
         best_bz, bd_bz = -1, bz_thr
         ocultas = getattr(self, "_estructuras_ocultas", ())   # de capas apagadas en «Capas»
-        for i, s in enumerate(self.structures):
-            if s.get("world") or s.get("hidden") or i in ocultas: continue
-            sx, sy = s.get("x"), s.get("y")
-            if sx is None or sy is None: continue
-            d = math.hypot(x - sx, y - sy)
-            local_thr = curve_thr if s.get("curve") else bz_thr
-            if d < local_thr and d < bd_bz: bd_bz, best_bz = d, i
-        # Hit-test extra sobre el ARCO REAL de cada elemento curvo. Sin esto
-        # el usuario tiene que clickear justo en el vértice esquina (chico);
-        # con esto puede hacer clic en cualquier parte del arco visible.
-        arc_thr = thr * 1.5
-        for i, s in enumerate(self.structures):
-            if not s.get("curve") or s.get("world") or s.get("hidden") or i in ocultas: continue
-            sx, sy = s.get("x"), s.get("y")
-            if sx is None or sy is None: continue
-            pipe = self._pipe_at_vertex(sx, sy)
-            info = self._curve_arc_info(s, pipe) if pipe else None
-            if info is None: continue
-            arc_pts = self._arc_polyline(info, n_per_90=12)
-            for a, b in zip(arc_pts, arc_pts[1:]):
-                d = G.pt_seg_dist(x, y, a[0], a[1], b[0], b[1])
-                if d < arc_thr and d < bd_bz:
-                    bd_bz, best_bz = d, i
+        # Las curvas por celdas (`indice_vertices`, solo lectura: mismos candidatos, mismo orden, mismo resultado).
+        # Fuera de él, cada curva buscaba su tubería entre TODAS y sus vértices contra todas las estructuras: con
+        # 29 mil utilidades y 195 curvas, un clic tardaba ~45 s (2026-11-18).
+        from nucleo import model_ops as _mo
+        with _mo.indice_vertices(self._memoria_indices()):
+            for i, s in enumerate(self.structures):
+                if s.get("world") or s.get("hidden") or i in ocultas: continue
+                sx, sy = s.get("x"), s.get("y")
+                if sx is None or sy is None: continue
+                d = math.hypot(x - sx, y - sy)
+                local_thr = curve_thr if s.get("curve") else bz_thr
+                if d < local_thr and d < bd_bz: bd_bz, best_bz = d, i
+            # Hit-test extra sobre el ARCO REAL de cada elemento curvo. Sin esto
+            # el usuario tiene que clickear justo en el vértice esquina (chico);
+            # con esto puede hacer clic en cualquier parte del arco visible.
+            arc_thr = thr * 1.5
+            for i, s in enumerate(self.structures):
+                if not s.get("curve") or s.get("world") or s.get("hidden") or i in ocultas: continue
+                sx, sy = s.get("x"), s.get("y")
+                if sx is None or sy is None: continue
+                pipe = self._pipe_at_vertex(sx, sy)
+                info = self._curve_arc_info(s, pipe) if pipe else None
+                if info is None: continue
+                arc_pts = self._arc_polyline(info, n_per_90=12)
+                for a, b in zip(arc_pts, arc_pts[1:]):
+                    d = G.pt_seg_dist(x, y, a[0], a[1], b[0], b[1])
+                    if d < arc_thr and d < bd_bz:
+                        bd_bz, best_bz = d, i
         if best_bz >= 0:
             self._no_center = True
             if self.structures[best_bz].get("curve"):

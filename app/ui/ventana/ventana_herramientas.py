@@ -252,15 +252,20 @@ class HerramientasMixin:
         elegido = False
         self._no_center = True
         try:
-            if objeto == "pipe" and indice is not None and 0 <= indice < len(self.pipes):
-                self._show_tab(TAB_PIPE); self.pipe_list.clearSelection(); self.pipe_list.setCurrentRow(indice)
-                elegido = True
-            elif objeto == "struct" and indice in getattr(self, "_bz_rows", []):
-                self._show_tab(TAB_BZ); self.bz_list.setCurrentRow(self._bz_rows.index(indice))
-                elegido = True
-            elif objeto == "curve" and indice in getattr(self, "_curve_rows", []):
-                self._show_tab(TAB_CURVE); self.curve_list.setCurrentRow(self._curve_rows.index(indice))
-                elegido = True
+            # UN redibujo al final (2026-11-18): quitar la selección anterior y poner la nueva redibujaban cada una
+            # (~1.7 s por selección con 29 mil utilidades); el plano final es el mismo.
+            with self._redibujo_diferido():
+                if objeto == "pipe" and indice is not None and 0 <= indice < len(self.pipes):
+                    self._show_tab(TAB_PIPE); self.pipe_list.clearSelection(); self.pipe_list.setCurrentRow(indice)
+                    elegido = True
+                elif objeto == "struct" and indice in getattr(self, "_bz_rows", []):
+                    self._show_tab(TAB_BZ); self.bz_list.setCurrentRow(self._bz_rows.index(indice))
+                    elegido = True
+                elif objeto == "curve" and indice in getattr(self, "_curve_rows", []):
+                    self._show_tab(TAB_CURVE); self.curve_list.setCurrentRow(self._curve_rows.index(indice))
+                    elegido = True
+            if elegido:
+                self._redraw()
         finally:
             self._no_center = False
         if activar and elegido:
@@ -456,20 +461,28 @@ class HerramientasMixin:
             return lista, tamanos
         return catalogo
 
-    def _tablas_de_datos(self, solo_pipes=None, solo_estructuras=None):
-        self._resultados_al_dia()                       # calculo_fondo: nada a medio calcular
+    def _tablas_de_datos(self, solo_pipes=None, solo_estructuras=None, filas_avisos=True):
+        parcial = solo_pipes is not None or solo_estructuras is not None
+        if not parcial:
+            # La ficha de UNA fila (Vista 3D) no espera al cálculo de fondo (2026-11-18): con decenas de miles de
+            # utilidades eso trababa cada selección; la ficha se rehace sola con la escena nueva.
+            self._resultados_al_dia()                   # calculo_fondo: nada a medio calcular
         from nucleo import tabla_datos
         ft_px = self.scale / self.zoom if self.scale and self.zoom else 0.0
+        avisos = getattr(self, "_normas_avisos", [])
+        codigos = None
+        if hasattr(self, "codigos_avisos") and filas_avisos and (
+                not parcial or any(a.pipe in (solo_pipes or ()) for a in avisos or ())):
+            codigos = self.codigos_avisos()             # parcial sin avisos de esas utilidades: no hacen falta
 
         familia = self._nombre_familia_tabla
         return tabla_datos.armar(self.pipes, self.structures, getattr(self, "duct_banks", []),
-                                 getattr(self, "_normas_avisos", []), self._to_cad, ft_px,
+                                 avisos, self._to_cad, ft_px,
                                  nombre_utilidad=self._tipo, nombre_familia=familia,
                                  conflictos=getattr(self, "_conflictos", []), solo_pipes=solo_pipes,
                                  solo_estructuras=solo_estructuras,
-                                 valvulas=None if solo_pipes is not None or solo_estructuras is not None
-                                 else self._filas_valvulas(),
-                                 codigos_avisos=self.codigos_avisos() if hasattr(self, "codigos_avisos") else None)
+                                 valvulas=None if parcial else self._filas_valvulas(),
+                                 codigos_avisos=codigos, filas_avisos=filas_avisos)
 
     def _toggle_theme(self):
         # Alterna claro↔oscuro globalmente. El módulo `theme` se encarga de

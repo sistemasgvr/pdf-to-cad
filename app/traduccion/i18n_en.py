@@ -4116,6 +4116,16 @@ EN: dict[str, str] = {
         'Slope per segment: {tramos}',
     'Preparando el DXF…':
         'Preparing the DXF…',
+    'La Vista 3D sigue abierta':
+        'The 3D view is still open',
+    'Vuelve desde la barra de tareas, con el botón del cubo, a la izquierda, o con F3.':
+        'Go back from the taskbar, with the cube button on the left, or with F3.',
+    'Volver a la Vista 3D':
+        'Back to the 3D view',
+    'Vista 3D: minimizada. Clic para volver a ella (F3).':
+        '3D view: minimized. Click to go back to it (F3).',
+    'Vista 3D: abierta. Clic para traerla al frente (F3).':
+        '3D view: open. Click to bring it to the front (F3).',
     'Reusando el plano ya digitalizado…':
         'Reusing the already digitized plan…',
     'Leyendo el plano digitalizado…':

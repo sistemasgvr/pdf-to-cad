@@ -3640,12 +3640,14 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
 
 - Funciones del diagrama: `gestion/funciones.toml`; entregas: `gestion/versiones/<v>.toml`; piezas de Jean/Elvis:
   `gestion/catalogo/<área>/<tipo>/<id>/ficha.toml` + capturas. Código: `scripts/gestion/` (`python scripts/gestion …`).
-- Al terminar una función o pieza, PROPONER su estado (`python scripts/gestion proponer <id> <estado> --por <nombre>`);
-  NUNCA escribir `estado` ni `aprobado` (solo el administrador, con `python scripts/gestion admin`, local).
+- Las funciones, sus estados y las versiones los arma SOLO el administrador en el editor (`gestion/gestion.bat`:
+  el diagrama editable igual al del cliente; versiones en «Más opciones»). Claude NO propone funciones ni estados
+  (pedido del usuario 2026-11-18: se quitaron «Por revisar» y el comando `proponer`) y NUNCA escribe `estado`,
+  `aprobado` ni funciones nuevas en `funciones.toml`; si algo nuevo debería ir al diagrama, lo dice en una línea.
+  `privado = true` (🔒) en una función/tarjeta/área = nunca se publica (`datos.publico`).
 - El sitio del cliente (Cloudflare Pages, público con el link) sale de `sitio.py` y solo lleva lo aprobado; nada
   interno (propuesto, notas, responsables, issues). `tests/test_gestion.py` lo comprueba: un campo interno nuevo se
   suma a esa prueba.
-- Una función nueva visible para el cliente → una línea `[[funcion]]` con nombre CORTO y `propuesto`.
 - Cada `[[novedad]]` de una versión lleva `funciones = [ids]` del diagrama, todas con estado aprobado
   (`datos.pendientes_version`): sin eso la versión no se publica.
 - Antes de entregar: `python scripts/regresion.py` (casos dorados, 0 diferencias) y la lista de humo.

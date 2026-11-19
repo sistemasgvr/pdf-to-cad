@@ -39,7 +39,7 @@ Coordenadas DIBUJADAS en PÍXELES (se convierten con geometry.to_cad al exportar
 coordenadas IMPORTADAS de Excel ya son reales de mundo (world=True → se usan tal cual).
 """
 
-VERSION = "2.1.0"
+VERSION = "2.1.1"
 
 # Capas de red por GRAVEDAD (tramos entre buzones, con invert inicio/fin).
 GRAVITY_LAYERS = {"ALCANTARILLADO", "DRENAJE"}
@@ -160,8 +160,14 @@ def default_network_type(layer):
 
 
 CHANGELOG = [
-    ("2.1.0", [
+    ("2.1.1", [
+        ('fixed', 'Vista 3D: tiene su propio botón en la barra de tareas de Windows (minimizada ya no desaparece) y, al cerrarla y volver a abrirla sin cambios, aparece al instante con la escena ya armada y se puede mover enseguida. Antes quedaba encima la tarjeta «Preparando los datos…» y el modelo de fondo no respondía.'),
+        ('fixed', 'Perfil longitudinal con proyectos muy grandes: con decenas de miles de utilidades, abrir un perfil o deshacer, rehacer o cambiar una cota con el perfil abierto dejaba la app sin responder de 2 a 7 minutos. Ahora el perfil sale en pocos segundos y ya no traba los cambios, con el mismo recorrido, cruces, buzones y accesorios.'),
+        ('fixed', 'Elegir con proyectos muy grandes: con decenas de miles de utilidades, un clic en el plano tardaba hasta ~45 s si el proyecto tenía curvas, y elegir una utilidad en la Vista 3D unos 5 s. Ahora tarda alrededor de 1 s en los dos, con el mismo resultado.'),
+        ('fixed', 'Vista 3D: «Ver en el plano» ya no la pierde. Al ir al plano, un aviso dice que sigue abierta y trae «Volver a la Vista 3D»; el botón del cubo del panel izquierdo (y F3) la restaura aunque esté minimizada (antes no hacía nada y, con dos monitores, ni se veía), y muestra un punto mientras sigue abierta.'),
         ('fixed', 'Vista 3D con proyectos muy grandes: se abre al instante aunque los conflictos y avisos todavía se estén calculando, y se pone al día sola cuando terminan. Antes, con decenas de miles de utilidades, abrirla justo después de editar dejaba la app sin responder unos 20 s (ni siquiera se podía cerrar). Si el cálculo aparte falla, se vuelve a intentar aparte en vez de trabar la ventana.'),
+    ]),
+    ("2.1.0", [
         ('changed', 'La app se abre una sola vez: si ya está abierta y se vuelve a abrir (o se hace doble clic en un PDF o proyecto), se trae al frente la ventana que ya estaba y el archivo se abre en ella. Antes se podían abrir dos por error, cada una con su memoria y sus procesos, y con proyectos grandes todo se volvía lento.'),
         ('new', 'Diagnóstico del equipo: al terminar de instalar, la primera vez que abres cada versión y desde Ayuda → «Diagnóstico del equipo…», la app revisa el equipo (Windows, procesador, memoria, tarjetas de video con su driver, discos, pantallas, antivirus, AutoCAD/Civil 3D y el plugin, carpetas y procesos de la app) y prueba OpenGL con el mismo formato de la Vista 3D. Guarda todo en un .txt en la carpeta del registro (…\\pdf-to-cad\\diagnosticos) con un resumen arriba; si la Vista 3D no podrá usar el modo rápido, lo dice y sugiere actualizar el driver de video.'),
         ('fixed', 'Mapas sin capas, hoja compuesta: si la escala de la hoja era la de un mapa más chico (por ejemplo, la primera hoja elegida de Water North con las de Water South), la leyenda de cada mapa no se leía y la red no se asignaba sola; quedaban hojas sin reconocer (16-24, 16-25, 17-24 y 17-25). Ahora cada leyenda se lee con su hoja.'),

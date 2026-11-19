@@ -60,6 +60,12 @@ margin-left:6px;vertical-align:middle}
 .grupo .cab-g .quitar-g{position:static}
 .grupo>h3{padding-right:42px}
 .barra-ed .p{background:var(--accent);border-color:var(--accent);color:#fff}
+.faltan{background:#fde8e8;color:#8a1c1c;border-radius:10px;padding:10px 14px;margin:12px 0;font-size:14px}
+.faltan b{display:block;margin-bottom:4px}.faltan a{color:inherit;cursor:pointer;text-decoration:underline}
+.faltan ul{margin:4px 0 0;padding-left:18px}
+.grupo li.bloquea{box-shadow:0 0 0 2px #e05252;background:rgba(224,82,82,.08)}
+.grupo li.destello{animation:destello 1.6s ease-out 2}
+@keyframes destello{0%{background:rgba(224,82,82,.45)}100%{background:transparent}}
 .area .quitar-a{float:right;border:0;background:none;color:#c0392b;cursor:pointer;font:inherit;font-size:13px;
 opacity:.6}
 """
@@ -85,6 +91,27 @@ function privG(gid) { const vistos = new Set(); while (gid && !vistos.has(gid)) 
   const g = D.priv[gid]; if (!g) return false; if (g.privado) return true; gid = g.padre; } return false; }
 const oculta = (g, f) => f.privado || privG(g.id);
 const todasF = () => D.areas.flatMap(a => a.grupos.flatMap(g => g.funciones.filter(f => !oculta(g, f))));
+function faltan() {
+  const out = [];
+  for (const a of D.areas) for (const g of a.grupos) for (const f of g.funciones) {
+    const motivos = D.bloquean[f.id]; if (!motivos) continue;
+    if (!f.estado) out.push({f, txt: `«${f.nombre}» no tiene estado`, motivos});
+    else if (oculta(g, f)) out.push({f, txt: `«${f.nombre}» es privada`, motivos});
+  }
+  return out;
+}
+function irA(fid) { const li = document.querySelector(`li[data-id="${CSS.escape(fid)}"]`); if (!li) return;
+  li.scrollIntoView({block: 'center', behavior: 'smooth'}); li.classList.remove('destello'); void li.offsetWidth;
+  li.classList.add('destello'); }
+function pintarFaltan() {
+  const caja = $('#faltan'); const fs = faltan();
+  if (!fs.length && !D.otros.length) { caja.style.display = 'none'; return; }
+  caja.style.display = '';
+  caja.replaceChildren(el('b', {}, 'Para publicar en Cloudflare falta:'), el('ul', {},
+    ...fs.map(x => el('li', {}, el('a', {onclick: () => irA(x.f.id)}, x.txt),
+      ` — la usa ${x.motivos.join('; ')}. Haz clic en su estado y elige uno` + (x.txt.endsWith('privada') ? ', o quítale el 🔒.' : '.'))),
+    ...D.otros.map(o => el('li', {}, o.texto + ' ', el('a', {href: '/editar/' + encodeURIComponent(o.version)}, 'Abrir la versión')))));
+}
 function candado(privado, alCambiar, que) {
   return el('button', {class: 'candado' + (privado ? ' on' : ''), onclick: alCambiar,
     title: privado ? `Privado: el cliente no ve ${que}. Clic para mostrarlo` : `Clic para que el cliente no vea ${que}`},
@@ -122,7 +149,10 @@ function menuEstado(f, ancla) {
 let arrastrada = null;
 function fila(g, f) {
   const e = EST.get(f.estado) || EST.get('');
-  const li = el('li', {'data-id': f.id, 'data-texto': f.nombre.toLowerCase(), class: oculta(g, f) ? 'priv' : ''},
+  const bloquea = D.bloquean[f.id] && (!f.estado || oculta(g, f));
+  const li = el('li', {'data-id': f.id, 'data-texto': f.nombre.toLowerCase(),
+    class: (oculta(g, f) ? 'priv' : '') + (bloquea ? ' bloquea' : ''),
+    title: bloquea ? 'Impide publicar: la usa ' + D.bloquean[f.id].join('; ') : ''},
     el('span', {class: 'asa', title: 'Arrastrar a otro lugar'}, '⋮⋮'),
     el('span', {class: 'dot', style: `background:${e.fondo}`}),
     el('span', {}, editable(f.nombre, 'Nombre de la función', async t => { const j = await api('f/editar', {id: f.id, nombre: t});
@@ -232,6 +262,7 @@ function pintar() {
   pie.append(el('button', {class: 'nueva-t', style: 'width:100%;margin:18px 0', onclick: abrir}, '+ Nueva área'));
   raiz.append(pie);
   if (abierto && abierto.tipo === 'a') abrir();
+  pintarFaltan();
   filtrar();
 }
 function filtrar() { const t = ($('#q').value || '').toLowerCase();
@@ -262,7 +293,27 @@ def _datos(pr):
     estados = [dict(id=e, nombre=D.ESTADOS[e][0] or "Sin clasificar", cliente=D.ESTADOS[e][1],
                     fondo=D.ESTADOS[e][2], texto=D.ESTADOS[e][3]) for e in D.ORDEN_ESTADOS]
     priv = {g.id: dict(padre=g.padre, privado=g.privado) for g in pr.grupos}
-    return dict(areas=areas, estados=estados, priv=priv)
+    bloquean, otros = _impide_publicar(pr)
+    return dict(areas=areas, estados=estados, priv=priv, bloquean=bloquean, otros=otros)
+
+
+def _impide_publicar(pr):
+    """Lo que hoy impide publicar, para marcarlo en el editor: {función: [«versión X: cambio»]} de las funciones que
+    usa una versión PUBLICADA y no tienen estado o son privadas, y los demás problemas de esas versiones."""
+    funciones = {f.id: f for f in pr.funciones}
+    bloquean, otros = {}, []
+    for v in pr.versiones:
+        if not v.publicada:
+            continue
+        for n in v.novedades:
+            for fid in n.get("funciones", []):
+                f = funciones.get(fid)
+                if f is not None and (not f.estado or D.es_privada(pr, f)):
+                    bloquean.setdefault(fid, []).append(f"la versión {v.numero} en «{n.get('titulo', '')}»")
+        for txt in D.pendientes_version(pr, v):
+            if "aún no tiene estado aprobado" not in txt and "es privada" not in txt:
+                otros.append(dict(version=v.numero, texto=f"Versión {v.numero}: {txt}"))
+    return bloquean, otros
 
 
 BOTON_PUBLICAR = ("<form method='post' action='/publicar' style='display:inline' "
@@ -273,18 +324,16 @@ BOTON_PUBLICAR = ("<form method='post' action='/publicar' style='display:inline'
 
 def pagina(pr):
     datos = json.dumps(_datos(pr), ensure_ascii=False).replace("</", "<\\/")
-    pend = sum(1 for x in pr.funciones + pr.fichas if x.por_revisar)
-    revisar = f" · {pend} por revisar" if pend else ""
     cuerpo = (f'<style>{CSS}</style><div class="barra-ed">'
               '<a class="btn" href="/panel#versiones">Versiones</a>'
               '<a class="btn" href="/vista/index.html" target="_blank">Vista previa del cliente</a>'
-              + BOTON_PUBLICAR + f'<a class="btn" href="/panel">Más opciones{E(revisar)}</a>'
+              + BOTON_PUBLICAR + '<a class="btn" href="/panel">Más opciones</a>'
               '<span id="estado" class="estado">Escribe encima de cualquier texto. Todo se guarda solo. 🔒 = privado'
               '</span></div>'
               f"<h1>Funciones del proyecto</h1><p class='sub'>Vista general · versión {E(pr.version_actual)} · "
               '<span id="total"></span> funciones</p><div id="barra"></div><div id="leyenda" class="leyenda"></div>'
               '<input id="q" class="buscar" placeholder="Buscar una función…" aria-label="Buscar una función">'
-              '<div id="areas"></div>'
+              '<div id="faltan" class="faltan" style="display:none"></div><div id="areas"></div>'
               f'<script type="application/json" id="datos">{datos}</script><script>{JS}</script>')
     return sitio.pagina(pr, "Editar funciones", cuerpo, "", admin=True)
 

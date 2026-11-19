@@ -62,45 +62,19 @@ def _form(accion, campos, contenido, auto=False, extra=""):
     return f'<form method="post" action="/{accion}"{extra}>{ocultos}{contenido}</form>'
 
 
-def _tarjeta_revision(tipo, it, grupo=""):
-    caps = ""
-    if tipo == "ficha" and it.capturas:
-        caps = '<div class="mini">' + "".join(
-            f'<img src="/cap/{quote(it.id)}/{quote(a)}" alt="">' for a in it.capturas) + "</div>"
-    quien = f" · propone {E(it.propuesto_por)}" if it.propuesto_por else ""
-    nota = f'<div>{E(it.propuesto_nota)}</div>' if it.propuesto_nota else ""
-    desc = f'<div class="det">{E(it.descripcion)}</div>' if tipo == "ficha" and it.descripcion else ""
-    return (f'<div class="rev"><b>{E(it.nombre)}</b> <span class="det">{E(grupo)}{quien}</span>{desc}<div>'
-            f'{sitio.pill(it.estado, cliente=False)} → {sitio.pill(it.propuesto, cliente=False)}</div>{nota}{caps}'
-            + _form("aprobar", dict(tipo=tipo, id=it.id), _select("estado", it.propuesto)
-                    + '<button class="btn p">Aprobar</button>')
-            + _form("rechazar", dict(tipo=tipo, id=it.id), '<input type="text" name="motivo" '
-                    'placeholder="Motivo (opcional)"><button class="btn r">Rechazar</button>') + "</div>")
-
-
 def pagina_principal(pr, mensaje="", error=""):
     partes = ['<div class="acciones"><a class="btn" href="/">← Funciones</a></div>'
-              "<h1>Más opciones</h1><p class='sub'>Solo en esta PC. Versiones, propuestas por revisar, estados y "
-              "piezas. Las funciones se editan en la página de entrada.</p>"]
+              "<h1>Más opciones</h1><p class='sub'>Solo en esta PC. Versiones, estados y piezas. Las funciones se "
+              "editan en la página de entrada.</p>"]
     if mensaje:
         partes.append(f'<div class="aviso">{E(mensaje)}</div>')
     errores = D.validar(pr)
     if error or errores:
         partes.append(f'<div class="error">{E(error or "")}{E(chr(10).join(errores))}</div>')
     link = f' · <a href="{E(pr.sitio)}" target="_blank">{E(pr.sitio)}</a>' if pr.sitio else ""
-    partes.append('<div class="acciones"><a class="btn p" href="/funciones">Editar funciones (vista del cliente)</a>'
-                  '<a class="btn" href="/vista/index.html" target="_blank">Vista previa del '
+    partes.append('<div class="acciones"><a class="btn" href="/vista/index.html" target="_blank">Vista previa del '
                   'sitio del cliente</a>' + _form("publicar", {}, '<button class="btn p">Publicar en Cloudflare'
                                                   '</button>') + f"</div><p class='sub'>Link del cliente{link or ': aún no publicado'}</p>")
-    # pendientes de revisión
-    pend_f = [f for f in pr.funciones if f.por_revisar]
-    pend_c = [fi for fi in pr.fichas if fi.por_revisar]
-    partes.append(f"<h2>Por revisar ({len(pend_f) + len(pend_c)})</h2>")
-    if not (pend_f or pend_c):
-        partes.append("<p class='sub'>Nada pendiente.</p>")
-    nombres = {g.id: g.nombre for g in pr.grupos}
-    partes += [_tarjeta_revision("funcion", f, nombres.get(f.grupo, "")) for f in pend_f]
-    partes += [_tarjeta_revision("ficha", fi, fi.area) for fi in pend_c]
     # versiones
     partes.append("<h2 id='versiones'>Versiones</h2><table><tr><th>Versión</th><th>Título</th><th>Novedades</th>"
                   "<th>Publicada</th><th></th></tr>")
@@ -127,7 +101,11 @@ def pagina_principal(pr, mensaje="", error=""):
     partes.append(_seccion_estados(pr))
     # catálogo
     partes.append(f"<h2>Catálogo de piezas ({len(pr.fichas)})</h2>")
-    if pr.fichas:
+    if pr.fichas:                                  # el estado de cada pieza se elige aquí mismo
+        partes.append("<table class='edit'><tr><th>Pieza</th><th>Tipo</th><th>Estado</th></tr>" + "".join(
+            f"<tr><td>{E(fi.nombre)}</td><td>{E(fi.tipo)}</td><td>"
+            + _form("estado", dict(tipo="ficha", id=fi.id), _select("estado", fi.estado), auto=True) + "</td></tr>"
+            for fi in pr.fichas) + "</table>")
         partes.append(sitio.catalogo(pr, publico=False,
                                      ruta_img=lambda fi, a: f"/cap/{quote(fi.id)}/{quote(a)}").split("</p>", 1)[1])
     return sitio.pagina(pr, "Administrador", "<style>" + CSS_ADMIN + "</style>" + "".join(partes), "", admin=True)
@@ -181,7 +159,7 @@ def accion(ruta_post, campos):
     g = lambda k: campos.get(k, [""])[0]          # noqa: E731
     with _CERROJO:
         pr = D.leer()
-        if ruta_post in ("aprobar", "estado"):
+        if ruta_post == "estado":
             it = _buscar(pr, g("tipo"), g("id"))
             D.aprobar(pr, it, g("estado"))
             _guardar(pr, g("tipo"), it)
@@ -218,11 +196,6 @@ def accion(ruta_post, campos):
             D.quitar_estado(pr, g("id"))
             D.guardar_funciones(pr)
             return "Estado actualizado", ""
-        if ruta_post == "rechazar":
-            it = _buscar(pr, g("tipo"), g("id"))
-            D.rechazar(it, g("motivo"))
-            _guardar(pr, g("tipo"), it)
-            return f"«{it.nombre}»: propuesta rechazada", ""
         if ruta_post == "nueva_version":
             v = admin_version.nueva_version(pr, g("numero"), g("titulo"))
             return f"Versión {v.numero} creada", "", f"/editar/{quote(v.numero)}"

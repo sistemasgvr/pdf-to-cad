@@ -62,9 +62,11 @@ def _registro(a):
 
 def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
           nombre_utilidad=lambda c: c, nombre_familia=lambda f: f, conflictos=(), solo_pipes=None,
-          solo_estructuras=None, valvulas=None, codigos_avisos=None):
+          solo_estructuras=None, valvulas=None, codigos_avisos=None, filas_avisos=True):
     """Las tablas. Con `solo_pipes` / `solo_estructuras` (índices), solo las filas de esas utilidades y buzones
-    (las MISMAS filas; la ficha de la Vista 3D no arma 16 761 filas para mostrar una; sin curvas)."""
+    (las MISMAS filas; la ficha de la Vista 3D no arma 16 761 filas para mostrar una; sin curvas), y de avisos y
+    conflictos solo los de esas utilidades (2026-11-18: con 29 mil utilidades eran ~2 s por selección).
+    `filas_avisos=False`: sin las filas de avisos y conflictos (la ficha de la Vista 3D no las muestra)."""
     pipes = pipes or []
     structures = structures or []
     db_de = {}
@@ -148,7 +150,10 @@ def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
         N_("N°"), N_("Utilidad"), N_("Tipo de aviso"), N_("Mensaje"), N_("Estado"), N_("Aprobado por"),
         N_("Fecha de aprobación"), N_("Nota"), N_("X"), N_("Y")])
     from nucleo.normas_validar import CLASES
-    for n, a in enumerate(avisos or [], 1):
+    solo = set(solo_pipes or ()) if parcial else None       # parcial: solo los avisos/conflictos de ESAS utilidades
+    for n, a in enumerate((avisos or []) if filas_avisos else (), 1):
+        if solo is not None and a.pipe not in solo:
+            continue
         x, y = _xy(a_cad, (a.x, a.y))
         cod = (codigos_avisos or {}).get(id(a), "" if codigos_avisos is not None else n)  # N-n FIJO (2026-11-14)
         av.filas.append([cod, (a.pipe + 1) if a.pipe is not None and a.pipe >= 0 else "",
@@ -159,7 +164,9 @@ def armar(pipes, structures, duct_banks, avisos, a_cad, ft_per_px,
     co = Tabla("conflictos", N_("Conflictos y observaciones"), [
         N_("ID"), N_("Categoría"), N_("Tipo"), N_("Utilidades"), N_("Cota A (ft)"), N_("Cota B (ft)"),
         N_("Diferencia (ft)"), N_("Detalle"), N_("X"), N_("Y")])
-    for c in conflictos or []:
+    for c in (conflictos or []) if filas_avisos else ():
+        if solo is not None and not solo.intersection(c.pipes):
+            continue
         x, y = _xy(a_cad, (c.x, c.y))
         za = c.cotas[0] if len(c.cotas) > 0 else None
         zb = c.cotas[1] if len(c.cotas) > 1 else None

@@ -62,19 +62,31 @@ def test_importar_drawio_lee_estados_por_color():
     assert pr.grupo("app.tabla-de-datos").padre == "app"                 # grupo colgado de una función → al área
 
 
-def test_proponer_no_cambia_el_estado_y_aprobar_si(g):
+def test_sin_por_revisar_y_el_editor_marca_lo_que_impide_publicar(g):
+    """Pedido 2026-11-18: ya no hay propuestas «Por revisar» (ni el comando `proponer`); el estado lo pone el
+    administrador en el editor. Lo que impide publicar se marca sobre la fila de la función."""
+    import subprocess
+    salida = subprocess.run([sys.executable, os.path.join(RAIZ, "scripts", "gestion"), "--help"],
+                            capture_output=True, text=True, encoding="utf-8").stdout
+    assert "proponer" not in salida
     pr = g.D.leer()
-    f = pr.funciones[0]
-    antes = f.estado
-    f.propuesto, f.propuesto_por = "optimizar", "Santos"
+    pr.funciones[0].propuesto, pr.funciones[0].propuesto_por = "optimizar", "Santos"     # de un archivo viejo
+    v = pr.versiones[0]
+    sin_estado = pr.funciones[1]
+    sin_estado.estado = ""
+    v.novedades = [dict(tipo="nuevo", titulo="Algo", funciones=[sin_estado.id])]
+    v.publicada = True
     g.D.guardar_funciones(pr)
+    g.D.guardar_version(v)
     pr = g.D.leer()
-    f = pr.funciones[0]
-    assert f.estado == antes and f.por_revisar
-    g.D.aprobar(pr, f, "optimizar")
-    g.D.guardar_funciones(pr)
-    f = g.D.leer().funciones[0]
-    assert f.estado == "optimizar" and f.aprobado.startswith(pr.admin) and not f.propuesto
+    assert "Por revisar" not in g.admin.pagina_principal(pr)
+    datos = g.admin_funciones._datos(pr)
+    assert list(datos["bloquean"]) == [sin_estado.id]
+    with pytest.raises(ValueError):
+        g.publicar.construir()
+    g.admin_funciones.api("api/f/editar", {"id": sin_estado.id, "estado": "probado"})   # elegir su estado lo arregla
+    assert g.admin_funciones._datos(g.D.leer())["bloquean"] == {}
+    g.publicar.construir()
 
 
 def test_guardar_y_leer_es_identico(g):
@@ -105,19 +117,11 @@ def test_sitio_publico_sin_nada_interno(g):
     assert (g.dir / "_salida" / "publico" / "catalogo" / "piezas-3d" / "valvulas" / "compuerta" / "captura.png").exists()
 
 
-def test_admin_aprueba_rechaza_y_publica_version(g):
-    m, e = g.admin.accion("aprobar", {"tipo": ["ficha"], "id": ["piezas-3d/valvulas/compuerta"],
-                                      "estado": ["falta_probar"]})
+def test_admin_pone_estado_y_publica_version(g):
+    m, e = g.admin.accion("estado", {"tipo": ["ficha"], "id": ["piezas-3d/valvulas/compuerta"],
+                                     "estado": ["falta_probar"]})
     assert not e
-    fi = g.D.leer().fichas[0]
-    assert fi.estado == "falta_probar" and not fi.propuesto
-    pr = g.D.leer()
-    fid = pr.funciones[1].id
-    pr.funciones[1].propuesto = "probado"
-    g.D.guardar_funciones(pr)
-    g.admin.accion("rechazar", {"tipo": ["funcion"], "id": [fid], "motivo": ["falta probar en DU08"]})
-    f = next(x for x in g.D.leer().funciones if x.id == fid)
-    assert not f.propuesto and "falta probar en DU08" in f.nota
+    assert g.D.leer().fichas[0].estado == "falta_probar"
     pr = g.D.leer()
     for f in pr.funciones:                                  # todo aprobado: la versión ya se puede publicar
         f.estado = f.estado or "probado"
@@ -125,7 +129,7 @@ def test_admin_aprueba_rechaza_y_publica_version(g):
     g.admin.accion("version", {"numero": ["2.0.0"], "publicada": ["1"]})
     assert next(v for v in g.D.leer().versiones if v.numero == "2.0.0").publicada
     html = g.admin.pagina_principal(g.D.leer())
-    assert "Más opciones" in html and "Versiones" in html
+    assert "Más opciones" in html and "Versiones" in html and "Por revisar" not in html
 
 
 def test_admin_solo_responde_en_local(g):

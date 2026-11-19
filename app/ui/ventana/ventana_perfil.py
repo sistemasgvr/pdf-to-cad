@@ -191,7 +191,11 @@ class PerfilMixin(PerfilABMixin, RamalesPerfilMixin, GuardadosPerfilMixin, Plano
     def perfil_desde(self, i, x, y):
         """Recorrido automático por el tramo de la utilidad `i` más cercano a (x, y)."""
         ft = self._ft()
-        rec = PR.desde(self.pipes, i, x, y, ft) if ft else None
+        rec = None
+        if ft and 0 <= i < len(self.pipes) and len(self.pipes[i].get("pts") or []) >= 2:
+            g = self._perfil_grafo(i, ft)                # = PR.desde, con el grafo guardado
+            e = PR.arista_cerca(g, x, y, i)
+            rec = None if e is None else PR.recorrer(g, e)
         self._perfil_pila = []                         # un perfil nuevo desde el plano: sin «Volver»
         self._perfil_poner(rec, encuadrar=True, a=None)
         return rec
@@ -226,7 +230,7 @@ class PerfilMixin(PerfilABMixin, RamalesPerfilMixin, GuardadosPerfilMixin, Plano
         i1 = self._utilidad_de_ancla(fin)
         if i0 is None or i1 is None:
             return None
-        g = PR.marcar_soleras(PR.construir_grafo(self.pipes, i0, ft), self.pipes)
+        g = self._perfil_grafo(i0, ft)
         e0 = PR.arista_cerca(g, ini[1], ini[2], i0)
         e1 = PR.arista_cerca(g, fin[1], fin[2], i1)
         if e0 is None or e1 is None:
@@ -249,6 +253,22 @@ class PerfilMixin(PerfilABMixin, RamalesPerfilMixin, GuardadosPerfilMixin, Plano
         if len(r.pasos) > 1 and en_nodo(len(r.nodos) - 2, a_fin):
             r = PR.acortar(r, al_final=True) or r
         return r
+
+    def _perfil_grafo(self, i, ft):
+        """El grafo de la red de la utilidad `i` con sus soleras al día. El grafo solo depende de la GEOMETRÍA (puntos,
+        red y tipo de cada utilidad) y la escala: se guarda mientras eso no cambie (2026-11-18: con 29 mil utilidades
+        cada deshacer o cambio de cota con el perfil abierto lo rehacía); las soleras cambian con las cotas: siempre."""
+        from nucleo import memo_modelo
+        geo = memo_modelo.firma([(p.get("pts"), bool(p.get("world")), p.get("name"), p.get("layer"))
+                                 for p in self.pipes])
+        clave = (PR.de_utilidad(self.pipes, i), ft, geo)
+        guardado = getattr(self, "_perfil_grafo_guardado", None)
+        if guardado is not None and guardado[0] == clave:
+            g = guardado[1]
+        else:
+            g = PR.construir_grafo(self.pipes, i, ft)
+            self._perfil_grafo_guardado = (clave, g)
+        return PR.marcar_soleras(g, self.pipes)
 
     def _utilidad_de_ancla(self, ancla):
         i, x, y = int(ancla[0]), float(ancla[1]), float(ancla[2])

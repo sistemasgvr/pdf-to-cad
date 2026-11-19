@@ -27,6 +27,7 @@ DEFLEXION_MAX_DEG = 45.0
 EMPATE_DEG = 10.0
 ESTACION_INICIAL_FT = 0.0            # «0+00»: la estación real del inicio del eje (= EST_INICIAL del plugin; antes 1+00)
 OESTE_SUR_RAZON = 0.3                # |ΔX| < esto·|ΔY| = recorrido «vertical»: empieza al sur (si no, al oeste)
+CELDAS = True                        # False = cada tramo contra todas las puntas (lo de antes; las pruebas comparan)
 
 
 @dataclass
@@ -133,6 +134,24 @@ def construir_grafo(pipes, i, ft_per_px):
     # T: la punta de una utilidad sobre el interior de un tramo de otra parte ese tramo
     cortes = {}                                   # (j, k) → [t]
     puntas = [(j, pipes[j]["pts"][0]) for j in miembros] + [(j, pipes[j]["pts"][-1]) for j in miembros]
+    # Las puntas por celdas (2026-11-18: con 29 mil utilidades, cada tramo contra TODAS las puntas tardaba 4–7 min
+    # y trababa la ventana con el perfil abierto). Las mismas candidatas: `cortes` se ordena y se deduplica abajo.
+    lado = max(tol * 4.0, 1e-6)
+    celdas_puntas = {}
+    for jj, q in puntas:
+        celdas_puntas.setdefault((math.floor(q[0] / lado), math.floor(q[1] / lado)), []).append((jj, q))
+
+    def puntas_en(x0, y0, x1, y1):
+        cx0, cx1 = math.floor(x0 / lado), math.floor(x1 / lado)
+        cy0, cy1 = math.floor(y0 / lado), math.floor(y1 / lado)
+        if not CELDAS or (cx1 - cx0 + 1) * (cy1 - cy0 + 1) > len(celdas_puntas):
+            return puntas                         # tramo enorme: recorrer la lista es más barato
+        out = []
+        for cx in range(cx0, cx1 + 1):
+            for cy in range(cy0, cy1 + 1):
+                out.extend(celdas_puntas.get((cx, cy), ()))
+        return out
+
     for j in miembros:
         pts = pipes[j]["pts"]
         for k in range(len(pts) - 1):
@@ -144,7 +163,7 @@ def construir_grafo(pipes, i, ft_per_px):
             L = math.sqrt(L2)
             x0, x1 = min(a[0], b[0]) - tol, max(a[0], b[0]) + tol
             y0, y1 = min(a[1], b[1]) - tol, max(a[1], b[1]) + tol
-            for jj, q in puntas:
+            for jj, q in puntas_en(x0, y0, x1, y1):
                 if jj == j or not (x0 <= q[0] <= x1 and y0 <= q[1] <= y1):
                     continue
                 t = ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / L2
@@ -333,11 +352,12 @@ def z_solera(pipes, ar, t):
 def marcar_soleras(g, pipes):
     """Solera más baja en cada nodo (para el sentido de las estaciones en gravedad)."""
     z = {}
-    for ar in g.aristas:
-        for n, t in ((ar.a, 0.0), (ar.b, 1.0)):
-            v = z_solera(pipes, ar, t)
-            if n not in z or v < z[n]:
-                z[n] = v
+    with model_ops.memo_cotas():                  # las cotas de cada utilidad una vez (no por cada tramo)
+        for ar in g.aristas:
+            for n, t in ((ar.a, 0.0), (ar.b, 1.0)):
+                v = z_solera(pipes, ar, t)
+                if n not in z or v < z[n]:
+                    z[n] = v
     g._z_punta = z
     return g
 

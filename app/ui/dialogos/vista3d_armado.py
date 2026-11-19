@@ -108,22 +108,53 @@ class ArmadoMixin:
                                              done=milesimas, total=1000, pump=False)
         self.lbl_estado.setText(_tr("Actualizando la vista 3D… {p} %").format(p=pct))
 
+    def _clave_rapida(self):
+        """Todo lo que decide `_datos`, sin armarlo (2026-11-18: con 29 mil utilidades, armar y empaquetar los datos
+        solo para ver que nada cambió costaba ~0.7 s en CADA redibujo, también al elegir). El modelo va por su
+        firma (`_firma_modelo`: utilidades, estructuras, cruces, aprobaciones, bancoductos, escala, idioma…); los
+        avisos y conflictos salen de ese modelo, de qué marcas se calculan y de si el cálculo de fondo terminó.
+        None = no se pudo: se arma como siempre."""
+        w = self.win
+        try:
+            from nucleo import memo_modelo
+            georef = w.georef.to_dict() if getattr(w, "georef", None) is not None else None
+            fuera = memo_modelo.firma(getattr(w, "valvulas", None), getattr(w, "superficies", None), georef)
+            ver = w._firma_marcas()[1] if hasattr(w, "_firma_marcas") else ()
+            return (w._firma_modelo(), fuera, ver, bool(getattr(w, "_provisional", False)),
+                    tuple((c, chk.isChecked()) for c, chk in self._capas.items()),
+                    tuple((k, c.isChecked()) for k, c in self.chk.items()), self.spn_suelo.value(),
+                    tuple(sorted(self._colores().items(), key=lambda kv: str(kv[0]))))
+        except Exception:                                   # noqa: BLE001
+            return None
+
     # ── armado completo ──
     def actualizar(self, forzar=False):
         w = self.win
         if not self._primera and getattr(w, "_provisional", False) and not forzar:
             self._t.start()                                 # el plano aún calcula avisos: esperar a que termine
             return
-        if self._primera and self._trabajo is None:
+        # La tarjeta «Armando…» tapa el visor: solo sin una escena de ESTE proyecto que mostrar. Al reabrir la
+        # ventana ya está la escena armada (reporte del usuario 2026-11-18: la tarjeta quedaba encendida y el
+        # modelo de fondo no se podía mover).
+        sin_escena = self._firma is None and not getattr(self, "_parcheada", False)
+        if self._primera and self._trabajo is None and sin_escena:
             self._capa_carga(True, _tr("Preparando los datos…"))
         capas = {}
         for p in w.pipes:
             capas[p.get("layer")] = capas.get(p.get("layer"), 0) + 1
         self._capas_visibles(capas)
+        clave = self._clave_rapida()
+        if (clave is not None and clave == getattr(self, "_clave_hecha", None) and self._trabajo is None
+                and self._firma is not None and not forzar):
+            self._capa_carga(False)
+            self._primera = False                           # la escena ya está (reabrir: `reiniciar` encuadró)
+            return                                          # nada de lo que usa la 3D cambió (p. ej. solo elegir)
         datos = pickle.dumps(self._datos(copiar=False), pickle.HIGHEST_PROTOCOL)
         firma = hashlib.blake2b(datos, digest_size=20).hexdigest()
+        self._clave_hecha = clave
         if firma == self._firma and not forzar:
             self._capa_carga(False)
+            self._primera = False
             return
         if self._trabajo is not None:
             if self._trabajo_firma == firma and not forzar:
@@ -152,6 +183,7 @@ class ArmadoMixin:
     def _listo(self, escena, firma):
         self._trabajo = None
         self._firma = firma
+        self._parcheada = False
         self.escena = escena
         self._cajas_parche = None
         self.spn_suelo.auto = float(escena.suelo_z or 0.0)
@@ -204,5 +236,6 @@ class ArmadoMixin:
             return False
         self.escena = nueva
         self._firma = None                                  # el próximo armado completo no se salta
+        self._parcheada = True                              # la escena sigue siendo de este proyecto
         self.visor.set_escena(nueva)
         return True

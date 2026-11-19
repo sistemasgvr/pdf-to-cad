@@ -14,15 +14,14 @@ Todo lo de seguimiento vive aquí, en el repo. Los comandos se corren desde la r
 | Plantilla de plugin C# para Jean y Elvis | `plantillas/plugin-civil3d/` |
 
 ## Regla de revisión
-- **Cualquiera del equipo, o su Claude**, propone: `python scripts/gestion proponer <id> <estado> --por Nombre --nota "…"`.
 - **Solo el administrador** aprueba, en `python scripts/gestion admin`. El cliente ve únicamente el `estado` aprobado.
 - En el administrador también se **agregan** funciones y grupos (quedan aprobados), se **editan** nombre, grupo, estado y nota de cualquier función, se **quitan** (no si una versión la usa) y, en «Estados y colores», se cambia el color de un estado o se crean estados propios (`[[estado]]` en `funciones.toml`).
-- **Entrada del administrador** = el diagrama editable (igual al del cliente). Versiones, propuestas por revisar, estados y piezas van en «Más opciones» (`/panel`). La vista previa se arma aunque falte aprobar algo; publicar no.
+- **Entrada del administrador** = el diagrama editable (igual al del cliente). Versiones, estados y piezas van en «Más opciones» (`/panel`). La vista previa se arma aunque falte aprobar algo; publicar no.
 - **Privado**: el 🔒 de una fila, tarjeta o área la deja fuera de todo lo que ve el cliente (sitio y reporte; `privado = true` en `funciones.toml`). Una novedad de versión no puede apoyarse en una función privada.
 - **Funciones**: la página de entrada abre el diagrama tal como lo ve el cliente y ahí se escribe encima: nombres, títulos y subtítulos de tarjetas y áreas; clic en el estado de una fila para cambiarlo; «+ Agregar función» (Enter crea y deja escribir la siguiente), «+ Nueva tarjeta», «+ Nueva área»; ✕ quita (no si la función está en una versión) y las filas se arrastran por su asa ⋮⋮. Todo se guarda al momento.
 - **Versiones**: «Nueva versión» y «Editar» abren la versión tal como la ve el cliente, y ahí se escribe encima: «+ Agregar» en cada sección, ↑ ↓ ✕ por cambio, y las funciones se buscan y asocian a mano en «+ Asociar función…» (o se crean ahí mismo). Nada se sugiere solo; todo se guarda solo y cada cambio dice en rojo qué le falta para publicar. Una versión publicada se ve en solo lectura hasta pasarla a borrador.
 
-**Cada cambio de una versión va asociado a funciones del diagrama** (`funciones = [...]` en cada `[[novedad]]`), y cada una debe existir y tener estado aprobado. Si falta algo, la versión no se puede marcar como publicada, y si ya lo está, el sitio no se publica. El administrador muestra qué falta. Si el cambio es de algo que aún no está en el diagrama, primero se agrega la función (con `propuesto`) y se aprueba.
+**Cada cambio de una versión va asociado a funciones del diagrama** (`funciones = [...]` en cada `[[novedad]]`), y cada una debe existir y tener estado aprobado. Si falta algo, la versión no se puede marcar como publicada, y si ya lo está, el sitio no se publica. El administrador muestra qué falta. Si el cambio es de algo que aún no está en el diagrama, primero se agrega la función en el editor y se le pone su estado. Las funciones que impiden publicar se marcan en rojo en el editor, con un aviso arriba que lleva a cada una. (Ya no hay propuestas «Por revisar»: el administrador lo pone todo.)
 
 Estados (entre paréntesis, lo que ve el cliente):
 - `probado` 🟢 (Disponible)

@@ -22,6 +22,7 @@ from nucleo import flujo as FL, model_ops, perfil_recorrido as PR, perfil_textos
 from nucleo.model import network_kind
 
 ANG_CRUCE_MIN_DEG = 15.0
+RECUADROS = True                     # False = sin descartar por recuadros (lo de antes; las pruebas comparan)
 UMBRAL_PRESION_DEG = 1.0
 UMBRAL_CONDUIT_DEG = 2.0
 S_ESTANDAR = (10, 20, 30, 40, 50, 60, 100, 200, 500, 1000)
@@ -395,6 +396,17 @@ def _nodos(pipes, structures, accs, rec, pasos, ft, tol):
     usadas = {p.arista for p in rec.pasos}
     out = []
     n = len(rec.nodos)
+    # Solo los buzones y accesorios que caen en el recuadro del recorrido (± tolerancia), en su orden: los mismos que
+    # pueden quedar a ≤ tol de un nodo (2026-11-18: con decenas de miles, cada nodo los recorría todos).
+    if RECUADROS and rec.nodos:
+        xs = [g.nodos[nid][0] for nid in rec.nodos]; ys = [g.nodos[nid][1] for nid in rec.nodos]
+        m = max(tol, model_ops._TOL) + 1e-6
+        x0, x1, y0, y1 = min(xs) - m, max(xs) + m, min(ys) - m, max(ys) + m
+
+        def dentro(px, py):
+            return isinstance(px, (int, float)) and isinstance(py, (int, float)) and x0 <= px <= x1 and y0 <= py <= y1
+        accs = [a for a in accs or () if dentro(a.get("x"), a.get("y"))]
+        structures = [s for s in structures or () if dentro(s.get("x"), s.get("y"))]
     for k, nid in enumerate(rec.nodos):
         x, y = g.nodos[nid]
         e = rec.estaciones[k]
@@ -520,16 +532,29 @@ def _cruces(pipes, rec, pasos, ft, tol):
     nodos = [g.nodos[n] for n in rec.nodos]
     e_ini, e_fin = rec.estaciones[0], rec.estaciones[-1]
     out = []
+    # Recuadros (2026-11-18: con 29 mil utilidades cada tramo contra cada paso tardaba ~11 s en CADA redibujo con el
+    # perfil abierto). Solo descartan pares que no pueden cortarse (`_corte` admite 1e-9 fuera del tramo: margen
+    # holgado); los pasos que quedan, en su orden: el primer cruce es el mismo.
+    m = 1e-3
+    cajas = [(min(q.p0[0], q.p1[0]) - m, min(q.p0[1], q.p1[1]) - m, max(q.p0[0], q.p1[0]) + m,
+              max(q.p0[1], q.p1[1]) + m) for q in pasos]
+    rx0 = min((c[0] for c in cajas), default=0.0); ry0 = min((c[1] for c in cajas), default=0.0)
+    rx1 = max((c[2] for c in cajas), default=0.0); ry1 = max((c[3] for c in cajas), default=0.0)
     for j, p in enumerate(pipes):
         pts = p.get("pts") or []
         if j in del_recorrido or len(pts) < 2 or p.get("world"):
             continue
-        if any(math.hypot(q[0] - nx, q[1] - ny) <= tol for q in (pts[0], pts[-1]) for nx, ny in nodos):
-            continue
+        xs = [q[0] for q in pts]; ys = [q[1] for q in pts]
+        if RECUADROS and (min(xs) > rx1 or max(xs) < rx0 or min(ys) > ry1 or max(ys) < ry0):
+            continue                                  # lejos del recorrido: no lo cruza
         hallado = None
         for k in range(len(pts) - 1):
             c, d = pts[k], pts[k + 1]
-            for paso in pasos:
+            sx0, sx1 = (c[0], d[0]) if c[0] <= d[0] else (d[0], c[0])
+            sy0, sy1 = (c[1], d[1]) if c[1] <= d[1] else (d[1], c[1])
+            for paso, cj in zip(pasos, cajas):
+                if RECUADROS and (cj[0] > sx1 or cj[2] < sx0 or cj[1] > sy1 or cj[3] < sy0):
+                    continue
                 tu = _corte(paso.p0, paso.p1, c, d)
                 if tu is None:
                     continue
@@ -543,6 +568,9 @@ def _cruces(pipes, rec, pasos, ft, tol):
             if hallado:
                 break
         if not hallado:
+            continue
+        # (antes de buscar el cruce: es otro filtro, el mismo resultado; solo se mira en las que cruzan)
+        if any(math.hypot(q[0] - nx, q[1] - ny) <= tol for q in (pts[0], pts[-1]) for nx, ny in nodos):
             continue
         paso, (t, u), k, e = hallado
         zz = model_ops.cotas_tramo(p, k) or (0.0, 0.0)

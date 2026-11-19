@@ -625,9 +625,6 @@ desde = "2.0.0"
 id = "app.reconocimiento-automatico.reconocer-desde-el-editor"
 grupo = "app.reconocimiento-automatico"
 nombre = "Reconocer desde el editor, por partes"
-propuesto = "falta_probar"
-propuesto_por = "Claude"
-propuesto_nota = "Nuevo en 2.1.0: panel Reconocer con ▶ por utilidad, válvulas, diámetros y rótulos; igual al flujo anterior en DU06 (0 diferencias)"
 desde = "2.1.0"
 
 # ── app.agregar-utilidad-y-capas ──
@@ -960,12 +957,16 @@ desde = "2.0.0"
 id = "app.accesorios.valvulas"
 grupo = "app.accesorios"
 nombre = "Válvulas"
+estado = "falta_probar"
+aprobado = "Deyvy 2026-11-18"
 desde = "2.0.0"
 
 [[funcion]]
 id = "app.accesorios.listado-en-el-inventario"
 grupo = "app.accesorios"
 nombre = "Listado en el inventario"
+estado = "probado"
+aprobado = "Deyvy 2026-11-18"
 desde = "2.0.0"
 
 # ── app.datos-de-la-utilidad ──
@@ -1046,9 +1047,8 @@ desde = "2.0.0"
 id = "app.datos-de-la-utilidad.sentido-del-flujo"
 grupo = "app.datos-de-la-utilidad"
 nombre = "Sentido del flujo (por utilidad o por tramo)"
-propuesto = "falta_probar"
-propuesto_por = "Claude"
-propuesto_nota = "Novedad de la 2.0.0 que no estaba en el diagrama"
+estado = "falta_probar"
+aprobado = "Deyvy 2026-11-18"
 desde = "2.0.0"
 
 # ── app.inventario-y-edicion-masiva ──
@@ -1477,6 +1477,8 @@ desde = "2.0.0"
 id = "app.asistente-ia.ordenes-con-confirmacion"
 grupo = "app.asistente-ia"
 nombre = "Órdenes con confirmación"
+estado = "falta_probar"
+aprobado = "Deyvy 2026-11-18"
 desde = "2.0.0"
 
 [[funcion]]
@@ -1607,9 +1609,8 @@ desde = "2.0.0"
 id = "app.ajustes-y-ayuda.instalador"
 grupo = "app.ajustes-y-ayuda"
 nombre = "Instalador con plugin y conexión de la IA"
-propuesto = "falta_probar"
-propuesto_por = "Claude"
-propuesto_nota = "Novedad de la 2.0.0 que no estaba en el diagrama"
+estado = "optimizar"
+aprobado = "Deyvy 2026-11-18"
 desde = "2.0.0"
 
 # ── app.reconocimiento-de-accesorios-auto ──
@@ -1718,9 +1719,6 @@ desde = "2.0.0"
 id = "plugin.importar-red-desde-dxf.superficies"
 grupo = "plugin.importar-red-desde-dxf"
 nombre = "Superficies idénticas a las de la app (verificadas)"
-propuesto = "falta_probar"
-propuesto_por = "Claude"
-propuesto_nota = "Nuevo en 2.1.0; falta probar en Civil 3D"
 desde = "2.1.0"
 
 # ── plugin.agregar-tuberia-curva ──
@@ -1913,25 +1911,26 @@ desde = "2.0.0"
 id = "app.superficies.importar"
 grupo = "app.superficies"
 nombre = "Importar una o varias superficies (LandXML, GeoTIFF)"
-propuesto = "falta_probar"
-propuesto_por = "Claude"
-propuesto_nota = "Nuevo en 2.1.0; falta probar en Civil 3D"
 desde = "2.1.0"
 
 [[funcion]]
 id = "app.superficies.sistema"
 grupo = "app.superficies"
 nombre = "Mismo sistema de coordenadas que las redes"
-propuesto = "falta_probar"
-propuesto_por = "Claude"
-propuesto_nota = "Nuevo en 2.1.0; falta probar en Civil 3D"
 desde = "2.1.0"
 
 [[funcion]]
 id = "app.superficies.plano-y-capas"
 grupo = "app.superficies"
 nombre = "Contorno en el plano y en «Capas»"
-propuesto = "falta_probar"
-propuesto_por = "Claude"
-propuesto_nota = "Nuevo en 2.1.0; falta probar en Civil 3D"
+desde = "2.1.0"
+
+# ── plugin.laminado ──
+
+[[funcion]]
+id = "plugin.laminado.creacion-de-membrete-automatico"
+grupo = "plugin.laminado"
+nombre = "Creación de membrete automático"
+estado = "probado"
+aprobado = "Deyvy 2026-11-18"
 desde = "2.1.0"
