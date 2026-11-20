@@ -37,13 +37,15 @@ def ejecutar(host, fn, texto: str, detalle: str = "", cancelable: bool = False, 
         aviso.paso.connect(avance, QtCore.Qt.QueuedConnection)
 
     def correr():
+        from nucleo import vigilante
         try:
-            if avance is not None:
-                from nucleo import avance as _avance
-                with _avance.escuchar(lambda t, i, n: aviso.paso.emit(t, i, n)):
+            with vigilante.trabajo("hilo: " + (texto or getattr(fn, "__name__", "?")), en_hilo=True):
+                if avance is not None:
+                    from nucleo import avance as _avance
+                    with _avance.escuchar(lambda t, i, n: aviso.paso.emit(t, i, n)):
+                        out["r"] = fn()
+                else:
                     out["r"] = fn()
-            else:
-                out["r"] = fn()
         except BaseException as e:                       # noqa: BLE001 (se informa a quien llama)
             out["e"] = f"{e}\n\n{traceback.format_exc()}"
             out["exc"] = e

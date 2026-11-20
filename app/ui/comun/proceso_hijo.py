@@ -126,7 +126,10 @@ def bucle(entrada, salida, tope_mb: int):
     """Punto de entrada del trabajador (`multiprocessing`, «spawn»): atiende trabajos
     (id, «paquete.modulo:funcion», args, kwargs) hasta recibir None."""
     from nucleo import diagnostico
+    from nucleo import vigilante
     diagnostico.activar()
+    import multiprocessing as mp
+    vigilante.activar(mp.current_process().name)      # tiempos y perfil de cada trabajo (sesión de la ventana)
     bajar_prioridad()
     poner_tope(tope_mb)
     while True:
@@ -144,7 +147,7 @@ def bucle(entrada, salida, tope_mb: int):
             nombre, fn = objetivo.split(":")
             f = getattr(importlib.import_module(nombre), fn)
             # las etapas que avisa el código puro («Leyendo la leyenda de cada hoja… 12 de 36»)
-            with avance.escuchar(lambda t, i, n, tid=tid: salida.put(("avance", tid, ("detalle", t, i, n)))):
+            with avance.escuchar(lambda t, i, n, tid=tid: salida.put(("avance", tid, ("detalle", t, i, n)))),                     vigilante.trabajo(objetivo, tid=tid):
                 res = f(*args, progreso=lambda *a, tid=tid: salida.put(("avance", tid, a)), **kwargs)
             salida.put(("ok", tid, res, memoria_mb()))
         except MemoryError:
@@ -193,6 +196,8 @@ def morir_con_el_padre() -> None:
     (tienen su propia punta de la cola: nunca la ven cerrada)."""
     import multiprocessing as mp
     import threading
+    from nucleo import vigilante
+    vigilante.activar(mp.current_process().name or "grupo")     # sus etapas también quedan anotadas
     padre = mp.parent_process()
     if padre is None:
         return
@@ -246,12 +251,12 @@ def memoria_libre_mb() -> int:
     return int(recursos()["ram_disponible"] // 2**20)
 
 
-def paralelos(n_trabajos: int, mb_por_trabajo: int = 1200) -> int:
+def paralelos(n_trabajos: int, mb_por_trabajo: int = 1200, maximo: int = MAX_PARALELOS) -> int:
     """Cuántos procesos a la vez para `n_trabajos` iguales: la mitad de los núcleos (el resto
     queda para la ventana y el equipo), lo que deja la RAM LIBRE (cada uno lee su hoja) y a
-    lo sumo `MAX_PARALELOS`."""
+    lo sumo `maximo` (`MAX_PARALELOS`; un trabajo de cálculo puro puede pedir más)."""
     if n_trabajos <= 1:
         return 1
     libre = memoria_libre_mb()
     por_ram = max(1, libre // max(1, mb_por_trabajo)) if libre else 1
-    return int(max(1, min(n_trabajos, max(1, (os.cpu_count() or 2) // 2), por_ram, MAX_PARALELOS)))
+    return int(max(1, min(n_trabajos, max(1, (os.cpu_count() or 2) // 2), por_ram, maximo)))

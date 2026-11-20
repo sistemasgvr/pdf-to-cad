@@ -216,6 +216,8 @@ def ejes_de_piezas(page, pzs, calcular, usar=None, en_proceso=None) -> list[list
         return [[] for _ in pzs]
     tmp = fitz.open()
     try:
+        from hoja.composite import vaciar_cache_mupdf
+        vaciar_cache_mupdf()            # con la caché llena (ya se leyeron los dibujos) esta copia tardaba 24–46 s
         tmp.insert_pdf(page.parent, from_page=page.number, to_page=page.number)
         recursos = _nombres(tmp, tmp[0].xref)
         hojas = []                                     # por pieza: (clave, número de página en `tmp`) o None
@@ -255,7 +257,12 @@ def _pagina_de_origen(tmp, hoja: int, caja) -> int:
     return p.number
 
 
-MB_POR_HOJA = 1500                   # memoria de un proceso que lee la imagen de una hoja (pico medido ~1 GB)
+# memoria de un proceso que lee la imagen de una hoja: pico medido 1.4–2.0 GB con `HoughCircles` en un hilo (2026-11-20, QS SD
+# de Phoenix; con sus 12 hilos llegaba a 3.4–4.0 GB y 4 procesos llevaron el equipo a usar el disco como memoria)
+MB_POR_HOJA = 2100
+# leer la imagen de una hoja es cálculo puro (no relee el PDF de origen): hasta 6 a la vez si la RAM y los núcleos
+# alcanzan (con 4: 36 mapas en 158 s; el tope general de `proceso_hijo.MAX_PARALELOS` es 4)
+MAX_PROCESOS = 6
 
 
 def de_bytes(datos: bytes, objetivo: str) -> list:
@@ -273,7 +280,7 @@ def _repartir(tmp, faltan: dict, objetivo: str) -> None:
     from traduccion.i18n_core import t as _tr
     try:
         from ui.comun import proceso_hijo
-        n_proc = proceso_hijo.paralelos(len(faltan), MB_POR_HOJA)
+        n_proc = proceso_hijo.paralelos(len(faltan), MB_POR_HOJA, maximo=MAX_PROCESOS)
     except Exception:
         return
     if n_proc < 2:

@@ -39,6 +39,12 @@ CONOCIDAS = {
 }
 
 
+# medida (ancho, alto en px) de cada imagen de `CONOCIDAS`: `extract_image` convierte a PNG cada imagen Flate para
+# sacar su huella y los mapas de Phoenix traen ~12 500 tiras de imagen por PDF (2026-11-20, monitor: 105 s). Solo
+# se mira la huella de las que miden como una conocida. Una leyenda nueva en `CONOCIDAS` suma aquí su medida.
+TAMANOS = {(828, 8696)}
+
+
 def conocida(page) -> Optional[Leyenda]:
     """La leyenda conocida que trae la hoja como imagen, o None."""
     doc = page.parent
@@ -46,6 +52,8 @@ def conocida(page) -> Optional[Leyenda]:
     if page.number not in memo:
         memo[page.number] = None
         for im in page.get_images(full=True):
+            if (im[2], im[3]) not in TAMANOS:
+                continue        # otra medida: no puede ser una conocida (sin armar su PNG: 105 s con 25 mil tiras)
             try:
                 ley = CONOCIDAS.get(hashlib.sha1(doc.extract_image(im[0])["image"]).hexdigest())
             except (RuntimeError, ValueError, KeyError, TypeError):

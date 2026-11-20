@@ -106,6 +106,9 @@ def bucle(conns, tope_mb: int = 0):
     sentido (un PDF grande que llega no frena las teselas que salen)."""
     from ui.comun import proceso_hijo
     from ui.comun import teselas as T
+    from nucleo import vigilante
+    import multiprocessing as mp
+    vigilante.activar(mp.current_process().name or "teselas")
     proceso_hijo.bajar_prioridad()
     proceso_hijo.poner_tope(tope_mb)
     entrada, salida = conns
@@ -158,6 +161,7 @@ def bucle(conns, tope_mb: int = 0):
                     continue
                 t0 = time.perf_counter()
                 pix = T.dibujar(e["hojas"], page, nivel, col, fila)
+                vigilante.acumular("tesela", time.perf_counter() - t0)
                 _log("tesela", clave[2:], "%.3f s" % (time.perf_counter() - t0), "faltan", len(st["pend"]))
                 if pix is None:
                     salida.send(("x", clave, "fuera de la hoja"))
@@ -186,6 +190,8 @@ def bucle(conns, tope_mb: int = 0):
                 if page is not None:
                     e["hojas"].lista(page)
                     e["hojas"].cajas(page)
+                vigilante.evento("bloque", nombre="Teselas: preparar la hoja", dur=round(time.perf_counter() - t0, 4),
+                                 hoja=num)
                 _log("calentar", num, "%.2f s" % (time.perf_counter() - t0))
             except Exception as exc:
                 _log("error calentar", repr(exc))

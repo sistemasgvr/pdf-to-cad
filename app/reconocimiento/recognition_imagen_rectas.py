@@ -49,6 +49,11 @@ HUECO_LADO_PT = 1.5          #   dos piezas) y a ≤ esto de la recta de la otra
 HUECO_GIRO_DEG = 10.0        #   (rumbos a ≤ esto, medidos en los últimos `RUMBO_PT` de cada una)
 RUMBO_PT = 12.0
 CELDA_PT = 8.0               # celda de los índices (`recognition_imagen_indice`)
+# (pedido del usuario 2026-11-20, QS SD de Phoenix: «solo nos interesan las líneas de la red»)
+PROLONGAR_PT = 15.0          # una punta SUELTA cuyo rumbo choca con otra línea a ≤ esto llega a ella (T): el ramal
+PROLONGAR_GIRO_MIN_DEG = 25.0  #   que moría unos pt antes de la principal; con un ángulo de al menos esto (no paralelas)
+AISLADA_PT = 12.0            # línea suelta por LAS DOS puntas y más corta = borde de un símbolo (la caja del sumidero)
+SIMBOLO_PAD_PT = 1.0         # una punta a ≤ esto de la caja de un símbolo está «en» él
 DUROS = {"junction", "tee", "vault"}
 PUNTA_A_BOVEDA = {"stop", "edge", "end", "vault", "bend", "corner", "curve", "cut"}
 
@@ -159,13 +164,17 @@ def _quitar_repetidas(imgs: list, zoom: float, rej: Rejilla) -> list:
     fuera, ids_fuera = [], set()
     r = REPETIDA_PT * zoom
     largos = {id(p): _largo(p.pts_pdf) for p in imgs}
+    orden = {id(p): k for k, p in enumerate(imgs)}
+    # (dos copias del MISMO largo: se va la primera; antes ninguna, por «más larga» estricto — QS SD North, la
+    # conexión del buzón al sumidero salía dos veces en la capa «fino»)
+    mayor = lambda b, a: largos[id(b)] > largos[id(a)] + 1e-6 or (  # noqa: E731
+        abs(largos[id(b)] - largos[id(a)]) <= 1e-6 and orden[id(b)] > orden[id(a)])
     for a in sorted(imgs, key=lambda p: largos[id(p)]):
-        la = largos[id(a)]
         qs = list(_muestras(a.pts_pdf, 0.5 * zoom))
         cerca: dict = {}                               # línea → muestras de `a` a ≤ r de ella
         for q in qs:
             for b, ks in rej.cerca(q, r):
-                if b is not a and id(b) not in ids_fuera and largos[id(b)] > la and dist_en(q, b.pts_pdf, ks)[0] <= r:
+                if b is not a and id(b) not in ids_fuera and mayor(b, a) and dist_en(q, b.pts_pdf, ks)[0] <= r:
                     cerca[id(b)] = cerca.get(id(b), 0) + 1
         if any(n >= REPETIDA_FRAC * len(qs) for n in cerca.values()):
             fuera.append(a)
@@ -361,7 +370,28 @@ def _t_sobre_su_linea(imgs: list, zoom: float, tol_pt: float) -> None:
                     pl.pts_pdf[end] = p
 
 
-def enderezar(polylines: list, vaults_geo: Sequence[dict], zoom: float, tol_pt: float = TOL_PT) -> int:
+def simbolos_de(page, polylines, px) -> list:
+    """Cajas (px de la vista) de los SÍMBOLOS de la imagen (`PDF_STYLE:["img","sym",…]`) del color de las líneas de
+    imagen de `polylines`, asignados o no a una utilidad: `_quitar_aisladas` deja la línea que va de un símbolo a OTRO
+    (la conexión del buzón «M» al sumidero), no el borde de la caja de uno."""
+    from hoja import imagen_ejes as IE, pdf_styles
+    rgbs = {IE.rgb_de(pl.layer_ocg) for pl in polylines if img_piezas.es_capa_imagen(getattr(pl, "layer_ocg", "") or "")}
+    rgbs.discard(None)
+    if not rgbs:
+        return []
+    out = []
+    for p in pdf_styles.drawings(page):
+        ly = p.get("layer") or ""
+        if not IE.es_imagen(ly) or IE.tipo_imagen(ly) != "sym" or IE.rgb_de(ly) not in rgbs:
+            continue
+        r = p["rect"]
+        qs = [px((r[0], r[1])), px((r[2], r[1])), px((r[0], r[3])), px((r[2], r[3]))]
+        out.append((min(q[0] for q in qs), min(q[1] for q in qs), max(q[0] for q in qs), max(q[1] for q in qs)))
+    return out
+
+
+def enderezar(polylines: list, vaults_geo: Sequence[dict], zoom: float, tol_pt: float = TOL_PT,
+              simbolos: Sequence[tuple] = ()) -> int:
     """Endereza EN SITIO las polilíneas de imagen de `polylines` (ver el módulo). Devuelve cuántas quedan."""
     imgs = [p for p in polylines if img_piezas.es_capa_imagen(getattr(p, "layer_ocg", "") or "")
             and p.kind != "structure" and len(p.pts_pdf) >= 2 and len(p.kinds) == len(p.pts_pdf)]
@@ -383,17 +413,179 @@ def enderezar(polylines: list, vaults_geo: Sequence[dict], zoom: float, tol_pt: 
     imgs = [pl for pl in imgs if id(pl) not in ids]
     rej = Rejilla(imgs, CELDA_PT * zoom)
     quitar += _quitar_repetidas(imgs, zoom, rej)            # 2. la misma tubería dos veces
+    from reconocimiento import recognition_imagen_nudos as nudos
+    quitar += nudos.quitar_marcos(imgs, zoom, simbolos)     # 2b. el contorno de la caja de un símbolo
+    quitar += nudos.limpiar_nudos(imgs, zoom, simbolos, bovedas, pad)  # 2c. enredos de trozos cortos (`nudos`)
+    rej = Rejilla(imgs, CELDA_PT * zoom)
     quitar += _quitar_trocitos(imgs, bovedas, zoom, rej)    #    y restos de rejillas y bordes de símbolos
     quitar += _unir_de_frente(imgs, zoom, rej)              # 3. piezas de la misma tubería
     quitar += _unir_huecos(imgs, zoom, rej)                 #    también con un hueco entre ellas
+    nudos.a_su_boveda(imgs, zoom, vaults_geo, pad)          # 3d. la punta que no llega a su buzón
+    polylines += nudos.cadenas_de_simbolos(imgs, zoom, simbolos, vaults_geo, pad)  # 3e. símbolos apilados
+    quitar += _absorbidas(imgs, nudos.cruzar_simbolos, zoom, simbolos, vaults_geo, pad)  # 3f. pasa por el símbolo
+    rej = Rejilla(imgs, CELDA_PT * zoom)
+    quitar += _unir_de_frente(imgs, zoom, rej)              # (lo que el nudo dejó punta con punta …
+    quitar += _unir_huecos(imgs, zoom, rej)                 #  … o de frente con un hueco)
     rej = Rejilla(imgs, CELDA_PT * zoom)
     for pl in imgs:                                         # 4. rectas
         _recta(pl, tol_pt * zoom, rej, zoom)
         rej.poner(pl)                                       # (sus tramos de antes ya no existen: IndexError)
+    _prolongar_ramales(imgs, zoom, rej, bovedas, pad)       # 5b. el ramal que muere unos pt antes de otra línea
+    aisladas = _quitar_aisladas(imgs, zoom, rej, simbolos)  # 5c. bordes de símbolos que quedaron sueltos
+    quitar += aisladas
     ids = {id(pl) for pl in quitar}
     polylines[:] = [pl for pl in polylines if id(pl) not in ids]
+    nudos.a_su_buzon(imgs, zoom)                            # 5f. al buzón, no a la unión pegada a él
+    nudos.llegar_recto(imgs, zoom)                          # 5e. el ramal llega en T por su recta
     _t_sobre_su_linea(imgs, zoom, tol_pt)                   # 5. la T sobre su línea ya enderezada
+    _bovedas_sin_linea(imgs, vaults_geo, pad)               # 5d. un buzón de la imagen sin ninguna línea no se importa
     return len(imgs)
+
+
+def _absorbidas(imgs: list, paso, *args) -> list:
+    """Corre `paso(imgs, *args)` y devuelve las líneas que sacó de `imgs` (las que absorbió otra)."""
+    antes = list(imgs)
+    paso(imgs, *args)
+    quedan = {id(pl) for pl in imgs}
+    return [pl for pl in antes if id(pl) not in quedan]
+
+
+def _cruce_rayo(q: Pt, u, a: Pt, b: Pt):
+    """(s, t) del cruce de la semirrecta q + s·u (s > 0) con el tramo a–b (0 ≤ t ≤ 1), o None."""
+    ex, ey = b[0] - a[0], b[1] - a[1]
+    den = u[0] * ey - u[1] * ex
+    if abs(den) < 1e-12:
+        return None
+    wx, wy = a[0] - q[0], a[1] - q[1]
+    s = (wx * ey - wy * ex) / den
+    t = (wx * u[1] - wy * u[0]) / den
+    return (s, t) if s > 1e-9 and -1e-9 <= t <= 1 + 1e-9 else None
+
+
+def _prolongar_ramales(imgs: list, zoom: float, rej: Rejilla, bovedas: Bovedas, pad: float) -> int:
+    """Una punta SUELTA (ni bóveda ni otra línea, ni dentro de un buzón) cuyo rumbo choca con otra línea de la red a
+    ≤ `PROLONGAR_PT`, de costado (≥ `PROLONGAR_GIRO_MIN_DEG`), llega a ella: el ramal que el dibujo deja unos pt antes
+    de la principal (QS SD North, «12\" PVC» contra «15\" PVC»). La punta pasa a «tee» (o «junction» si cae en la
+    punta de la otra). Devuelve cuántas."""
+    tol, rmax = T_SOBRE_PT * zoom, PROLONGAR_PT * zoom
+    seno_min = math.sin(math.radians(PROLONGAR_GIRO_MIN_DEG))
+    hechas = 0
+    for pl in imgs:
+        for end in (0, -1):
+            if pl.kinds[end] in ("vault", "tee", "junction", "cut") or not _libre(pl, end, rej, tol):
+                continue
+            q = pl.pts_pdf[end]
+            if _boveda_de(q, bovedas, pad) is not None:
+                continue
+            u = _rumbo(pl.pts_pdf, end, RUMBO_PT * zoom)
+            if u is None:
+                continue
+            best = None
+            for o, ks in rej.cerca(q, rmax):
+                if o is pl:
+                    continue
+                for k in ks:
+                    a, b = o.pts_pdf[k], o.pts_pdf[k + 1]
+                    hit = _cruce_rayo(q, u, a, b)
+                    if hit is None or hit[0] > rmax:
+                        continue
+                    L = math.dist(a, b)
+                    if L < 1e-9 or abs(u[0] * (b[1] - a[1]) - u[1] * (b[0] - a[0])) / L < seno_min:
+                        continue
+                    if best is None or hit[0] < best[0]:
+                        best = (hit[0], o, k, hit[1])
+            if best is None:
+                continue
+            s_hit, o, k, t = best
+            p = (q[0] + u[0] * s_hit, q[1] + u[1] * s_hit)
+            medio = (q[0] + u[0] * s_hit / 2, q[1] + u[1] * s_hit / 2)
+            if _boveda_de(medio, bovedas, pad) is not None:
+                continue                                   # el camino pasa por un buzón: ahí ya termina en él
+            extremo = min(math.dist(p, o.pts_pdf[0]), math.dist(p, o.pts_pdf[-1])) <= tol
+            # la punta se corre por su rumbo (el último tramo ya es recto) o, si ese tramo tuerce, se agrega un vértice
+            pts, kinds, fil = list(pl.pts_pdf), list(pl.kinds), dict(pl.fillets or {})
+            vec = pts[1] if end == 0 else pts[-2]
+            ul = (q[0] - vec[0], q[1] - vec[1])
+            Ll = math.hypot(*ul)
+            recto = Ll > 1e-9 and (ul[0] * u[0] + ul[1] * u[1]) / Ll >= math.cos(math.radians(3.0))
+            nuevo = "junction" if extremo else "tee"
+            if end == 0:
+                if recto and 0 not in fil:
+                    pts[0], kinds[0] = p, nuevo
+                else:
+                    kinds[0] = "bend"
+                    pts.insert(0, p); kinds.insert(0, nuevo)
+                    fil = {i + 1: f for i, f in fil.items()}
+            else:
+                n = len(pts) - 1
+                if recto and n not in fil:
+                    pts[-1], kinds[-1] = p, nuevo
+                else:
+                    kinds[-1] = "bend"
+                    pts.append(p); kinds.append(nuevo)
+            pl.pts_pdf, pl.kinds, pl.fillets = pts, kinds, fil
+            rej.poner(pl)
+            hechas += 1
+    return hechas
+
+
+def _quitar_aisladas(imgs: list, zoom: float, rej: Rejilla, simbolos: Sequence[tuple] = ()) -> list:
+    """Líneas sueltas por LAS DOS puntas (ni bóveda ni otra línea) más cortas que `AISLADA_PT`: bordes de símbolos
+    (la caja de un sumidero) que la imagen deja como trazo. Se quedan las más largas y la que va de un símbolo a OTRO
+    distinto (la conexión del buzón «M» al sumidero cuando los símbolos no se asignaron como buzones: SD South h.7)."""
+    tol = T_SOBRE_PT * zoom
+    pad = SIMBOLO_PAD_PT * zoom
+    malas = [pl for pl in imgs if _largo(pl.pts_pdf) < AISLADA_PT * zoom
+             and _libre(pl, 0, rej, tol) and _libre(pl, -1, rej, tol)
+             and pl.kinds[0] not in ("tee", "junction") and pl.kinds[-1] not in ("tee", "junction")
+             and not _de_simbolo_a_simbolo(pl.pts_pdf[0], pl.pts_pdf[-1], simbolos, pad)]
+    _sacar(imgs, malas, rej)
+    return malas
+
+
+def _de_simbolo_a_simbolo(p: Pt, q: Pt, simbolos: Sequence[tuple], pad: float) -> bool:
+    """¿Una punta en un símbolo y la otra en OTRO distinto? (cajas agrandadas `pad`)"""
+    def en(pt):
+        return {i for i, (x0, y0, x1, y1) in enumerate(simbolos)
+                if x0 - pad <= pt[0] <= x1 + pad and y0 - pad <= pt[1] <= y1 + pad}
+    a, b = en(p), en(q)
+    return bool(a) and bool(b) and bool(b - a) and bool(a - b)
+
+
+def _bovedas_sin_linea(imgs: list, vaults_geo: Sequence[dict], pad: float) -> int:
+    """Un buzón dibujado en la IMAGEN (capa de imagen) al que no llega ni atraviesa ninguna línea de la red no se importa
+    (`importable` = False; marca `sin_linea`): solo interesan las líneas y los buzones donde llegan. Devuelve cuántos."""
+    rej = Rejilla(imgs, CELDA_PT * 4) if imgs else None
+    n = 0
+    for vg in vaults_geo or ():
+        if not img_piezas.es_capa_imagen(vg.get("layer") or "") or not vg.get("importable", False):
+            continue
+        c = vault_snap.vault_centroid(vg)
+        alcance = _medio_lado(vg) + pad
+        tiene = False
+        if rej is not None:
+            for pl, ks in rej.cerca(c, alcance):
+                if any(vault_snap.vault_contains(vg, q, pad) for q in pl.pts_pdf) or \
+                        dist_en(c, pl.pts_pdf, ks)[0] <= alcance:
+                    tiene = True
+                    break
+        if not tiene:
+            vg["importable"] = False
+            vg["sin_linea"] = True
+            n += 1
+    return n
+
+
+def _medio_lado(vg: dict) -> float:
+    """Medio tamaño del buzón (radio del círculo o medio lado mayor del contorno)."""
+    b = vault_snap.boundary(vg)
+    if b is None:
+        return 0.0
+    kind, g = b
+    if kind == "circle":
+        return float(g[2])
+    xs, ys = [p[0] for p in g], [p[1] for p in g]
+    return 0.5 * max(max(xs) - min(xs), max(ys) - min(ys))
 
 
 _PENDIENTES: set = set()      # ids de las líneas con diámetros por partir (entre `cortes_a_puntos` y `puntos_a_cortes`)

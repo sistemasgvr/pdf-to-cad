@@ -2263,6 +2263,11 @@ def main():
     # hardcodeado ahora vive en app/theme.py, parametrizado por tokens de color.
     _theme.apply_theme(app, _theme.load_preference("dark"))
     win = Main(); win.showMaximized()          # siempre maximizada (pedido del usuario 2026-10-30)
+    from ui.comun import vigilante_ui                # tiempos de cada proceso y congelamientos (`nucleo/vigilante`)
+    vigilante_ui.iniciar(app, win)
+    from ui.monitor import monitor_ventana as _monitor
+    if _monitor.abrir_al_iniciar():                  # el usuario lo pidió: así ve también lo que pasa al arrancar
+        win.abrir_monitor()
     recuperado = win.iniciar_autoguardado()      # copias automáticas + ofrecer recuperar
     import diagnostico_equipo                    # 1.ª vez de cada versión: informe del equipo, en otro proceso
     diagnostico_equipo.lanzar_si_falta()

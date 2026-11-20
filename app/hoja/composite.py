@@ -1272,6 +1272,70 @@ def _show_pdf_page(page, rect, src, pno: int, clip, rotate: float):
         src[pno].set_rotation(rot)
 
 
+def vaciar_cache_mupdf() -> None:
+    """Vacía la caché interna de MuPDF (el «store»: lo ya decodificado para reusarlo). Leer los dibujos de hojas
+    grandes la llena y COPIAR páginas después (`show_pdf_page`, `insert_pdf`: su injerto de objetos) se vuelve muy
+    lento con ella llena (2026-11-20, monitor: armar la compuesta de 36 mapas 28 → 9 s; copiar la compuesta para leer
+    sus imágenes 24–46 s → 0.8 s). Solo suelta lo que se puede volver a decodificar: el resultado es el mismo."""
+    try:
+        fitz.TOOLS.store_shrink(100)
+    except Exception:                       # noqa: BLE001
+        pass
+
+
+class _NombresDestino:
+    """Lo que `Page.show_pdf_page` mira para elegir el nombre de la pieza nueva («fzFrmN» libre): los nombres de
+    TODOS los XObjects, imágenes y fuentes de la hoja destino, recorriendo también lo de cada pieza ya puesta. Con 36
+    mapas de ~12 500 tiras de imagen cada uno ese recorrido crecía al cuadrado (~17 s de la hoja compuesta,
+    2026-11-20, monitor). Aquí la lista se lleva al día: la de la hoja vacía + por cada pieza puesta su «fzFrmN» y
+    los nombres de su hoja de origen (los mismos que hay dentro de su XObject: es una copia de sus recursos). Solo
+    durante la llamada `show_pdf_page` ve estas listas; mismo nombre elegido, el mismo PDF byte a byte.
+    `NOMBRES_DE_SIEMPRE` = el recorrido de PyMuPDF (para comparar)."""
+
+    _METODOS = ("get_page_xobjects", "get_page_images", "get_page_fonts")
+
+    def __init__(self, dst, page):
+        self.dst, self.n = dst, page.number
+        self.x = {t[1] for t in dst.get_page_xobjects(self.n)}
+        self.i = {t[7] for t in dst.get_page_images(self.n)}
+        self.f = {t[4] for t in dst.get_page_fonts(self.n)}
+        self._fuentes: Dict[Tuple[int, int], tuple] = {}
+
+    def _de_fuente(self, src, pno):
+        k = (id(src), int(pno))
+        if k not in self._fuentes:
+            self._fuentes[k] = ({t[1] for t in src.get_page_xobjects(pno)}, {t[7] for t in src.get_page_images(pno)},
+                                {t[4] for t in src.get_page_fonts(pno)})
+        return self._fuentes[k]
+
+    def poner(self, page, rect, src, pno, clip, rotate):
+        if NOMBRES_DE_SIEMPRE:
+            return _show_pdf_page(page, rect, src, pno, clip, rotate)
+        n = 0
+        while f"fzFrm{n}" in self.x or f"fzFrm{n}" in self.i or f"fzFrm{n}" in self.f:
+            n += 1
+        xs = [(0, x) for x in self.x]
+        ims = [(0, 0, 0, 0, 0, "", "", i) for i in self.i]
+        fs = [(0, "", "", "", f) for f in self.f]
+        d = self.dst
+        d.get_page_xobjects = lambda pno, *a, **k: xs
+        d.get_page_images = lambda pno, *a, **k: ims
+        d.get_page_fonts = lambda pno, *a, **k: fs
+        try:
+            xref = _show_pdf_page(page, rect, src, pno, clip, rotate)
+        finally:
+            for m in self._METODOS:
+                d.__dict__.pop(m, None)
+        sx, si, sf = self._de_fuente(src, pno)
+        self.x |= sx | {f"fzFrm{n}"}
+        self.i |= si
+        self.f |= sf
+        return xref
+
+
+NOMBRES_DE_SIEMPRE = False
+
+
 def build_document(comp: Composite, docs: Sequence[fitz.Document],
                    hidden_by_source: Optional[Dict[str, Sequence[str]]] = None,
                    bridges: Optional[Sequence[Bridge]] = None) -> fitz.Document:
@@ -1292,6 +1356,7 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
 
     width, height, dx, dy = sheet_geometry(comp, page_sizes)
     target = comp.target_scale()
+    vaciar_cache_mupdf()               # copiar hojas con la caché de MuPDF llena era 3× más lento (mismo PDF)
     dst = fitz.open()
     page = dst.new_page(width=width, height=height)
     fundidas = blended_pieces(comp, page_sizes)
@@ -1299,6 +1364,7 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
         _add_blend_state(dst, page)
     seen = _ocg_xrefs(dst)
     ocg_source: Dict[int, int] = {}
+    nombres = _NombresDestino(dst, page)
     for k_av, piece in enumerate(comp.pieces):
         avance.avisar(_tr("Copiando cada hoja con sus vectores, capas y textos…"), k_av, len(comp.pieces))
         src = docs[piece.source]
@@ -1312,7 +1378,7 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
         clip = (visible * spage.derotation_matrix).normalize()
         px0, py0, px1, py1 = piece_rect(piece, page_sizes(piece), target)
         rect = fitz.Rect(px0 + dx, py0 + dy, px1 + dx, py1 + dy)
-        _show_pdf_page(page, rect, src, piece.page, clip, piece.rotation - spage.rotation)
+        nombres.poner(page, rect, src, piece.page, clip, piece.rotation - spage.rotation)
         fundir = k_av in fundidas
         if fundir and not comp.manual:
             # vectorial: la pieza entera como grupo aislado, así solo se oscurece contra
@@ -1345,19 +1411,41 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
         by_name: Dict[Tuple[int, str], int] = {}
         for xref, src in ocg_source.items():
             by_name[(src, _ocg_name(dst, xref))] = xref
-        for br in bridges:
-            src_a = comp.pieces[br.piece_a].source
-            xref = by_name.get((src_a, br.layer_a)) or by_name.get(
-                (comp.pieces[br.piece_b].source, br.layer_b))
-            kw = dict(color=br.color or (0, 0, 0), width=br.width or 0.0)
-            if xref:
-                kw["oc"] = xref
-            ra = piece_bounds_shape(comp.pieces[br.piece_a], page_sizes(comp.pieces[br.piece_a]), target)
-            rb = piece_bounds_shape(comp.pieces[br.piece_b], page_sizes(comp.pieces[br.piece_b]), target)
-            pts = [(x + dx, y + dy) for x, y in br.polyline(ra, rb)]
-            for p, q in bridge_segments_poly(pts, br.dash):
-                page.draw_line(p, q, **kw)
+        _dibujar_puentes(page, comp, bridges, by_name, page_sizes, target, dx, dy)
     return dst
+
+
+def _dibujar_puentes(page, comp, bridges, by_name, page_sizes, target, dx, dy) -> None:
+    """Los guiones de cada puente, todos en UNA `Shape` y un solo `commit` (2026-11-20, monitor: con
+    `page.draw_line` cada guión era un `commit` que vuelve a recorrer todo el contenido de la hoja —20 s en una
+    compuesta de 36 mapas—). Cada guión lleva su propio `q … Q` con color, grosor y capa, igual que antes.
+    `PUENTES_DE_A_UNO` = el camino de siempre (para comparar)."""
+    forma = None if PUENTES_DE_A_UNO else page.new_shape()
+    hay = False
+    for br in bridges:
+        src_a = comp.pieces[br.piece_a].source
+        xref = by_name.get((src_a, br.layer_a)) or by_name.get(
+            (comp.pieces[br.piece_b].source, br.layer_b))
+        kw = dict(color=br.color or (0, 0, 0), width=br.width or 0.0)
+        if xref:
+            kw["oc"] = xref
+        ra = piece_bounds_shape(comp.pieces[br.piece_a], page_sizes(comp.pieces[br.piece_a]), target)
+        rb = piece_bounds_shape(comp.pieces[br.piece_b], page_sizes(comp.pieces[br.piece_b]), target)
+        pts = [(x + dx, y + dy) for x, y in br.polyline(ra, rb)]
+        for p, q in bridge_segments_poly(pts, br.dash):
+            if forma is None:
+                page.draw_line(p, q, **kw)
+                continue
+            # lo mismo que hace `Page.draw_line` (mismos valores por defecto), sin su `commit` por guión
+            forma.draw_line(fitz.Point(p), fitz.Point(q))
+            forma.finish(color=kw["color"], dashes=None, width=kw["width"], closePath=False, lineCap=0, lineJoin=0,
+                         morph=None, stroke_opacity=1, fill_opacity=1, oc=kw.get("oc", 0))
+            hay = True
+    if hay:
+        forma.commit(True)
+
+
+PUENTES_DE_A_UNO = False
 
 
 _BLEND_GS = "PdfcadDarken"

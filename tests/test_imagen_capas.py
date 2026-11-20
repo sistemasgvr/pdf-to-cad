@@ -13,7 +13,7 @@ import fitz
 import numpy as np
 import pytest
 
-from hoja import composite, imagen_ejes as IE, imagen_paleta as IP, imagen_solo as IS, pdf_styles
+from hoja import composite, imagen_compuesta as IC, imagen_ejes as IE, imagen_paleta as IP, imagen_solo as IS, pdf_styles
 
 SD_SOUTH = r"C:/Users/bernu/OneDrive/Documentos/DOCS DE PRUEBA IND/QS SD_Indian School_South.pdf"
 _B = r"C:/Users/bernu/OneDrive/Documentos/DOCS DE PRUEBA IND/"
@@ -154,7 +154,20 @@ def test_capas_sintetico_nombres_y_etiquetas(tmp_path):
     assert fitz.Rect(s["rect"]).contains(fitz.Point(225, 225))
 
 
-def test_relleno_sintetico(tmp_path):
+def test_sombreado_tinte_de_la_red_no_se_lee_y_la_red_sale_igual(tmp_path, monkeypatch):
+    """`SOLO_LA_RED` (2026-11-20): la trama es tinte del azul de la red → no se lee; la red, idéntica."""
+    page = _pdf_tiras(tmp_path, _red_y_trama)[0]
+    solo = IE.capas(page)
+    assert not any(IE.rgb_de(p["layer"]) == TRAMA for p in solo)
+    monkeypatch.setattr(IE, "SOLO_LA_RED", False)
+    IC._CACHE.clear()
+    page2 = _pdf_tiras(tmp_path, _red_y_trama, nombre="otra.pdf")[0]
+    todos = IE.capas(page2)
+    assert [p for p in todos if IE.rgb_de(p["layer"]) != TRAMA] == solo
+
+
+def test_relleno_sintetico(tmp_path, monkeypatch):
+    monkeypatch.setattr(IE, "SOLO_LA_RED", False)            # el sombreado se lee como relleno (camino de antes)
     page = _pdf_tiras(tmp_path, _red_y_trama)[0]
     trazos = IE.capas(page)
     fill = IE.nombre("fill", TRAMA)

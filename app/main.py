@@ -45,6 +45,11 @@ if __name__ == "__main__":
         salida = sys.argv[i + 1] if len(sys.argv) > i + 1 and not sys.argv[i + 1].startswith("--") else "autoprueba.json"
         pdfs = sys.argv[sys.argv.index("--pdf") + 1:] if "--pdf" in sys.argv else []   # prueba con PDF reales
         sys.exit(autoprueba.main(salida, pdfs))
+    if "--monitor" in sys.argv:                  # monitor de rendimiento suelto (p. ej. con la app ya trabada)
+        from ui.monitor import monitor_ventana
+        i = sys.argv.index("--monitor")
+        carpeta = sys.argv[i + 1] if len(sys.argv) > i + 1 and not sys.argv[i + 1].startswith("--") else None
+        sys.exit(monitor_ventana.main(carpeta))
     if "--diagnostico" in sys.argv:              # diagnóstico del equipo, sin ventana (instalador, Ayuda, 1.er arranque)
         import diagnostico_equipo
         sys.exit(diagnostico_equipo.main(sys.argv))

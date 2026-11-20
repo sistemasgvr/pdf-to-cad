@@ -34,6 +34,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from ui.comun import theme as _theme
 from ui.comun import tiempos_carga, vigia_carga
+from nucleo import vigilante as _vigilante
 from traduccion.i18n import t as _tr
 
 _TICK_MS = 33              # ~30 fps de la barra sin avance conocido
@@ -115,6 +116,8 @@ class BusyOverlay(QtWidgets.QWidget):
         self._stack.append({"text": text, "detail": detail, "done": None, "total": None,
                             "cancel": cancel, "modelo": bool(modelo)})
         if len(self._stack) == 1:
+            self._vig_t0 = time.perf_counter()
+            _vigilante.poner_carga(text)              # `nucleo/vigilante`: cuánto se esperó con la tarjeta
             self._seg = None if modelo else tiempos_carga.seguidor(text)
             self._mil = -1
             self._nivel = self._nivel_de_bucles()
@@ -193,6 +196,10 @@ class BusyOverlay(QtWidgets.QWidget):
             self.pump()
             return
         seg, self._seg = self._seg, None
+        t0 = getattr(self, "_vig_t0", None)
+        if t0 is not None:
+            self._vig_t0 = None
+            _vigilante.poner_carga("", fin_dur=time.perf_counter() - t0)
         if seg is not None:
             tiempos_carga.guardar(seg)        # lo que duró cada etapa: la barra de la próxima vez
         self._timer.stop()

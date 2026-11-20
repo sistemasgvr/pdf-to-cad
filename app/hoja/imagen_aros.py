@@ -123,8 +123,15 @@ def aros(img: np.ndarray, tinta: np.ndarray, nucleo: np.ndarray, escala: float) 
                       interpolation=cv2.INTER_AREA)
     e = escala / REDUCIR
     rmin, rmax = int(RADIO_MIN_PT * e), int(math.ceil(RADIO_MAX_PT * e))
-    cs = cv2.HoughCircles(cv2.GaussianBlur(gris, (3, 3), 0), cv2.HOUGH_GRADIENT, dp=1, minDist=2 * rmin,
-                          param1=120, param2=HOUGH_VOTOS, minRadius=rmin, maxRadius=rmax)
+    # en UN hilo: con todos los núcleos, OpenCV pedía su memoria de trabajo por hilo (~2 GB más por hoja con 12
+    # núcleos, 2026-11-20). Mismos círculos; el resto de OpenCV sigue con todos los hilos.
+    antes = cv2.getNumThreads()
+    cv2.setNumThreads(1)
+    try:
+        cs = cv2.HoughCircles(cv2.GaussianBlur(gris, (3, 3), 0), cv2.HOUGH_GRADIENT, dp=1, minDist=2 * rmin,
+                              param1=120, param2=HOUGH_VOTOS, minRadius=rmin, maxRadius=rmax)
+    finally:
+        cv2.setNumThreads(antes)
     if cs is None:
         return []
     salida = []

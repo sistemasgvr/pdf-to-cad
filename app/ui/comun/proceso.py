@@ -24,6 +24,7 @@ import multiprocessing as mp
 import os
 import queue
 import threading
+import time
 from typing import Dict, Optional
 
 from PySide6 import QtCore
@@ -71,7 +72,24 @@ class Tarea(QtCore.QObject):
     def _fin(self, res, err):
         if not self.hecha:
             self.hecha = True
+            _anotar_encargo(self, err)
             self.terminado.emit(res, err)
+
+
+def _anotar_encargo(t: "Tarea", err: str) -> None:
+    """`nucleo/vigilante`: cada encargo visto desde la ventana — cuánto esperó en la cola y cuánto tardó."""
+    from nucleo import vigilante
+    if not vigilante.activo():
+        return
+    ahora = time.perf_counter()
+    env = getattr(t, "_t_enviada", None)
+    emp = getattr(t, "_t_empieza", None)
+    dueno = t._dueno
+    estado = "ok" if not err else (err if err in ("cancelado", "memoria") else "error")
+    vigilante.evento("encargo", objetivo=t.objetivo, trabajador=getattr(dueno, "nombre", ""), tid=t.id,
+                     espera=round(emp - env, 4) if env and emp else None,
+                     dur=round(ahora - emp, 4) if emp else None, total=round(ahora - env, 4) if env else None,
+                     estado=estado, pid_trabajador=getattr(getattr(dueno, "_proc", None), "pid", None))
 
 
 class Trabajador(QtCore.QObject):
@@ -96,6 +114,7 @@ class Trabajador(QtCore.QObject):
     def enviar(self, tarea: Tarea) -> Tarea:
         tarea._dueno = self
         tarea.id = next(self._ids)
+        tarea._t_enviada = time.perf_counter()
         self._cola.append(tarea)
         self._siguiente()
         return tarea
@@ -155,6 +174,7 @@ class Trabajador(QtCore.QObject):
                 self._timer.stop()
             return
         t = self._actual = self._cola.pop(0)
+        t._t_empieza = time.perf_counter()
         try:
             if not activo():
                 self._en_hilo(t)
@@ -181,7 +201,8 @@ class Trabajador(QtCore.QObject):
             try:
                 nombre, fn = t.objetivo.split(":")
                 f = getattr(importlib.import_module(nombre), fn)
-                with avance.escuchar(lambda tx, i, n: self._hilo_res.put(("avance", tid, ("detalle", tx, i, n)))):
+                from nucleo import vigilante
+                with avance.escuchar(lambda tx, i, n: self._hilo_res.put(("avance", tid, ("detalle", tx, i, n)))),                         vigilante.trabajo(t.objetivo, tid=tid, trabajador=self.nombre, en_hilo=True):
                     res = f(*t.args, progreso=lambda *a: self._hilo_res.put(("avance", tid, a)), **t.kwargs)
                 self._hilo_res.put(("ok", tid, res, 0))
             except MemoryError:
@@ -276,8 +297,10 @@ def ejecutar(objetivo: str, *args, nombre: str = "principal", al_avanzar=None, *
         import importlib
         nombre_mod, fn = objetivo.split(":")
         f = getattr(importlib.import_module(nombre_mod), fn)
+        from nucleo import vigilante
         try:
-            return f(*args, progreso=(lambda *a: al_avanzar(a)) if al_avanzar else None, **kwargs), ""
+            with vigilante.trabajo(objetivo, trabajador=nombre, aqui=True):
+                return f(*args, progreso=(lambda *a: al_avanzar(a)) if al_avanzar else None, **kwargs), ""
         except MemoryError:
             return None, "memoria"
     t = Tarea(objetivo, args, kwargs)

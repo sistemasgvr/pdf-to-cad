@@ -64,6 +64,11 @@ PROCESAR_MIN_PX = 2000       # … ni con menos de estos píxeles
 COSER_W = 1.5                # dos mitades se cosen si sus puntas en la costura distan ≤ esto × grosor …
 COSER_MIN_PT = 0.5           # … (y al menos esto)
 RADIO_MIN_PT = 0.5           # radio mínimo del círculo virtual de un símbolo
+# Solo los colores de la RED (pedido del usuario 2026-11-20: «identificar el color de la línea y procesarla»): un
+# color que es TINTE de otro que sí se procesa (sobre la recta de ese color al blanco) es su sombreado. En las 36 hojas
+# de Phoenix SD: #80A6D4 = el azul de la red #004DA8 con blanco, solo áreas rayadas, ~55 % del tiempo de cada hoja.
+# El color de la red sigue igual (ve la paleta entera). `SOLO_LA_RED = False` = todos como antes.
+SOLO_LA_RED = True
 ACROMATICO_VECTORES_MIN = 500  # con tantos trazos vectoriales negros/grises, el negro/gris de la imagen no se procesa
 ACROMATICO_TOL = 0.02        # acromático: max − min < esto (0–1), o max < esto (como `pdf_styles` «Negro»/«Gris»)
 FORMA_TOL = 0.15             # símbolos del mismo tipo con ancho y alto a ±15 % = la misma capa
@@ -366,13 +371,17 @@ def _capas_hoja(page, nativos, imgs) -> list[dict]:
     if escala <= 0:
         return []
     texto = _tr("Leyendo la imagen de la hoja… {k} de {n}")
-    teselas = list(IS.teselas(page, escala, LADO_PX, SOLAPE_PX))
+    # cada tesela se guarda COMPRIMIDA (casi toda blanca: 108 MB → 1 MB en 0.03 s) y se descomprime al usarla:
+    # antes las ~5 de la hoja vivían enteras hasta el final (2026-11-20, monitor: la memoria limita cuántas hojas
+    # se leen a la vez). Los mismos píxeles.
+    teselas = [(r, _Comprimida(img)) for r, img in IS.teselas(page, escala, LADO_PX, SOLAPE_PX)]
     if not teselas:
         return []
-    paleta = IP.paleta([img for _r, img in teselas], IP.indexada(page))
+    paleta = IP.paleta(_Imagenes([c for _r, c in teselas]), IP.indexada(page))
     total = sum(c.pixeles for c in paleta)
     usar = [c for c in paleta if c.pixeles >= max(PROCESAR_MIN_PX, PROCESAR_FRAC * total)
             and (con_acromaticos or not _acromatico([v / 255.0 for v in c.rgb]))]
+    usar = solo_la_red(usar)
     union = fitz.Rect(teselas[0][0])
     for r, _img in teselas[1:]:
         union |= r
@@ -381,8 +390,10 @@ def _capas_hoja(page, nativos, imgs) -> list[dict]:
     n_tes = len(teselas)
     for k in range(n_tes):
         avance.avisar(texto.format(k=k + 1, n=n_tes), k, n_tes)
-        r, img = teselas[k]
+        r, comp = teselas[k]
         teselas[k] = (r, None)                    # lo pintado de esta tesela se suelta al terminarla
+        img = comp.imagen()
+        del comp
         nucleo = _nucleo(r, union, s_pt)
         with IP.misma_imagen(img):
             fams: dict = {}                       # familia de cada color en esta tesela (se calcula una vez)
@@ -395,6 +406,52 @@ def _capas_hoja(page, nativos, imgs) -> list[dict]:
     for c in usar:
         out += _emitir(c.rgb, datos[c.rgb])
     return out
+
+
+def solo_la_red(usar: list) -> list:
+    """Los colores de `usar` sin los que son tinte de OTRO color de `usar` (ver `SOLO_LA_RED`)."""
+    if not SOLO_LA_RED or len(usar) < 2:
+        return usar
+    fuertes = [np.array(c.rgb, float) for c in usar]
+    salida = []
+    for c in usar:
+        rgb = np.array(c.rgb, float)
+        if any(o is not c and IP._en_recta_al_blanco(rgb, f) for o, f in zip(usar, fuertes)):
+            avance.avisar(_tr("Dejando sin leer el sombreado {c} (tinte del color de una red)").format(
+                c="#%02X%02X%02X" % tuple(c.rgb)))
+            continue
+        salida.append(c)
+    return salida
+
+
+class _Comprimida:
+    """Una tesela pintada, guardada con zlib (nivel 1); `imagen()` = el mismo arreglo (escribible)."""
+    __slots__ = ("forma", "dtype", "datos")
+
+    def __init__(self, img: np.ndarray):
+        import zlib
+        img = np.ascontiguousarray(img)
+        self.forma, self.dtype = img.shape, img.dtype
+        self.datos = zlib.compress(img.tobytes(), 1)
+
+    def imagen(self) -> np.ndarray:
+        import zlib
+        return np.frombuffer(bytearray(zlib.decompress(self.datos)), self.dtype).reshape(self.forma)
+
+
+class _Imagenes:
+    """Las teselas para `imagen_paleta.paleta`: se descomprimen DE A UNA al recorrerlas (la paleta las recorre en
+    orden, una por vez)."""
+
+    def __init__(self, comprimidas):
+        self._c = list(comprimidas)
+
+    def __len__(self):
+        return len(self._c)
+
+    def __iter__(self):
+        for c in self._c:
+            yield c.imagen()
 
 
 def _a_pt(r: fitz.Rect, escala: float, x: float, y: float) -> tuple[float, float]:

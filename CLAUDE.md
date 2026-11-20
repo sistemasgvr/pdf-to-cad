@@ -1882,6 +1882,30 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
     pt, cortos) quedan sin reconocer; las paredes finas de una tubería chica (≤3.5 pt) y lo demás se quedan;
     `enderezar` refresca su índice tras cada recta (IndexError) y los cortes por diámetro pendientes pasan por
     puntos (`cortes_a_puntos`/`puntos_a_cortes`; una línea con cortes pendientes no se une por «sin diámetro»);
+    2026-11-20 («solo nos interesan las líneas»), en `enderezar`: `_prolongar_ramales` (punta suelta cuyo rumbo choca con
+    otra línea a ≤ `PROLONGAR_PT`=15 pt, ≥25°, llega a ella como «tee»; en la compuesta de 36 mapas +225 T), `_quitar_aisladas`
+    (suelta por las dos puntas y < `AISLADA_PT`=12 pt = borde de la caja de un símbolo, salvo de un símbolo a OTRO: las cajas
+    de los «sym» de imagen del color de la red, `simbolos_de`) y `_bovedas_sin_linea` (buzón de capa de imagen sin ninguna
+    línea → `importable` False, `sin_linea`). Tests: `tests/test_imagen_solo_la_red.py`.
+    Continuidad (mismo día, cinco capturas de la compuesta North+South: «si tiene que ser continua, tiene que ser
+    continua»): `recognition_imagen_nudos` (PURO) desde `enderezar` — `quitar_marcos` (línea sin punta en buzón, toda a
+    ≤ `MARCO_PT` de la caja de UN símbolo chico y cuya recta no apunta a su interior = el contorno fino del sumidero; la conexión F–F sí apunta), `limpiar_nudos`
+    (grupo de trozos < `NUDO_PT` que se tocan, con alguna punta suelta, no de un símbolo a otro y que cabe en `NUDO_CAJA_PT`: horquillas en la
+    punta de la banda, enredos de la cajita «J», ramalitos; se va y las líneas que entraban se reúnen: de frente = pasa
+    recto, las demás en T o juntas, una sola = hasta donde llegaba el nudo; corre ANTES de `_quitar_trocitos`/uniones,
+    que pegaban el enredo a la línea), `a_su_boveda` (punta suelta que mira al CENTRO de un buzón a ≤ `BOVEDA_EXT_PT`
+    de su borde llega a él), `cruzar_simbolos` (punta suelta a un lado de un sumidero y buzón/punta enfrente, en recta
+    por su centro: la línea pasa; nunca entre dos buzones sin punta suelta) y `llegar_recto` (último tramo corto de un
+    ramal en T que tuerce → la prolongación recta del anterior), `cadenas_de_simbolos` (buzón, rejilla y sumidero
+    APILADOS: el trocito de banda que los une sale como símbolo ≤ `TAQUITO_PT`; si toca a dos estructuras más grandes
+    por lados opuestos, recta centro a centro —la vertical «M»–rejillas de la captura 12—; las puntas sueltas pegadas
+    a esos símbolos llegan a su centro; dos cuadritos de una línea a guiones no se encadenan) y `a_su_buzon` (la
+    conexión corta de un buzón que llega a una UNIÓN pegada a otro buzón por un tramito ≤ `SATELITE_PT` va a ese
+    buzón: la diagonal de la captura 12). `Rejilla.poner` da orden a una línea nueva. `_quitar_repetidas`: dos copias del MISMO largo
+    dejan una (antes ninguna). 18 hojas de North: puntas sueltas 848 → 607, puntas que miran a un buzón 95 → 27,
+    ramalitos 41 → 3; compuesta del usuario (36 mapas, sus roles del autoguardado) 3353 → 3015 líneas (SD South h.3/h.7: 84 → 69, 127 → 119, cobertura 0.948 → 0.938: lo
+    que se fue es basura sobre la tinta, revisado a la vista; umbrales de `test_imagen_ejes_phoenix` bajados). Pendiente:
+    «M»–sumidero–«M» cuando el primer «M» no es símbolo (captura 12, arriba); la captura 13 («72" Unk») no se ubicó. Tests: `tests/test_imagen_continuidad.py`.
     `imagen_cache` = ejes en disco por huella de la hoja + código (`PDFCAD_CACHE_EJES_IMAGEN`, vacía en las pruebas):
     reabrir 4 hojas 36.7 → 0.8 s, idéntico. Pendiente: lo frío sigue ~30 s por hoja (esqueleto en Python,
     `imagen_esqueleto.tramos/podar`); bandas pegadas que no se encadenan (bloques fundidos) quedan como antes.
@@ -3687,6 +3711,53 @@ alcantarillado, drenaje, gas, eléctrico, telecom). Todo en **unidades imperiale
 - Rendimiento (quitar esperas): `docs/rendimiento/GUIA.md` = método, patrones y tareas medidas; medidores en
   `scripts/rendimiento/` (`editor.py`, `reconocer.py`, `componer.py`, con `--perfil`, `--foto`, `--comparar`).
   Redirigir su salida a un archivo (con una tubería `editor.py` se cuelga) y uno a la vez.
+- **Vigilante** (2026-11-20, `app/nucleo/vigilante.py` + `vigilante_sistema.py` + `vigilante_informe.py`,
+  `app/ui/comun/vigilante_ui.py`): SIEMPRE encendido en la app (`app_window.main`; `PDFCAD_VIGILANTE=0` lo apaga). Una
+  carpeta por sesión en `%LOCALAPPDATA%/pdf-to-cad/rendimiento/<fecha>-<pid>/` (se guardan `MAX_SESIONES`), un
+  `proc-<pid>.jsonl` por proceso: la ventana y TODOS sus hijos (trabajadores, teselas, grupos) escriben ahí porque
+  heredan `PDFCAD_VIGILANTE_DIR`. Anota etapas (`nucleo.avance.avisar`, aunque nadie escuche), `with medir(...)`
+  (reconocimiento por utilidad/parte, letras, válvulas, diámetros; 28 pasos de `Main` envueltos con `instrumentar`
+  DESPUÉS de construir la ventana), cada trabajo de `proceso`/`en_hilo` con su PERFIL por muestreo (`MUESTREO_S`,
+  ~2 % de costo), encargos (espera en cola), cargas «Cargando…», memoria/CPU de todos los procesos (ctypes, sin
+  psutil) y CONGELAMIENTOS: el latido de la ventana (QTimer `LATIDO_MS`) mide la pausa y la pila sale del muestreo o,
+  si la ventana tiene tomado el intérprete (PyMuPDF en C), de `faulthandler.dump_traceback_later` (`volcados-<pid>.txt`).
+  Informe: `python scripts/rendimiento/vigilante.py [carpeta] [--comparar antes] [-o informe.md]`. OJO: un trabajo o
+  hilo nuevo pasa por `vigilante.trabajo`; un paso lento con nombre, `with vigilante.medir("…")`. Tests:
+  `tests/test_vigilante.py`.
+  **Monitor** (mismo día, botón `mdi:pulse` del riel sobre Ayuda → `Main.abrir_monitor`; `Asistente C3D.exe --monitor
+  [carpeta]` suelto): `app/ui/monitor/` en SU PROPIO proceso (`lanzar.abrir`, spawn, uno a la vez) para seguir al día
+  con la ventana en «No responde». Lee la sesión en vivo con `nucleo/vigilante_vivo.Sesion` (solo lo nuevo de cada
+  archivo; `trabajo_inicio`/`etapa_inicio` = qué hace cada proceso AHORA) y el estado de la ventana por
+  `vigilante.Latido` (`latido-<pid>.bin`, 8 bytes mapeados que escribe cada latido; −1 = cerrada). Pestañas Ahora
+  (procesos + gráfica de memoria con las pausas), Congelamientos, Trabajos (pasos internos + perfil), Reconocimiento,
+  Pasos y etapas; Opciones: exportar informe, comparar sesiones, «Abrir el monitor junto con la app» (QSettings
+  `monitor/al_iniciar`). Tests: `tests/test_monitor.py`.
+  **1.ª ronda con el monitor** (2026-11-20, QS SD North + South de Phoenix, todo IDÉNTICO, `tests/test_optimizaciones_monitor.py`):
+  `leyendas_imagen.TAMANOS` (solo se saca la huella de imágenes con la medida de una conocida: 25 mil tiras → 105 s;
+  una leyenda nueva en `CONOCIDAS` suma su medida); `composite._NombresDestino` (`show_pdf_page` recorría todas las
+  imágenes de la hoja destino para elegir «fzFrmN»: cuadrático, 36 mapas 57 → 21.6 s, mismo PDF salvo el `/ID` al
+  azar); puentes en una sola `Shape` (`_dibujar_puentes`); `imagen_paleta._empaquetar` 4.6×; `composicion_encaje._votar`
+  por (rumbo, color) y largo con bisección en el orden original; `composicion_costuras._costo_corte` en numpy con
+  `cumsum` (mismo float); `composite_renders_lote` (las piezas de «Componer hoja» en varios procesos con la misma
+  llamada a MuPDF, la ventana no se traba); `HoughCircles` (`imagen_aros`) en UN hilo solo durante esa llamada (pedía
+  memoria por hilo: pico por hoja 3.4–4.0 → 1.3–1.9 GB; OpenCV entero en un hilo hacía `connectedComponentsWithStats` 4×
+  más lento) y `MB_POR_HOJA`=2100 (el medido; 2300 dejó UN proceso con 4.6 GB libres: 36 hojas de a una, 11 min);
+  teselas guardadas con zlib (`imagen_ejes._Comprimida`, 108 MB → 1 MB); `composite.vaciar_cache_mupdf` antes de copiar
+  páginas (con el «store» de MuPDF lleno tras leer dibujos, `insert_pdf`/`show_pdf_page` 24–46 s → 0.8 s; armar 28 →
+  9 s; mismo PDF). 2.ª sesión del usuario: leer la imagen de las 36 hojas en frío 694 → 394 s con 2 procesos (lo
+  limita la RAM libre: ~1.9 GB por hoja). `imagen_ejes.SOLO_LA_RED` (pedido del usuario: «solo el color de la red»): un
+  color que es TINTE de otro que se procesa (#80A6D4 = #004DA8 con blanco, los sombreados) no se lee; la red sale
+  idéntica (ve la paleta entera); `imagen_compuesta.MAX_PROCESOS`=6 (`proceso_hijo.paralelos(maximo=)`). Con 14 GB
+  libres: 36 hojas 158 → 128 s. ▶ de una utilidad (`recognize_page`): `resolve_nodes` comparaba cada punta con
+  TODAS las corridas/puntas (132 M de `_dist`); ahora `reconocimiento/recognition_geom_indice` (celdas, candidatos en
+  orden ascendente, la prueba exacta la hace el bucle; en 5d/5d-bis `IndiceCorridas.poner` tras mover una punta o
+  agregar una corrida; el recuadro se agranda por `_desvio_tangente`: `line("a")` usa `ux, uy`, que no se rehace al
+  mover puntas) y `detect_loop_vaults.near` con `IndicePuntos`. Drenaje de la compuesta de 36 mapas 109 → 40 s, misma
+  huella; casos dorados 9/9 iguales (`PDFCAD_DORADOS` = carpeta de los PDF); `SIN_INDICES = True` = como antes. OJO: un
+  bucle nuevo de `resolve_nodes` que recorra todas las corridas o puntas usa `corridas_cerca`/`IndicePuntos`. El vigilante escribe en su propio
+  hilo (`_escritor`): la ventana se trabó 1.2 s esperando el disco. Descartado: dibujar el fondo por franjas en varios
+  procesos (MuPDF suaviza distinto según el recorte: 17 mil bytes distintos, también con solape). OJO: `test_capa_marcas` + `test_panel_reconocer` en el mismo
+  proceso fallan por «Too many open files» desde antes (no es el vigilante).
 - Antes de un instalador: `0. Tests instalador.bat` (TODAS las pruebas + arnés del plugin, decenas de minutos;
   `dist/informe_pruebas.md`). Compilar plugin + exe + instalador: `1. build_all.bat` (pregunta la versión; ya no
   corre las pruebas, solo anota en `dist/informe_entrega.md` la última corrida de `0.` con su commit y resultado).

@@ -475,6 +475,10 @@ class CompositeView(ZoomPanView):
         self.items = []
         from nucleo import avance
         n_piezas = len(self.comp.pieces)
+        if n_piezas >= 2:
+            # las que faltan, en varios procesos a la vez (mismos píxeles); el bucle de abajo las encuentra ya hechas
+            from ui.asistente import composite_renders_lote
+            composite_renders_lote.precargar(self, [(p, self.overview_scale(p)) for p in self.comp.pieces])
         for i, p in enumerate(self.comp.pieces):
             # quien muestre «Cargando…» (`busy`) dice cuál va (36 hojas: varios segundos). «i de n» = las YA
             # dibujadas: con i + 1 al empezar, la barra daba la etapa por hecha mientras dibujaba la última

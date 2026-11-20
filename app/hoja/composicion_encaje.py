@@ -273,16 +273,43 @@ def _hacia(fa_rect: Rect, fb_rect: Rect, s: float, t: Tuple[float, float], lado:
             "bottom": dy > 0.5 * h and abs(dx) < 0.5 * w, "top": dy < -0.5 * h and abs(dx) < 0.5 * w}[lado]
 
 
+def _cubos_votar(B: Sequence[Seg]) -> dict:
+    """Los segmentos de `B` por (rumbo, color) y, dentro, ORDENADOS por largo (con su posición original): `_votar`
+    solo mira los de largo compatible y en el orden de siempre — mismos votos y mismas listas (2026-11-20,
+    monitor: 13 s de la composición sugerida de 36 mapas comparaban cada segmento con todos los de su rumbo)."""
+    tmp: Dict[tuple, list] = defaultdict(list)
+    for i, t in enumerate(B):
+        tmp[(round(t[2] * 10), t[0])].append((t[1], i, t))
+    out = {}
+    for k, v in tmp.items():
+        v.sort(key=lambda e: (e[0], e[1]))
+        out[k] = ([e[0] for e in v], v)
+    return out
+
+
+def _candidatos_largo(cubo, largo: float) -> list:
+    """Los segmentos del cubo cuyo largo puede cumplir |t1 − largo| ≤ MAPA_TOL_PT + 0.01·t1 (un poco más ancho:
+    la prueba exacta la hace `_votar`), en su orden original."""
+    import bisect
+    largos, items = cubo
+    lo = bisect.bisect_left(largos, (largo - MAPA_TOL_PT) / 1.01 - 1e-6)
+    hi = bisect.bisect_right(largos, (largo + MAPA_TOL_PT) / 0.99 + 1e-6)
+    if hi - lo <= 1:
+        return [e[2] for e in items[lo:hi]]
+    return [e[2] for e in sorted(items[lo:hi], key=lambda e: e[1])]
+
+
 def _votar(A: Sequence[Seg], B: Sequence[Seg], sc: float, guia=None):
     """Pares idénticos (color, largo·sc, rumbo) con sus dos extremos de acuerdo →
     traslaciones agrupadas cada MAPA_BIN_PT."""
-    bk: Dict[int, List[Seg]] = defaultdict(list)
-    for t in B:
-        bk[round(t[2] * 10)].append(t)
+    bk = _cubos_votar(B)
     tv: Counter = Counter()
     ej: Dict[Tuple[int, int], list] = defaultdict(list)
     for s in A:
-        for t in bk.get(round(s[2] * 10), ()):
+        cubo = bk.get((round(s[2] * 10), s[0]))
+        if cubo is None:
+            continue
+        for t in _candidatos_largo(cubo, s[1] * sc):
             if t[0] != s[0] or abs(t[1] - s[1] * sc) > MAPA_TOL_PT + 0.01 * t[1]:
                 continue
             dx = t[3] - s[3] * sc

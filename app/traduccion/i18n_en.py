@@ -6243,4 +6243,184 @@ EN: dict[str, str] = {
         'Network in the sheet image: {n} layer(s) assigned and {m} of unknown network (marked with “?”). Assign their utility below.',
     'Red en la imagen de la hoja: {n} capa(s) ya asignadas como líneas de {u}. Revísalas y cambia lo que haga falta.':
         'Network in the sheet image: {n} layer(s) already assigned as {u} lines. Review them and change what is needed.',
+    'Memoria de la app en el tiempo. Las franjas de abajo son las pausas de la ventana.':
+        "App memory over time. The strips at the bottom are the window's pauses.",
+    'ahora':
+        'now',
+    'Esperando datos de memoria…':
+        'Waiting for memory data…',
+    'Toda la app':
+        'Whole app',
+    'Ventana':
+        'Window',
+    'hace {n} min':
+        '{n} min ago',
+    'Ventana (interfaz)':
+        'Window (interface)',
+    'Monitor':
+        'Monitor',
+    'Grupo de procesos':
+        'Process group',
+    'Propio = tiempo en la función misma. Total = con todo lo que llama.':
+        'Self = time in the function itself. Total = including everything it calls.',
+    'Procesos de la app':
+        'App processes',
+    'Memoria':
+        'Memory',
+    'Pausas de la ventana (no atendió al usuario)':
+        'Window pauses (it did not respond to the user)',
+    'Detalle de la pausa elegida':
+        'Details of the selected pause',
+    'muestreo de la pila':
+        'stack sampling',
+    'volcados de faulthandler (la ventana tenía tomado el intérprete: código en C)':
+        'faulthandler dumps (the window held the interpreter: C code)',
+    'Trabajos de los procesos (y de los hilos de la ventana)':
+        'Process jobs (and window threads)',
+    'Detalle del trabajo elegido':
+        'Details of the selected job',
+    'Pasos del reconocimiento':
+        'Recognition steps',
+    'Dónde se va el tiempo (todas las funciones, sumadas)':
+        'Where the time goes (all functions, summed)',
+    'Suma de los perfiles de todos los trabajos de reconocimiento de la sesión.':
+        'Sum of the profiles of every recognition job in the session.',
+    'Buscar un paso, etapa o trabajo…':
+        'Search a step, stage or job…',
+    'Teselas {n}':
+        'Tiles {n}',
+    'Trabajador «{n}»':
+        'Worker “{n}”',
+    'Función':
+        'Function',
+    'Propio':
+        'Self',
+    'Total':
+        'Total',
+    'Proceso':
+        'Process',
+    'PID':
+        'PID',
+    'Haciendo ahora':
+        'Doing now',
+    'CPU':
+        'CPU',
+    'Pico':
+        'Peak',
+    'Trabajos':
+        'Jobs',
+    'Hora':
+        'Time',
+    'Duración':
+        'Duration',
+    'Qué hacía':
+        'What it was doing',
+    'Dónde estaba':
+        'Where it was',
+    '(sin dato)':
+        '(no data)',
+    '{d} a las {h}. Qué hacía: {q}. Medido con {f}.':
+        '{d} at {h}. What it was doing: {q}. Measured with {f}.',
+    'Trabajo':
+        'Job',
+    'Espera':
+        'Wait',
+    'Paso o etapa':
+        'Step or stage',
+    'Bien':
+        'OK',
+    'Paso':
+        'Step',
+    'Veces':
+        'Times',
+    'Media':
+        'Average',
+    'Máx':
+        'Max',
+    'Etapa':
+        'Stage',
+    'Espera visible':
+        'Visible wait',
+    'Repetido':
+        'Repeated',
+    '{n} muestras de la pila':
+        '{n} stack samples',
+    'Esperando trabajo':
+        'Waiting for work',
+    'Terminó':
+        'Finished',
+    '{m} min {s} s':
+        '{m} min {s} s',
+    '{n} ms':
+        '{n} ms',
+    '{n} s':
+        '{n} s',
+    '{n} GB':
+        '{n} GB',
+    '{n} MB':
+        '{n} MB',
+    'Monitor de rendimiento — Asistente C3D':
+        'Performance monitor — Asistente C3D',
+    'Ahora':
+        'Now',
+    'Congelamientos':
+        'Freezes',
+    'Pasos y etapas':
+        'Steps and stages',
+    'Exportar informe…':
+        'Export report…',
+    'Comparar con otra sesión…':
+        'Compare with another session…',
+    'Abrir la carpeta de la sesión':
+        'Open the session folder',
+    'Abrir el monitor junto con la app':
+        'Open the monitor together with the app',
+    'Pausas de la ventana':
+        'Window pauses',
+    'Pausa más larga':
+        'Longest pause',
+    'Trabajos terminados':
+        'Finished jobs',
+    'Memoria de la app':
+        'App memory',
+    'RAM libre del equipo':
+        'Free computer RAM',
+    'Duración de la sesión':
+        'Session duration',
+    'Guardar informe de rendimiento':
+        'Save performance report',
+    'Markdown (*.md)':
+        'Markdown (*.md)',
+    'Comparar':
+        'Compare',
+    'Sesión de ANTES (la elegida arriba es la de después):':
+        'BEFORE session (the one selected above is the after one):',
+    'Antes y después':
+        'Before and after',
+    'Sesión:':
+        'Session:',
+    'Todavía no hay sesiones registradas':
+        'No sessions recorded yet',
+    'La app responde':
+        'The app is responding',
+    'La app se cerró':
+        'The app was closed',
+    'Sin datos de la ventana':
+        'No window data',
+    'No hay otra sesión para comparar.':
+        'There is no other session to compare.',
+    '{s} (la más reciente)':
+        '{s} (most recent)',
+    'La app está ocupada · {d}':
+        'The app is busy · {d}',
+    'La app NO responde · {d}':
+        'The app is NOT responding · {d}',
+    'Monitor de rendimiento: memoria, procesos, pausas y tiempos de cada paso':
+        'Performance monitor: memory, processes, pauses and timing of each step',
+    'El monitor ya está abierto':
+        'The monitor is already open',
+    'Búscalo en la barra de tareas.':
+        'Look for it in the taskbar.',
+    'Dejando sin leer el sombreado {c} (tinte del color de una red)':
+        'Skipping the shading {c} (a tint of a network color)',
 }

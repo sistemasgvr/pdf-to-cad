@@ -198,6 +198,11 @@ class ShellMixin:
         espacio.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
         espacio.setStyleSheet("background: transparent;")
         riel.addWidget(espacio)
+        monitor = R.boton_icono("pulse", "Monitor de rendimiento: memoria, procesos, pausas y tiempos de cada paso",
+                                lambda: self.abrir_monitor(), px=20)
+        monitor.setProperty("kind", "rail")
+        riel.addWidget(monitor)
+        self.btn_monitor = monitor
         ayuda = R.boton_icono("help-circle-outline", "Ayuda: manual, atajos de teclado, acerca de", px=20)
         ayuda.setProperty("kind", "rail")
         ayuda.setPopupMode(QtWidgets.QToolButton.InstantPopup)
@@ -213,6 +218,12 @@ class ShellMixin:
         """«Exportar a Civil 3D» (2.0.0): qué incluir, versión e idioma; luego el `run_pipeline` de siempre."""
         from ui.dialogos import exportar_dialog
         exportar_dialog.exportar(self)
+
+    def abrir_monitor(self):
+        """Monitor de rendimiento (2026-11-20): en su propio proceso, sigue al día aunque la ventana se trabe."""
+        from ui.monitor import lanzar
+        if not lanzar.abrir():
+            self.aviso_breve(_tr("El monitor ya está abierto"), _tr("Búscalo en la barra de tareas."))
 
     def abrir_ajustes(self, seccion=0):
         """Ajustes (2.0.0): idioma, tema, paneles, Civil 3D, IA, familias, atajos y acerca de."""

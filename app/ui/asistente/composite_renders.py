@@ -32,6 +32,7 @@ def marcar(doc, data) -> None:
                 _HUELLAS.clear()
             _HUELLAS[id(data)] = (data, h)
         doc._pdfcad_huella = h
+        doc._pdfcad_datos = data              # (los bytes, sin copiar: `composite_renders_lote` los manda a dibujar)
     except Exception:                                       # noqa: BLE001 — sin huella, sin memoria
         pass
 

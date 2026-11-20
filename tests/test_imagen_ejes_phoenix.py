@@ -26,7 +26,11 @@ from hoja import imagen_ejes as IE  # noqa: E402
 # de la «M» de los buzones de aro fino ya no son líneas: h.3 176, h.7 176)
 # 2026-11-19 (proyecto «Preuba lineas imagen»): las piezas de la MISMA tubería se unen (texto encima, costura,
 # serrucho) y los lados de una rejilla no reconocida no son líneas: medido h.3 112, h.7 128
-_MIN_LINEAS = {3: 105, 7: 120}
+# 2026-11-20 (pedido del usuario, «solo nos interesan las líneas»): los bordes de la caja de cada sumidero hexagonal
+# que quedaban sueltos se quitan (`recognition_imagen_rectas._quitar_aisladas`): medido h.3 84, h.7 127
+_MIN_LINEAS = {3: 65, 7: 115}
+# (2026-11-20, continuidad: `recognition_imagen_nudos` quita horquillas, enredos de cajitas y ramalitos, y une lo que
+# pasa por un nudo o un sumidero: medido h.3 69, h.7 119; lo que se fue, revisado a la vista, es esa basura)
 _MIN_DIAM = {3: 30, 7: 80}         # (2026-11-19, piezas unidas: 32/122 y 85/128; la misma proporción o más)
 _RES = {}
 
@@ -86,8 +90,11 @@ def test_sd_cobertura_sin_tinta(hoja):
     # banda pixelada; sin enderezar da 0.980/0.979, enderezada 0.976/0.969
     # 0.94 (2026-11-19): además las piezas de una tubería se unen en UNA recta y los lados de una rejilla no
     # reconocida quedan sin reconocer: medido 0.948/0.957
-    assert _cobertura(res) >= 0.94
-    assert _tramos_sin_tinta(res) == 0
+    # 0.93 (2026-11-20): las horquillas y enredos que se quitan estaban SOBRE la tinta (medido h.3 0.938, h.7 ≥0.94)
+    assert _cobertura(res) >= 0.93
+    # (2026-11-20) h.7: el ramal que sube hasta la principal pasa bajo el rótulo «8\" DIP», que tapa su tinta: la
+    # prolongación hasta la línea (`_prolongar_ramales`) deja ese tramo de 8.4 pt bajo el texto
+    assert _tramos_sin_tinta(res) <= (1 if hoja == 7 else 0)
 
 
 def _cerca(pls, q):

@@ -23,6 +23,8 @@ import contextlib
 from typing import Callable, Optional
 import time
 
+from nucleo import vigilante
+
 
 class FlujoTrazos:
     """Lotes acotados de líneas para la vista en vivo: copias, sin referencias al resultado que se sigue
@@ -114,15 +116,18 @@ def reconocer_hoja(pdf_path, page_index, zoom=1.0, utilities=("ELECTRICO",), hid
     with fitz.open(pdf_path) as doc, pdf_styles.lectura_unica(doc), _valvulas_adelantadas(doc, page_index):
         letters = None
         if any(not (roles_by_utility.get(u) or layer_roles) for u in utilities):
-            letters = rec.page_letters(doc[page_index])
+            with vigilante.medir("Leer las letras del linetype", hoja=page_index):
+                letters = rec.page_letters(doc[page_index])
         for i, utility in enumerate(utilities):
             results.append(_reconocer_utilidad(
                 doc, pdf_path, page_index, utility, i, len(utilities), letters, zoom=zoom,
                 hidden_ocgs=hidden_ocgs, layer_roles=layer_roles, roles_by_utility=roles_by_utility,
                 letters_off=letters_off, join_routes=join_routes, scale_ft_per_pt=scale_ft_per_pt,
                 avisar=avisar, en_vivo=progreso is not None))
-        _leer_valvulas(doc[page_index], zoom, hidden_ocgs, roles_by_utility, results)
-    _aplicar_diametros(results, zoom, perfiles_de, avisar)
+        with vigilante.medir("Leer las válvulas", hoja=page_index):
+            _leer_valvulas(doc[page_index], zoom, hidden_ocgs, roles_by_utility, results)
+    with vigilante.medir("Diámetros por los perfiles"):
+        _aplicar_diametros(results, zoom, perfiles_de, avisar)
     return results
 
 
@@ -131,6 +136,16 @@ def _reconocer_utilidad(doc, pdf_path, page_index, utility, i, n, letters, *, zo
     """Una utilidad (el cuerpo del bucle de `reconocer_hoja`, también la parte de una utilidad de
     `reconocer_parte`): `letters` = `page_letters` de la hoja o None si ninguna utilidad las usa."""
     from reconocimiento import recognition as rec
+    with vigilante.medir("Reconocer utilidad", utilidad=utility, hoja=page_index):
+        return _reconocer_utilidad_(doc, pdf_path, page_index, utility, i, n, letters, rec, zoom=zoom,
+                                    hidden_ocgs=hidden_ocgs, layer_roles=layer_roles,
+                                    roles_by_utility=roles_by_utility, letters_off=letters_off,
+                                    join_routes=join_routes, scale_ft_per_pt=scale_ft_per_pt, avisar=avisar,
+                                    en_vivo=en_vivo)
+
+
+def _reconocer_utilidad_(doc, pdf_path, page_index, utility, i, n, letters, rec, *, zoom, hidden_ocgs, layer_roles,
+                         roles_by_utility, letters_off, join_routes, scale_ft_per_pt, avisar, en_vivo):
     avisar("utilidad", i, n, utility)
     flujo = FlujoTrazos(lambda batch: avisar("trazos", i, n, utility, batch))
     roles = roles_by_utility.get(utility) or layer_roles or None
@@ -202,7 +217,17 @@ def reconocer_parte(ruta, hoja, parte, firma, *, zoom=1.0, hidden_ocgs=(), roles
     layer_roles = dict(layer_roles or {})
     avisar = progreso or (lambda *a: None)
     previos = list(resultados_previos or [])
-    doc = lectura_retenida.abrir(ruta, firma)
+    with vigilante.medir("Reconocer parte", parte=parte, hoja=hoja):
+        return _reconocer_parte(ruta, hoja, parte, firma, lectura_retenida, rec, zoom=zoom, hidden_ocgs=hidden_ocgs,
+                                roles_by_utility=roles_by_utility, letters_off=letters_off, join_routes=join_routes,
+                                scale_ft_per_pt=scale_ft_per_pt, perfiles_de=perfiles_de, previos=previos,
+                                layer_roles=layer_roles, avisar=avisar, en_vivo=progreso is not None)
+
+
+def _reconocer_parte(ruta, hoja, parte, firma, lectura_retenida, rec, *, zoom, hidden_ocgs, roles_by_utility,
+                     letters_off, join_routes, scale_ft_per_pt, perfiles_de, previos, layer_roles, avisar, en_vivo):
+    with vigilante.medir("Abrir la lectura retenida"):
+        doc = lectura_retenida.abrir(ruta, firma)
     lectura_retenida.reponer(doc)                    # como un `fitz.open` recién hecho, igual que `reconocer_hoja`
     if parte == VALVULAS:
         with _valvulas_adelantadas(doc, hoja):
@@ -220,11 +245,12 @@ def reconocer_parte(ruta, hoja, parte, firma, *, zoom=1.0, hidden_ocgs=(), roles
         raise ValueError(f"parte desconocida: {parte}")
     letters = None
     if not (roles_by_utility.get(parte) or layer_roles):
-        letters = rec.page_letters(doc[hoja])
+        with vigilante.medir("Leer las letras del linetype", hoja=hoja):
+            letters = rec.page_letters(doc[hoja])
     return [_reconocer_utilidad(
         doc, str(ruta), hoja, parte, 0, 1, letters, zoom=zoom, hidden_ocgs=hidden_ocgs, layer_roles=layer_roles,
         roles_by_utility=roles_by_utility, letters_off=set(letters_off or ()), join_routes=join_routes,
-        scale_ft_per_pt=scale_ft_per_pt, avisar=avisar, en_vivo=progreso is not None)]
+        scale_ft_per_pt=scale_ft_per_pt, avisar=avisar, en_vivo=en_vivo)]
 
 
 def _rotulos_de_hoja(page, zoom, hidden_ocgs, roles_by_utility, layer_roles) -> list:

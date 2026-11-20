@@ -1995,8 +1995,9 @@ def recognize_page(
         # Red en IMAGEN (pedido del usuario 2026-11-19): rectas de buzón a buzón, sin el serrucho de la banda ni
         # codos (`recognition_imagen_rectas`); las capas vectoriales no pasan por aquí.
         cortes_diam = imagen_rectas_mod.cortes_a_puntos(grosor_mapa_cuenta)
+        simbolos_img = imagen_rectas_mod.simbolos_de(page, polylines_joined + polylines_raw, px)
         for variant in (polylines_joined, polylines_raw):
-            imagen_rectas_mod.enderezar(variant, vaults_geo, zoom)
+            imagen_rectas_mod.enderezar(variant, vaults_geo, zoom, simbolos=simbolos_img)
         imagen_rectas_mod.puntos_a_cortes(grosor_mapa_cuenta, cortes_diam)
         polylines[:] = list(polylines_joined if join_routes else polylines_raw)
         # Ángulo de cada quiebre a pasos de 0.25° (pedido del usuario 2026-10-17: no hay codos

@@ -90,18 +90,39 @@ def _costo_corte(trazos_a, gem_a, trazos_b, gem_b):
             if not g_:
                 solos.append((lo, hi, L, lado))
 
+    if COSTO_EN_PYTHON or not solos:
+        def costo(x: float) -> float:
+            perdido = 0.0
+            for lo, hi, L, lado in solos:
+                if hi <= lo:
+                    frac = 1.0 if (lado > 0 and lo > x) or (lado < 0 and hi < x) else 0.0
+                elif lado > 0:
+                    frac = min(1.0, max(0.0, (hi - x) / (hi - lo)))
+                else:
+                    frac = min(1.0, max(0.0, (x - lo) / (hi - lo)))
+                perdido += frac * L
+            return perdido + RASANTE_COSTO_PT * sum(1 for lo, hi in rasantes if lo < x < hi)
+        return costo
+    # Lo MISMO con numpy (2026-11-20, monitor: ~8 s de la composición sugerida de 36 mapas): cada fracción con las
+    # mismas operaciones y la suma con `cumsum`, que acumula en orden como el `+=` de arriba: el mismo número.
+    import numpy as np
+    S = np.array(solos, float)
+    lo_, hi_, L_, lado_ = S[:, 0], S[:, 1], S[:, 2], S[:, 3]
+    plano = hi_ <= lo_
+    den = np.where(plano, 1.0, hi_ - lo_)
+    pos = lado_ > 0
+    R = np.array(rasantes, float) if rasantes else np.zeros((0, 2))
+
     def costo(x: float) -> float:
-        perdido = 0.0
-        for lo, hi, L, lado in solos:
-            if hi <= lo:
-                frac = 1.0 if (lado > 0 and lo > x) or (lado < 0 and hi < x) else 0.0
-            elif lado > 0:
-                frac = min(1.0, max(0.0, (hi - x) / (hi - lo)))
-            else:
-                frac = min(1.0, max(0.0, (x - lo) / (hi - lo)))
-            perdido += frac * L
-        return perdido + RASANTE_COSTO_PT * sum(1 for lo, hi in rasantes if lo < x < hi)
+        frac = np.where(pos, (hi_ - x) / den, (x - lo_) / den)
+        frac = np.minimum(1.0, np.maximum(0.0, frac))
+        frac = np.where(plano, np.where((pos & (lo_ > x)) | (~pos & (hi_ < x)), 1.0, 0.0), frac)
+        perdido = float(np.cumsum(frac * L_)[-1])
+        return perdido + RASANTE_COSTO_PT * int(np.count_nonzero((R[:, 0] < x) & (x < R[:, 1])))
     return costo
+
+
+COSTO_EN_PYTHON = False             # el camino de siempre (para comparar)
 
 
 def _mejor_corte(lo: float, hi: float, costos) -> float:

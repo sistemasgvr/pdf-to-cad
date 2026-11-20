@@ -31,6 +31,8 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
+from reconocimiento import recognition_geom_indice as _GI
+
 Pt = Tuple[float, float]
 Line = Tuple[float, float, float, float]      # (px, py, ux, uy)
 
@@ -2022,9 +2024,12 @@ def detect_loop_vaults(runs: List[Run], pat: Pattern) -> Tuple[List[Vault], Set[
     straight = [i for i, r in enumerate(runs) if not r.is_curve and not r.synthetic
                 and LOOP_VAULT_MIN_PT - tol <= r.length <= LOOP_VAULT_MAX_PT + tol]
     ends = [(i, "a", runs[i].a) for i in straight] + [(i, "b", runs[i].b) for i in straight]
+    # (índice por celdas: los mismos puntos en el mismo orden; antes cada paso recorría todas las puntas, 2026-11-20)
+    idx = None if SIN_INDICES else _GI.IndicePuntos([e[2] for e in ends], max(4.0 * tol, 20.0))
 
     def near(p: Pt, exclude: Set[int]):
-        for j, side, q in ends:
+        for x in (range(len(ends)) if idx is None else idx.vecinos(p, tol)):
+            j, side, q = ends[x]
             if j not in exclude and _dist(p, q) <= tol:
                 yield j, side
 
@@ -2164,6 +2169,27 @@ def _vault_entry(v: "Vault", pe: Pt, o: Tuple[float, float], L: Line,
     return (pe[0] + t * o[0], pe[1] + t * o[1]), abs(t)
 
 
+SIN_INDICES = False      # True = los bucles de `resolve_nodes` recorren todo, como antes (para comparar)
+
+
+def _desvio_tangente(r) -> float:
+    """Cuánto puede apartarse de la cuerda a→b un punto de `r.line("a")` cuya proyección cae en la cuerda: el cruce de
+    5d se calcula sobre esa recta, que tras mover las puntas ya no coincide con la cuerda (`ux, uy` no se rehace)."""
+    if r.mid:
+        return 0.0
+    dx, dy = r.b[0] - r.a[0], r.b[1] - r.a[1]
+    L = math.hypot(dx, dy)
+    if L < 1e-9:
+        return 0.0
+    u = r.ta or (r.ux, r.uy)
+    nu = math.hypot(u[0], u[1]) or 1.0
+    cos = abs((u[0] * dx + u[1] * dy) / (nu * L))
+    sen = abs((u[0] * dy - u[1] * dx) / (nu * L))
+    if cos < 1e-3:
+        return math.inf
+    return L * sen / cos + 1e-6
+
+
 def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                   cut_pts: Sequence[Pt] = (), nearest: bool = False,
                   glyphs: Sequence[Glyph] = (), touching: bool = False,
@@ -2175,6 +2201,15 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
     Devuelve (nodos, índices de bóvedas huérfanas)."""
     nodes: List[Node] = []
     free: Dict[Tuple[int, str], bool] = {(i, s): True for i in range(len(runs)) for s in ("a", "b")}
+    # índices por celdas (`recognition_geom_indice`): candidatos en el orden de siempre, la prueba exacta la hace
+    # cada bucle (2026-11-20: 36 mapas de Phoenix, 217 s de este paso). `SIN_INDICES` = recorrer todo (comparar).
+    celda_idx = max(4.0 * max(pat.corner_tol, pat.join_gap, NODE_OFF_LINE_PT), 20.0)
+
+    def indice_corridas():
+        return None if SIN_INDICES else _GI.IndiceCorridas(runs, celda_idx, _desvio_tangente)
+
+    def corridas_cerca(idx, p, margen):
+        return range(len(runs)) if idx is None else idx.candidatos(p, margen)
 
     def endpoint(i: int, side: str) -> Pt:
         return runs[i].a if side == "a" else runs[i].b
@@ -2413,6 +2448,11 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
 
     t_end: Dict[Tuple[int, str], Tuple[int, float]] = {}
     all_ends = [(k, side, endpoint(k, side), outward(k, side)) for (k, side) in free]
+    idx_a = indice_corridas()
+    puntas_a = None if SIN_INDICES else _GI.IndicePuntos([e[2] for e in all_ends], celda_idx)
+
+    def puntas_cerca(p, r):
+        return range(len(all_ends)) if puntas_a is None else puntas_a.vecinos(p, r)
     for (i, s) in list(free):
         pe = endpoint(i, s)
         # Punta CORTADA por el clip de la vista: la línea sigue fuera (DU08 h.49
@@ -2421,7 +2461,8 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         if any(_dist(pe, c) <= 0.5 for c in cut_pts):
             continue
         best = None
-        for j, r in enumerate(runs):
+        for j in corridas_cerca(idx_a, pe, NODE_OFF_LINE_PT):
+            r = runs[j]
             if j == i or r.is_curve or r.synthetic or r.origin == runs[i].origin:
                 continue
             t, perp = r.param(pe)
@@ -2447,7 +2488,8 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         # o continúa colineal delante de él dentro del hueco del patrón (la
         # línea sigue: cruce en X con hueco), es continuación/esquina, no T.
         cont = False
-        for k, _, q, oq in all_ends:
+        for ka in puntas_cerca(pe, max(2 * NODE_OFF_LINE_PT, pat.join_gap)):
+            k, _, q, oq = all_ends[ka]
             if k in (i, j):
                 continue
             d = _dist(q, pe)
@@ -2468,7 +2510,7 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
                        and (q[0] - pm[0]) * om[0] + (q[1] - pm[1]) * om[1] >= 0.866 * _dist(pm, q)
                        and (pm[0] - q[0]) * oq[0] + (pm[1] - q[1]) * oq[1] >= 0.866 * _dist(pm, q)
                        and _perp_line((pm[0], pm[1], om[0], om[1]), q) + _perp_line(Lq, pm) < mine
-                       for m, _, pm, om in all_ends):
+                       for m, _, pm, om in (all_ends[x] for x in puntas_cerca(q, pat.join_gap))):
                     continue
                 cont = True
                 break
@@ -2483,6 +2525,9 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
     capped = {j for j, _ in t_end.values()
               if len(runs[j].dashes) == 1 and not runs[j].continuous and runs[j].length <= short}
 
+    letras_idx = None if SIN_INDICES or not glyphs else _GI.IndicePuntos([(g.cx, g.cy) for g in glyphs], celda_idx)
+    letras_r = (max(g.size for g in glyphs) / 2.0 + 1.0) if glyphs else 0.0
+
     def letter_in_gap(pe: Pt, pf: Pt, d: float) -> bool:
         """Letra del linetype («ss», «TE») dentro del hueco entre dos guiones:
         evidencia para cruzarlo hasta `glyph_bridge`, también en una curva (DU08
@@ -2493,7 +2538,8 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         `build_runs` con la misma evidencia)."""
         if d > pat.glyph_bridge:
             return False
-        for g in glyphs:
+        cand = glyphs if letras_idx is None else (glyphs[x] for x in letras_idx.cerca_de_segmento(pe, pf, letras_r))
+        for g in cand:
             c = (g.cx, g.cy)
             t = ((c[0] - pe[0]) * (pf[0] - pe[0]) + (c[1] - pe[1]) * (pf[1] - pe[1])) / (d * d)
             if 0.0 < t < 1.0 and _pt_seg_dist(c, pe, pf) <= g.size / 2.0 + 1.0:
@@ -2565,8 +2611,11 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
     cos_cont = math.cos(math.radians(CONTINUES_MAX_TURN_DEG))
     loose = [(i, s) for (i, s), fr in free.items() if fr and (i, s) not in t_end]
     continued: Set[Tuple[int, str]] = set()
+    sueltas = None if SIN_INDICES else _GI.IndicePuntos([endpoint(*e) for e in loose], celda_idx)
     for x, (i, s) in enumerate(loose):
-        for k, sk in loose[x + 1:]:
+        otros = (loose[x + 1:] if sueltas is None else
+                 [loose[y] for y in sueltas.vecinos(endpoint(i, s), ENDS_TOUCH_PT) if y > x])
+        for k, sk in otros:
             if k == i or _dist(endpoint(i, s), endpoint(k, sk)) > ENDS_TOUCH_PT:
                 continue
             oi, ok = outward(i, s), outward(k, sk)
@@ -2996,8 +3045,14 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
     # un tercer ramal solo se suma si su recta pasa de verdad por el nodo.
     ends_free = [(i, s) for (i, s), fr in free.items() if fr and (i, s) not in t_end and i not in capped]
     pairs = []
+    libres = None if SIN_INDICES else _GI.IndicePuntos([endpoint(*e) for e in ends_free], celda_idx)
+
+    def libres_cerca(x, r):
+        if libres is None:
+            return range(x + 1, len(ends_free))
+        return [y for y in libres.vecinos(endpoint(*ends_free[x]), r) if y > x]
     for x in range(len(ends_free)):
-        for y in range(x + 1, len(ends_free)):
+        for y in libres_cerca(x, 2 * pat.corner_tol):
             e, f = ends_free[x], ends_free[y]
             if e[0] == f[0]:
                 continue
@@ -3088,7 +3143,7 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
     paired = {frozenset((e, f)) for _, e, f, _, _ in pairs}
     cos_turn = math.cos(math.radians(CONTINUES_MAX_TURN_DEG))
     for x in range(len(ends_free)):
-        for y in range(x + 1, len(ends_free)):
+        for y in libres_cerca(x, max(pat.glyph_bridge, 0.0)):
             e, f = ends_free[x], ends_free[y]
             if e[0] == f[0] or frozenset((e, f)) in paired:
                 continue
@@ -3236,13 +3291,15 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         set_endpoint(i, s, P, node_idx)
 
     # — 5d. T: extremo libre cuya recta corta el interior de otra corrida recta —
+    idx_e = indice_corridas()
     for (i, s), fr in list(free.items()):
         if not fr or i in capped:
             continue
         pe = endpoint(i, s)
         Ls = runs[i].line(s)
         best = None
-        for j, r in enumerate(runs):
+        for j in corridas_cerca(idx_e, pe, pat.corner_tol):
+            r = runs[j]
             if j == i or r.is_curve:
                 continue
             Lb = r.line("a")
@@ -3275,19 +3332,25 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             runs[-1].node_a = node_idx
             free[(len(runs) - 1, "a")] = False
             free[(len(runs) - 1, "b")] = True
+            if idx_e is not None:
+                idx_e.poner(len(runs) - 1, runs[-1])
         set_endpoint(i, s, P, node_idx)
+        if idx_e is not None:
+            idx_e.poner(i, runs[i])
 
     # — 5d-bis. convergencia rasante: un extremo libre que muere a ≤3 pt de
     # otra corrida con ángulo casi paralelo (dos conduits que se juntan) nace
     # de ella: vértice compartido sobre esa corrida, nunca dos líneas casi
     # encimadas sin unión.
+    idx_f = indice_corridas()
     for (i, s), fr in list(free.items()):
         if not fr or i in capped:
             continue
         pe = endpoint(i, s)
         Ls = runs[i].line(s)
         best = None
-        for j, r in enumerate(runs):
+        for j in corridas_cerca(idx_f, pe, NODE_OFF_LINE_PT):
+            r = runs[j]
             if j == i or r.is_curve or r.synthetic or r.origin == runs[i].origin:
                 continue
             if _ang_diff(_line_angle(Ls), _line_angle(r.line("a"))) >= CORNER_MIN_ANG_DEG:
@@ -3313,6 +3376,8 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         if not any(abs(tt - t) < 1e-6 for tt, _ in runs[j].inner):
             runs[j].inner.append((t, node_idx))
         set_endpoint(i, s, P, node_idx)
+        if idx_f is not None:
+            idx_f.poner(i, runs[i])
 
     # — 5d-ter. (perfil `precise_junctions`) punta que el PDF dibuja TOCANDO otra
     # línea y que no se cosió como esquina porque esa línea sigue de frente: si

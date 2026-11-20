@@ -56,6 +56,7 @@ class Rejilla:
         v = self.version.get(id(pl), 0) + 1             # los tramos de una versión vieja se ignoran
         self.version[id(pl)] = v
         self.de[id(pl)] = pl
+        self.orden.setdefault(id(pl), len(self.orden))   # (una línea nueva va al final del orden)
         pts = pl.pts_pdf
         for k, (a, b) in enumerate(zip(pts, pts[1:])):
             for g in _celdas(self.c, min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]), max(a[1], b[1])):

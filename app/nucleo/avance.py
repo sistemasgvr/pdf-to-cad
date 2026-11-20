@@ -17,6 +17,8 @@ import threading
 import time
 from typing import Callable, Optional
 
+from nucleo import vigilante as _vigilante
+
 CADA_S = 0.12
 
 _local = threading.local()
@@ -34,6 +36,7 @@ def escuchar(fn: Callable[[str, Optional[int], Optional[int]], None]):
 
 
 def avisar(texto: str, i: Optional[int] = None, n: Optional[int] = None) -> None:
+    _vigilante.al_avisar(texto, i, n)      # tiempos de cada etapa (`nucleo/vigilante`), aunque nadie escuche
     fn = getattr(_local, "fn", None)
     if fn is None:
         return

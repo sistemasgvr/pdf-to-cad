@@ -84,6 +84,7 @@ def _recuperacion_en_carpeta_temporal(monkeypatch, tmp_path):
     monkeypatch.setenv("PDFCAD_RECUPERACION", str(tmp_path / "recuperacion"))
     monkeypatch.setenv("PDFCAD_RECIENTES", str(tmp_path / "recientes.json"))
     monkeypatch.setenv("PDFCAD_DIAGNOSTICOS", str(tmp_path / "diagnosticos"))
+    monkeypatch.delenv("PDFCAD_VIGILANTE_DIR", raising=False)        # los hijos de las pruebas no anotan tiempos
     yield
 
 
