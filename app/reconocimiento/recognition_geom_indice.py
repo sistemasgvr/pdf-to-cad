@@ -105,6 +105,54 @@ class IndicePuntos:
         m = r + _EPS
         return self._en_caja(p[0] - m, p[1] - m, p[0] + m, p[1] + m)
 
+    def en_caja(self, caja) -> List[int]:
+        """Los puntos dentro del recuadro (x0, y0, x1, y1), con un margen de redondeo: superconjunto de la prueba
+        `x0 <= x <= x1 and y0 <= y <= y1`, en orden ascendente."""
+        x0, y0, x1, y1 = caja
+        return self._en_caja(x0 - _EPS, y0 - _EPS, x1 + _EPS, y1 + _EPS)
+
     def cerca_de_segmento(self, a, b, r: float) -> List[int]:
         m = r + _EPS
         return self._en_caja(min(a[0], b[0]) - m, min(a[1], b[1]) - m, max(a[0], b[0]) + m, max(a[1], b[1]) + m)
+
+
+class IndiceCajas:
+    """Recuadros fijos (x0, y0, x1, y1); `None` = sin recuadro (nunca candidato). `contienen(p)` = los que contienen
+    a p con un margen de redondeo: superconjunto de `x0 <= x <= x1 and y0 <= y <= y1`, en orden ascendente
+    (2026-11-21: la bóveda más cercana de cada punta en `resolve_nodes` recorría todas las bóvedas)."""
+
+    def __init__(self, cajas: Sequence, celda: float):
+        self.celda = max(float(celda), 1.0)
+        self.cajas = list(cajas)
+        self._celdas: Dict[Tuple[int, int], List[int]] = defaultdict(list)
+        c = self.celda
+        for i, b in enumerate(self.cajas):
+            if b is None:
+                continue
+            for cx in range(math.floor((b[0] - _EPS) / c), math.floor((b[2] + _EPS) / c) + 1):
+                for cy in range(math.floor((b[1] - _EPS) / c), math.floor((b[3] + _EPS) / c) + 1):
+                    self._celdas[(cx, cy)].append(i)
+
+    def contienen(self, p) -> List[int]:
+        c = self.celda
+        out = []
+        for i in self._celdas.get((math.floor(p[0] / c), math.floor(p[1] / c)), ()):
+            x0, y0, x1, y1 = self.cajas[i]
+            if x0 - _EPS <= p[0] <= x1 + _EPS and y0 - _EPS <= p[1] <= y1 + _EPS:
+                out.append(i)
+        return out                                   # cada caja está una vez por celda, ya en orden ascendente
+
+
+class IndiceSegmentos:
+    """Segmentos (a, b) fijos: `cerca(p)` = los que pueden quedar a ≤ `tol` de p (su recuadro agrandado `tol`
+    contiene p), en el orden original. Para las pruebas `any(dist(p, seg) <= tol …)` de la cobertura: el mismo
+    resultado sin recorrer todos los segmentos (2026-11-21)."""
+
+    def __init__(self, segs: Sequence, tol: float, celda: float):
+        self.segs = list(segs)
+        self._cajas = IndiceCajas([(min(a[0], b[0]) - tol, min(a[1], b[1]) - tol,
+                                    max(a[0], b[0]) + tol, max(a[1], b[1]) + tol) for a, b in self.segs], celda)
+
+    def cerca(self, p) -> List:
+        segs = self.segs
+        return [segs[i] for i in self._cajas.contienen(p)]

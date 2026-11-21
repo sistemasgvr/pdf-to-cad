@@ -17,10 +17,13 @@ def materializar(comp_dict: dict, fuentes: Sequence[bytes], ocultas: Dict[str, l
     """(bytes del PDF de UNA hoja, esquema `piece_layout`)."""
     import fitz
     from hoja import composite as composite_mod
+    from hoja import composite_puentes
     from hoja import pdf_layers as _pdf_layers
     avisar = progreso or (lambda *a: None)
     comp = composite_mod.Composite.from_dict(comp_dict)
     docs = [fitz.open(stream=data, filetype="pdf") for data in fuentes]
+    for d, data in zip(docs, fuentes):    # huella: los anclajes de cada hoja quedan en memoria del trabajador
+        composite_puentes.marcar(d, data)  # (materializar otra vez la misma hoja no los recalcula)
     try:
         for i, d in enumerate(docs):      # capas apagadas: sin trazos ni anclajes
             _pdf_layers.set_hidden(d, ocultas.get(str(i), ()))

@@ -24,6 +24,7 @@ import numpy as np
 from hoja import calcado_parcial as P
 from hoja import composite as C
 from hoja import encaje_imagen as EI
+from hoja import encaje_imagen_lote as LOTE
 from hoja import encaje_mapa_base as E
 from nucleo import avance
 from traduccion.i18n_core import t as _tr
@@ -66,7 +67,7 @@ def lienzo_del_editor(editor: C.Composite, sizes, docs_editor, target_editor: fl
     """La hoja del editor para `encaje_imagen` + la caja de cada pieza en la hoja compuesta. `solo` =
     las piezas que se dibujan (una capa del mapa base: `hoja_calcada.referencia`; None = todas)."""
     import fitz
-    piezas, cajas = [], []
+    piezas, cajas, fuentes = [], [], []
     usar = None if solo is None else set(solo)
     for k, p in enumerate(editor.pieces):
         size = sizes(p)
@@ -77,7 +78,11 @@ def lienzo_del_editor(editor: C.Composite, sizes, docs_editor, target_editor: fl
         if abs(((p.rotation + 180.0) % 360.0) - 180.0) > 1e-6:
             continue                                      # (piezas giradas: no se dibujan aquí)
         piezas.append((docs_editor[p.source][p.page], fitz.Rect(C.clip_rect_pt(size, p.clip)), caja))
-    return (EI.Lienzo(piezas) if piezas else None), cajas
+        fuentes.append((p.source, p.page))
+    lz = EI.Lienzo(piezas) if piezas else None
+    if lz is not None:
+        lz.fuentes = fuentes                              # (fuente, hoja) de cada pieza: `encaje_imagen_lote`
+    return lz, cajas
 
 
 def _por_trazos(editor, sizes, target_editor, libres, f, doc, encajes, leer_nueva, trazos_pieza,
@@ -175,8 +180,17 @@ def _caja_de(cajas, ks):
     return min(c[0] for c in cs), min(c[1] for c in cs), max(c[2] for c in cs), max(c[3] for c in cs)
 
 
+def _zona_celda(cajas, ks):
+    """La celda de la hoja y sus vecinas (pt de la hoja compuesta), o None sin celda."""
+    if not ks:
+        return None
+    x0, y0, x1, y1 = _caja_de(cajas, ks)
+    w, hh = x1 - x0, y1 - y0
+    return (x0 - w, y0 - hh, x1 + w, y1 + hh)
+
+
 def _por_imagen(lz, cajas, f, doc, usadas, cancelado, aviso, celdas=None, mapa_pieza=None,
-                lado_pieza=None, previa=None) -> List[P.HojaUbicada]:
+                lado_pieza=None, previa=None, lote=None) -> List[P.HojaUbicada]:
     """PDF dibujado distinto: cada hoja se ubica por lo que se ve (`encaje_imagen`). La primera con la
     escala libre; las demás con esa escala. Solo vale si al menos `MIN_SERIE` hojas coinciden en la
     escala (una ubicación suelta puede ser casualidad; un PDF de una hoja pide un pico más claro).
@@ -184,7 +198,9 @@ def _por_imagen(lz, cajas, f, doc, usadas, cancelado, aviso, celdas=None, mapa_p
     las demás donde las pone la primera (`mapa_pieza(k)` = hoja del editor → hoja compuesta); una hoja cuya
     celda no está en el editor no se busca (cae fuera). `cajas` = las del editor (por índice de pieza).
     `previa` (dict, entrada y salida) = la hoja ya ubicada de OTRO PDF de la misma utilidad («North» → «South»,
-    misma plantilla): la primera hoja de este se prevé con ella antes de buscarla."""
+    misma plantilla): la primera hoja de este se prevé con ella antes de buscarla.
+    `lote` (`encaje_imagen_lote`): cuando la escala y la referencia ya no pueden cambiar, las hojas que faltan
+    se ubican en otros procesos (mismas cuentas) y se toman en orden."""
     if lado_pieza is None:
         lado_pieza = float(np.median([max(c[2] - c[0], c[3] - c[1]) for c in cajas]))
     escala: Optional[float] = None
@@ -194,15 +210,46 @@ def _por_imagen(lz, cajas, f, doc, usadas, cancelado, aviso, celdas=None, mapa_p
     de_otro = ref is not None                       # la referencia es de otro PDF: si falla, se busca
     out: List[Tuple[P.HojaUbicada, float]] = []
     hojas = [h for h in range(doc.page_count) if (f, h) not in usadas]
-    celda_de = {h: celda_hoja(doc[h]) for h in hojas} if celdas else {}
+    if celdas:
+        celda_de = lote.celdas(f, hojas, doc) if lote is not None else {h: celda_hoja(doc[h]) for h in hojas}
+    else:
+        celda_de = {}
     if celdas:
         hojas = [h for h in hojas if celda_de[h] is None or celda_de[h] in celdas]
-    for h in hojas:
+    repartidas = None                               # {hoja: encargo} desde que la escala y la referencia quedan fijas
+    for i, h in enumerate(hojas):
         if cancelado is not None and cancelado():
             break
         aviso()
         page = doc[h]
         ks = celdas.get(celda_de.get(h)) if celdas else None
+        if lote is not None and escala is not None and (not celdas or (ref is not None and not de_otro)):
+            # de aquí en adelante nada de lo que se halle cambia la escala ni la referencia (sin celdas no hay
+            # referencia que cambie): cada hoja es lo mismo que el camino de abajo con ellas fijas
+            # (`encaje_imagen_lote.ubicar_hoja`)
+            def pedido(h2):
+                k2 = celdas.get(celda_de.get(h2)) if celdas else None
+                previsto = None
+                if ref is not None and k2 and mapa_pieza is not None:
+                    m_ref, k_ref = ref
+                    previsto = _compuesta(_compuesta(mapa_pieza(k2[0]), _inversa(mapa_pieza(k_ref))), m_ref)
+                return (previsto, EI.escalas_alrededor(escala, ESCALA_CONOCIDA_FACTOR, PASO_CONOCIDA),
+                        EI.Z_CONOCIDA, _zona_celda(cajas, k2))
+            if repartidas is None:
+                repartidas = {}
+                for h2 in hojas[i:]:
+                    ped = pedido(h2)
+                    repartidas[h2] = (lote.ubicar(f, h2, ped), ped)
+            fut, ped = repartidas.pop(h)
+            res = lote.resultado(fut, lz, page, ped)
+            if res is None:
+                fallos += 1
+                continue
+            (s_, tx_, ty_, z_, dom_), area = res
+            u = EI.Ubicado(s_, tx_, ty_, z_, dom_)
+            out.append((P.HojaUbicada(f, h, u.tupla(), area, int(round(u.z * 100)), 0.0,
+                                      celda=tuple(ks) if ks else ()), u.s))
+            continue
         u = None
         if ref is not None and ks and mapa_pieza is not None:
             m_ref, k_ref = ref
@@ -220,11 +267,7 @@ def _por_imagen(lz, cajas, f, doc, usadas, cancelado, aviso, celdas=None, mapa_p
                 escalas = EI.escalas_alrededor(lado_pieza / max(page.rect.width, page.rect.height),
                                                ESCALA_LIBRE_FACTOR)
                 z_min = EI.Z_LIBRE if doc.page_count > 1 else EI.Z_LIBRE + Z_HOJA_UNICA_EXTRA
-            zona = None
-            if ks:                                     # su celda y las vecinas
-                x0, y0, x1, y1 = _caja_de(cajas, ks)
-                w, hh = x1 - x0, y1 - y0
-                zona = (x0 - w, y0 - hh, x1 + w, y1 + hh)
+            zona = _zona_celda(cajas, ks)              # su celda y las vecinas
             u = EI.ubicar(lz, page, escalas, cancelado=cancelado, z_min=z_min, zona=zona)
         if u is None:
             fallos += 1
@@ -257,33 +300,47 @@ def completar(editor: C.Composite, sizes, docs_editor, docs_nuevos, target_edito
     cajas = [tuple(float(v) for v in C.piece_rect(p, sizes(p), target_editor)) for p in editor.pieces]
     ubicadas: List[P.HojaUbicada] = []
     lz = None
+    lote = None
     total = sum(d.page_count for d in docs_nuevos)
     hechas = [0]
 
     def aviso():
         avance.avisar(_tr("Buscando hojas que caen entre las del editor…"), hechas[0], total)
         hechas[0] += 1
-    for f, doc in enumerate(docs_nuevos):
-        if cancelado is not None and cancelado():
-            break
-        if f in plantilla:
-            hechas[0] += doc.page_count
-            aviso()
-            ubicadas += _por_trazos(editor, sizes, target_editor, libres, f, doc, plantilla[f], leer_nueva,
-                                    trazos_pieza, usadas, cancelado)
-            continue
-        if lz is None:
-            lz, _c = lienzo_del_editor(editor, sizes, docs_editor, target_editor, referencia)
-            if lz is None:
+    try:
+        for f, doc in enumerate(docs_nuevos):
+            if cancelado is not None and cancelado():
                 break
-            previa: dict = {}
-            ref = list(referencia) if referencia is not None else list(range(len(editor.pieces)))
-            celdas = celdas_editor(editor, docs_editor, ref)
-            lado = float(np.median([max(cajas[k][2] - cajas[k][0], cajas[k][3] - cajas[k][1]) for k in libres]))
-        ubicadas += _por_imagen(lz, cajas, f, doc, usadas, cancelado, aviso, celdas=celdas, previa=previa,
-                                mapa_pieza=lambda k: mapa_pieza(editor.pieces[k], sizes(editor.pieces[k]),
-                                                                target_editor),
-                                lado_pieza=lado)
+            if f in plantilla:
+                hechas[0] += doc.page_count
+                aviso()
+                ubicadas += _por_trazos(editor, sizes, target_editor, libres, f, doc, plantilla[f], leer_nueva,
+                                        trazos_pieza, usadas, cancelado)
+                continue
+            if lz is None:
+                lz, _c = lienzo_del_editor(editor, sizes, docs_editor, target_editor, referencia)
+                if lz is None:
+                    break
+                previa: dict = {}
+                ref = list(referencia) if referencia is not None else list(range(len(editor.pieces)))
+                celdas = celdas_editor(editor, docs_editor, ref)
+                lado = float(np.median([max(cajas[k][2] - cajas[k][0], cajas[k][3] - cajas[k][1]) for k in libres]))
+                # este PDF y los que siguen van por imagen: sus hojas se reparten en procesos (la celda de cada
+                # una se lee ya, por adelantado)
+                por_img = {f2: [h for h in range(d2.page_count) if (f2, h) not in usadas]
+                           for f2, d2 in enumerate(docs_nuevos) if f2 >= f and f2 not in plantilla}
+                lote = LOTE.crear(lz, getattr(lz, "fuentes", ()), docs_editor, docs_nuevos,
+                                  sum(len(v) for v in por_img.values()))
+                if lote is not None and celdas:
+                    for f2, hs in por_img.items():
+                        lote.adelantar_celdas(f2, hs)
+            ubicadas += _por_imagen(lz, cajas, f, doc, usadas, cancelado, aviso, celdas=celdas, previa=previa,
+                                    mapa_pieza=lambda k: mapa_pieza(editor.pieces[k], sizes(editor.pieces[k]),
+                                                                    target_editor),
+                                    lado_pieza=lado, lote=lote)
+    finally:
+        if lote is not None:
+            lote.cerrar()
     if total:
         avance.avisar(_tr("Buscando hojas que caen entre las del editor…"), total, total)
     # una pieza por hoja: la que sabe su celda toma el cuadro de esa celda (sin recortarla a la cuadrícula del

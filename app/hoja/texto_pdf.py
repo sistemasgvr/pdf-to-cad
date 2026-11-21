@@ -22,6 +22,7 @@ modifica en el PDF.
 """
 from __future__ import annotations
 
+import math
 import os
 import re
 from dataclasses import dataclass, field
@@ -170,11 +171,39 @@ def _nombres(f) -> List[str]:
 
 
 def _decodificar(doc, f):
-    """({gid: letra|" "|None}, {gid: caja de tinta en em (x0, y0, x1, y1), y hacia ARRIBA})."""
+    """({gid: letra|" "|None}, {gid: caja de tinta en em (x0, y0, x1, y1), y hacia ARRIBA}).
+
+    Lo decodificado depende SOLO del contenido de la fuente (sus glifos y su FontMatrix) y de las letras de
+    referencia: cada hoja de Phoenix trae su propia fuente, pero una hoja compuesta COPIA las de sus hojas de origen
+    y la misma fuente se decodificaba en cada proceso y en cada compuesta (2026-11-21). Se guarda por esa huella en
+    el proceso y en disco (`texto_cache`); mismo resultado (la tabla es función de esos datos)."""
     procs = _charprocs(doc, f[0])
     if not procs:
         return {}, {}
     fm = _numeros(_obj(doc, doc.xref_get_key(f[0], "FontMatrix"))) or [0.001, 0, 0, 0.001, 0, 0]
+    if SIN_ATAJOS:
+        return _decodificar_procs(procs, fm)
+    from hoja import texto_cache
+    clave = texto_cache.clave_fuente(procs, fm)
+    hit = _FUENTES.get(clave)
+    if hit is None:
+        hit = texto_cache.leer_fuente(clave)
+        if hit is None:
+            hit = _decodificar_procs(procs, fm)
+            texto_cache.guardar_fuente(clave, hit)
+        if len(_FUENTES) > _FUENTES_MAX:
+            _FUENTES.clear()
+        _FUENTES[clave] = hit
+    # copias: quien las guarda en su documento no comparte el diccionario con otro
+    return dict(hit[0]), dict(hit[1])
+
+
+_FUENTES: Dict[str, tuple] = {}      # huella del contenido de la fuente → (letras, cajas de tinta)
+_FUENTES_MAX = 4000
+
+
+def _decodificar_procs(procs: Dict[int, bytes], fm: List[float]):
+    """`_decodificar` con los glifos y la FontMatrix ya leídos (el cálculo de siempre)."""
     a, b, c, d = (fm + [0, 0, 0, 0])[:4]
     codes = sorted(procs)
     filas = (len(codes) + COLS - 1) // COLS
@@ -257,11 +286,39 @@ def _caja_tinta(o, d, tam, caja_em):
     return (min(p[0] for p in pts), min(p[1] for p in pts), max(p[0] for p in pts), max(p[1] for p in pts))
 
 
+def _desplazamientos(d, tam, caja_em):
+    """Lo que `_caja_tinta` suma al origen en cada esquina (mismas cuentas, mismo orden): x de las 4 y y de las 4."""
+    up = _arriba(d)
+    xs = tuple((x * d[0] + y * up[0]) * tam for x in (caja_em[0], caja_em[2]) for y in (caja_em[1], caja_em[3]))
+    ys = tuple((x * d[1] + y * up[1]) * tam for x in (caja_em[0], caja_em[2]) for y in (caja_em[1], caja_em[3]))
+    return xs, ys
+
+
+def _signo(v) -> bool:
+    return math.copysign(1.0, v) < 0
+
+
+SIN_ATAJOS = False           # True = el camino de antes (para comparar en las pruebas)
+
+
 def glifos(page) -> List[Glifo]:
-    """Todos los glifos de la hoja con su letra (decodificada si hace falta)."""
+    """Todos los glifos de la hoja con su letra (decodificada si hace falta). En el documento (caché por hoja) y, entre
+    procesos, en disco (`texto_cache`: la misma hoja la leen la composición sugerida, la georreferencia, el área
+    sugerida, la interpretación y el índice de texto, cada uno en su proceso)."""
     cache = page.parent.__dict__.setdefault("_pdfcad_glifos", {})
     if page.number in cache:
         return cache[page.number]
+    from hoja import texto_cache
+    out = None if SIN_ATAJOS else texto_cache.leer_glifos(page)
+    if out is None:
+        out = _glifos(page)
+        if not SIN_ATAJOS:
+            texto_cache.guardar_glifos(page, out)
+    cache[page.number] = out
+    return out
+
+
+def _glifos(page) -> List[Glifo]:
     avance.avisar(_tr("Leyendo las letras del mapa (por la forma de cada letra)…"))
     tablas = tabla(page.parent, page)
     out: List[Glifo] = []
@@ -269,21 +326,43 @@ def glifos(page) -> List[Glifo]:
         traza = page.get_texttrace()
     except Exception:
         traza = []
+    # (dirección, tamaño, caja del glifo) → lo que `_caja_tinta` suma al origen: un mapa repite los mismos glifos al
+    # mismo tamaño miles de veces. La clave lleva el SIGNO de cada número (0.0 y -0.0 son iguales para un dict pero
+    # podrían dar otro cero en la caja)
+    desp: dict = {}
+    agregar = out.append
     for s in traza:
         d = tuple(s.get("dir") or (1.0, 0.0))
         tam = float(s.get("size") or 0.0)
         color = tuple(round(float(v), 2) for v in (s.get("color") or ()))
-        t = tablas.get(s.get("font") or "")
+        fuente = s.get("font") or ""
+        seqno = int(s.get("seqno", -1))
+        t = tablas.get(fuente)
+        if t is not None:
+            letras_t, tinta_t = t
+            firma = (d, tam, _signo(d[0]), _signo(d[1]), _signo(tam))
         for ucs, gid, o, _bb in s.get("chars") or ():
             if t is not None:
-                letra = t[0].get(gid)
-                caja = _caja_tinta(o, d, tam, t[1].get(gid))
+                letra = letras_t.get(gid)
+                caja_em = tinta_t.get(gid)
+                if caja_em is None:
+                    caja = None
+                elif SIN_ATAJOS:
+                    caja = _caja_tinta(o, d, tam, caja_em)
+                else:
+                    k = (firma, caja_em)
+                    dd = desp.get(k)
+                    if dd is None:
+                        dd = desp[k] = _desplazamientos(d, tam, caja_em)
+                    (a0, a1, a2, a3), (b0, b1, b2, b3) = dd
+                    o0, o1 = o[0], o[1]
+                    p0, p1, p2, p3 = o0 + a0, o0 + a1, o0 + a2, o0 + a3
+                    q0, q1, q2, q3 = o1 + b0, o1 + b1, o1 + b2, o1 + b3
+                    caja = (min(p0, p1, p2, p3), min(q0, q1, q2, q3), max(p0, p1, p2, p3), max(q0, q1, q2, q3))
             else:
                 letra = None if ucs in (0xFFFD, 0) else chr(ucs)
                 caja = None
-            out.append(Glifo(letra, gid, (float(o[0]), float(o[1])), tam, d, color, s.get("font") or "", caja,
-                             int(s.get("seqno", -1))))
-    cache[page.number] = out
+            agregar(Glifo(letra, gid, (float(o[0]), float(o[1])), tam, d, color, fuente, caja, seqno))
     return out
 
 
@@ -335,13 +414,34 @@ def simbolos(page) -> List[Simbolo]:
     celdas: Dict[Tuple[int, int], List[int]] = {}
     for i, (x, y) in enumerate(centros):
         celdas.setdefault((int(x // 4), int(y // 4)), []).append(i)
-    for i, (x, y) in enumerate(centros):
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                for j in celdas.get((int(x // 4) + dx, int(y // 4) + dy), ()):
-                    if j > i and np.hypot(x - centros[j][0], y - centros[j][1]) <= \
-                            JUNTAR_SIMBOLO * max(gs[i].tam, gs[j].tam):
-                        padre[raiz(j)] = raiz(i)
+    if SIN_ATAJOS:
+        for i, (x, y) in enumerate(centros):
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for j in celdas.get((int(x // 4) + dx, int(y // 4) + dy), ()):
+                        if j > i and np.hypot(x - centros[j][0], y - centros[j][1]) <= \
+                                JUNTAR_SIMBOLO * max(gs[i].tam, gs[j].tam):
+                            padre[raiz(j)] = raiz(i)
+    else:
+        # mismos pares, en el mismo orden y con la MISMA prueba (`np.hypot`), pero solo para los que pasan un filtro
+        # barato en floats de Python que deja pasar a todos los que la cumplen (la suma de cuadrados con holgura):
+        # antes, ~1.6 millones de `np.hypot` sueltos en las 18 hojas de un mapa
+        cx = [float(c[0]) for c in centros]
+        cy = [float(c[1]) for c in centros]
+        tams = [g.tam for g in gs]
+        for i, (x, y) in enumerate(centros):
+            xi, yi, ti = cx[i], cy[i], tams[i]
+            kx, ky = int(x // 4), int(y // 4)
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for j in celdas.get((kx + dx, ky + dy), ()):
+                        if j <= i:
+                            continue
+                        lim = JUNTAR_SIMBOLO * max(ti, tams[j])
+                        ex, ey = xi - cx[j], yi - cy[j]
+                        if ex * ex + ey * ey <= lim * lim * (1.0 + 1e-9) + 1e-300 and \
+                                np.hypot(x - centros[j][0], y - centros[j][1]) <= JUNTAR_SIMBOLO * max(gs[i].tam, gs[j].tam):
+                            padre[raiz(j)] = raiz(i)
     grupos: Dict[int, List[int]] = {}
     for i in range(len(gs)):
         grupos.setdefault(raiz(i), []).append(i)

@@ -2211,6 +2211,16 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
     def corridas_cerca(idx, p, margen):
         return range(len(runs)) if idx is None else idx.candidatos(p, margen)
 
+    # Puntas cortadas por el clip (a ≤0.5 pt de un punto de corte). 2026-11-21 (monitor, drenaje en imagen de 32
+    # mapas: 20 min): cada bóveda miraba TODAS las puntas contra TODOS los cortes. Mismo `any`, solo los cercanos.
+    cortes_idx = None if SIN_INDICES or not cut_pts else _GI.IndicePuntos(list(cut_pts), 2.0)
+
+    def en_corte(p: Pt) -> bool:
+        if cortes_idx is None:
+            return any(_dist(p, c) <= 0.5 for c in cut_pts)
+        cs = cortes_idx.pts
+        return any(_dist(p, cs[k]) <= 0.5 for k in cortes_idx.vecinos(p, 0.5))
+
     def endpoint(i: int, side: str) -> Pt:
         return runs[i].a if side == "a" else runs[i].b
 
@@ -2400,7 +2410,7 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
             # (perfil `manhole_bend`) dentro de un buzón REDONDO sí se cosen: la
             # tubería gira en el buzón y ese punto es su nodo.
             in_manhole = manhole_bend and len(in_box) == 1 and vaults[in_box[0]].round_entry
-            if any(_dist(pe, c) <= 0.5 for c in cut_pts) or (in_box and not in_manhole):
+            if en_corte(pe) or (in_box and not in_manhole):
                 continue
             mates = [(k, sk) for (k, sk) in ends_all
                      if k != i and _dist(endpoint(k, sk), pe) <= ENDS_TOUCH_PT]
@@ -2458,7 +2468,7 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         # Punta CORTADA por el clip de la vista: la línea sigue fuera (DU08 h.49
         # (661, 989): la curva cruza la vertical y el corte cae 2.5 pt después).
         # No es una T: queda en su punta, como pidió el usuario.
-        if any(_dist(pe, c) <= 0.5 for c in cut_pts):
+        if en_corte(pe):
             continue
         best = None
         for j in corridas_cerca(idx_a, pe, NODE_OFF_LINE_PT):
@@ -2562,13 +2572,26 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
     # borde de su caja de captación y la caja vecina (a 2.8 pt, antes en la
     # lista) se la llevaba cruzando la cajita hasta su propio borde.
     nearest_vault: Dict[Tuple[int, str], int] = {}
+    # Candidatas por recuadro (2026-11-21): una bóveda solo CONTIENE la punta si ésta cae en el recuadro de su
+    # contorno (±0.15 pt), y solo la ALCANZA si cae en `bbox(join_gap)`; mismas pruebas, mismo orden de `vi`.
+    if SIN_INDICES or not vaults:
+        idx_contorno = idx_alcance = None
+    else:
+        def _caja_contorno(v):
+            if not v.outline:
+                return None
+            xs, ys = [q[0] for q in v.outline], [q[1] for q in v.outline]
+            return (min(xs) - 0.15, min(ys) - 0.15, max(xs) + 0.15, max(ys) + 0.15)
+        idx_contorno = _GI.IndiceCajas([_caja_contorno(v) for v in vaults], celda_idx)
+        idx_alcance = _GI.IndiceCajas([v.bbox(pat.join_gap) for v in vaults], celda_idx)
     for (i, s), fr in free.items():
         if not fr or (i, s) in t_end:
             continue
         pe = endpoint(i, s)
         # Actual source ink inside/on one structure is stronger evidence than
         # proximity to a different one, regardless of the profile's heuristic.
-        contained = [vi for vi,v in enumerate(vaults) if v.outline and
+        cand_v = enumerate(vaults) if idx_contorno is None else ((x, vaults[x]) for x in idx_contorno.contienen(pe))
+        contained = [vi for vi,v in cand_v if v.outline and
                      (_point_in_polygon(pe,v.outline) or any(_pt_seg_dist(pe,a,b) <= .15
                       for a,b in zip(v.outline,v.outline[1:]+v.outline[:1])))]
         if len(contained) == 1:
@@ -2577,7 +2600,8 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         if not nearest:
             continue
         hits = []
-        for vi, v in enumerate(vaults):
+        for vi, v in (enumerate(vaults) if idx_alcance is None
+                      else ((x, vaults[x]) for x in idx_alcance.contienen(pe))):
             br = v.bbox(pat.join_gap)
             if not (br[0] <= pe[0] <= br[2] and br[1] <= pe[1] <= br[3]):
                 continue
@@ -2708,16 +2732,26 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
         return best
 
     absorb_later: Set[int] = set()           # rectas TODAS dentro de una bóveda (ver abajo)
+    # Puntas candidatas de cada bóveda (2026-11-21): en esta pasada una punta libre solo se mueve con `set_endpoint`,
+    # que la saca de `free`; así las libres siguen donde estaban al empezar y un índice de esas posiciones da, para
+    # cada bóveda, las de su recuadro en el MISMO orden de `free` (clave = orden de inserción). La prueba es la de
+    # siempre (todas sus condiciones son puras: el orden de evaluación no cambia el resultado).
+    fase_b = [e for e, fr in free.items() if fr and e not in t_end]
+    fase_b_idx = None if SIN_INDICES else _GI.IndicePuntos([endpoint(*e) for e in fase_b], celda_idx)
     for vi, v in enumerate(vaults):
         bb = v.bbox(1.0)
         reach = pat.join_gap
         bb_reach = v.bbox(reach)
-        ends = [(i, s) for (i, s), fr in free.items() if fr and (i, s) not in t_end
-                and not any(_dist(endpoint(i, s), c) <= 0.5 for c in cut_pts)
-                and not ((i, s) in continued and not runs[i].split
-                         and not (bb[0] <= endpoint(i, s)[0] <= bb[2] and bb[1] <= endpoint(i, s)[1] <= bb[3]))
+        if fase_b_idx is None:
+            cand_e = [e for e, fr in free.items() if fr]
+        else:
+            cand_e = [fase_b[x] for x in fase_b_idx.en_caja(bb_reach) if free[fase_b[x]]]
+        ends = [(i, s) for (i, s) in cand_e if (i, s) not in t_end
                 and bb_reach[0] <= endpoint(i, s)[0] <= bb_reach[2]
                 and bb_reach[1] <= endpoint(i, s)[1] <= bb_reach[3]
+                and not en_corte(endpoint(i, s))
+                and not ((i, s) in continued and not runs[i].split
+                         and not (bb[0] <= endpoint(i, s)[0] <= bb[2] and bb[1] <= endpoint(i, s)[1] <= bb[3]))
                 and not taken_by_other(i, s, vi)]
         if not ends:
             orphans.append(vi)
@@ -3029,7 +3063,7 @@ def resolve_nodes(runs: List[Run], pat: Pattern, vaults: Sequence[Vault],
     for (i, s), fr in list(free.items()):
         if fr:
             pe = endpoint(i, s)
-            if any(_dist(pe, c) <= 0.5 for c in cut_pts):
+            if en_corte(pe):
                 set_endpoint(i, s, pe, new_node(pe, "cut"))
 
     vault_reach_boxes = [v.bbox(pat.join_gap) for v in vaults]
@@ -3583,11 +3617,13 @@ def coverage(dashes: Sequence[Dash], polylines: Sequence[Polyline],
     segs = [(pl.pts[i], pl.pts[i + 1]) for pl in polylines for i in range(len(pl.pts) - 1)]
     total = covered = 0.0
     missing: List[Dash] = []
+    # (2026-11-21) cada muestra solo contra los segmentos que pueden quedarle a ≤ tol: el mismo `any`.
+    idx = None if SIN_INDICES or len(segs) < 64 else _GI.IndiceSegmentos(segs, tol, 25.0)
     for d in dashes:
         total += d.length
         # Cada punto de muestra debe estar cerca de ALGÚN segmento (un guión
         # puede cruzar un vértice y repartirse entre dos segmentos).
-        ok = all(any(_pt_seg_dist(q, a, b) <= tol for a, b in segs)
+        ok = all(any(_pt_seg_dist(q, a, b) <= tol for a, b in (segs if idx is None else idx.cerca(q)))
                  for q in (d.a, d.mid, d.b))
         if ok:
             covered += d.length
@@ -3605,10 +3641,12 @@ def _polylines_from_uncovered(
     if not missing:
         return []
     keep_segs = [(pl.pts[i], pl.pts[i + 1]) for pl in keep for i in range(len(pl.pts) - 1)]
+    idx = None if SIN_INDICES or len(keep_segs) < 64 else _GI.IndiceSegmentos(keep_segs, COVERAGE_TOL_PT, 25.0)
     leftover = []
     for d in missing:
         if keep_segs and any(
-            _pt_seg_dist(d.mid, a, b) <= COVERAGE_TOL_PT for a, b in keep_segs
+            _pt_seg_dist(d.mid, a, b) <= COVERAGE_TOL_PT
+            for a, b in (keep_segs if idx is None else idx.cerca(d.mid))
         ):
             continue
         leftover.append(d)
@@ -3686,8 +3724,12 @@ def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = (),
     min_len = max(2.0 * pat.dash_long, 3.0 * pat.join_gap)
     floor = max(1.5 * (pat.dash_short or 0.3 * pat.dash_long), 8.0)   # un guión corto suelto = tick
     vreach = [v.bbox(pat.join_gap) for v in vaults]
-    touches_vault = lambda pl: any(b[0] <= p[0] <= b[2] and b[1] <= p[1] <= b[3]
-                                   for p in pl.pts for b in vreach)
+    # (2026-11-21) recuadros por celdas: el mismo `any`, sin recorrer todas las bóvedas por cada punto.
+    vreach_idx = None if SIN_INDICES or len(vreach) < 16 else _GI.IndiceCajas(vreach, 25.0)
+    touches_vault = lambda pl: any(b[0] <= p[0] <= b[2] and b[1] <= p[1] <= b[3]  # noqa: E731
+                                   for p in pl.pts
+                                   for b in (vreach if vreach_idx is None else
+                                             [vreach[x] for x in vreach_idx.contienen(p)]))
     keep, noise_polys = [], []
     for pl in polys:
         topo = any(k in ("vault", "tee", "junction", "corner", "bend", "edge", "stop") for k in pl.kinds)
@@ -3712,6 +3754,7 @@ def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = (),
     excl_segs = [(pl.pts[i], pl.pts[i + 1]) for pl in offpattern + noise_polys
                  for i in range(len(pl.pts) - 1)]
     vboxes = [v.bbox(1.0) for v in vaults]
+    vboxes_idx = None if SIN_INDICES or len(vboxes) < 16 else _GI.IndiceCajas(vboxes, 25.0)
 
     def _touches_vault(d: Dash) -> bool:
         # Dentro de una bóveda la línea va al punto de referencia, no sobre los
@@ -3719,6 +3762,9 @@ def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = (),
         # su caja aunque el nodo se clampe al borde unos pt antes de donde
         # termina el trazo real (a/b) — sin esto, ese resto de guión se
         # contaba «sin cubrir» pese a que la ruta sí llega a la bóveda.
+        if vboxes_idx is not None:                   # (mismo `any` por celdas)
+            return any(b[0] <= q[0] <= b[2] and b[1] <= q[1] <= b[3]
+                       for q in (d.a, d.mid, d.b) for b in (vboxes[x] for x in vboxes_idx.contienen(q)))
         return any(any(b[0] <= q[0] <= b[2] and b[1] <= q[1] <= b[3] for q in (d.a, d.mid, d.b))
                    for b in vboxes)
 
@@ -3732,12 +3778,19 @@ def reconstruct(line_paths: Sequence[dict], vault_paths: Sequence[dict] = (),
     hard_pts = [p for pl in keep for p, k in zip(pl.pts, pl.kinds)
                 if k in ("corner", "tee", "junction", "bend")]
 
+    hard_idx = None if SIN_INDICES or len(hard_pts) < 16 else _GI.IndicePuntos(hard_pts, 25.0)
+
     def _touches_corner(d: Dash) -> bool:
+        if hard_idx is not None:                     # (mismo `any`: solo las esquinas a ≤ corner_tol en x e y)
+            return any(_dist(q, hard_pts[x]) <= pat.corner_tol
+                       for q in (d.a, d.b) for x in hard_idx.vecinos(q, pat.corner_tol))
         return any(_dist(q, p) <= pat.corner_tol for p in hard_pts for q in (d.a, d.b))
 
+    excl_idx = None if SIN_INDICES or len(excl_segs) < 64 else _GI.IndiceSegmentos(excl_segs, COVERAGE_TOL_PT, 25.0)
     pattern_dashes = [d for d in dashes if not any(
         _pt_seg_dist(d.a, a, b) <= COVERAGE_TOL_PT and _pt_seg_dist(d.b, a, b) <= COVERAGE_TOL_PT
-        for a, b in excl_segs) and not _touches_vault(d) and not _touches_corner(d)]
+        for a, b in (excl_segs if excl_idx is None else excl_idx.cerca(d.a)))
+        and not _touches_vault(d) and not _touches_corner(d)]
     cov, missing = coverage(pattern_dashes, keep)
     extra = _polylines_from_uncovered(missing, keep, pat)
     if extra:

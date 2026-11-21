@@ -543,6 +543,24 @@ def edge_anchors(page: fitz.Page, clip: Sequence[float], max_paths: int = 200000
 
     `polygon` (= `Piece.polygon`, esquinas libres): el borde es el de ese
     cuadrilátero, no el de su caja (sin franjas)."""
+    from hoja import composite_puentes as CP
+
+    # Misma hoja (huella del PDF), mismo giro, mismas capas, mismo recorte y parámetros → los mismos anclajes
+    # (2026-11-21: abrir otra vez «Componer hoja» o materializar de nuevo los recalculaba todos).
+    k = None if ANCLAJES_DE_SIEMPRE else CP.clave(page, clip, max_paths, tol, insets, polygon)
+    hit = CP.buscar(k, Anchor)
+    if hit is not None:
+        return hit
+    out = _edge_anchors(page, clip, max_paths, tol, insets, polygon)
+    CP.guardar(k, out, Anchor)
+    return out
+
+
+ANCLAJES_DE_SIEMPRE = False      # True = sin memoria, sin celdas y con `Rect.contains` de PyMuPDF (para comparar)
+
+
+def _edge_anchors(page: fitz.Page, clip: Sequence[float], max_paths: int, tol: float,
+                  insets: Optional[Dict[str, float]], polygon: Optional[Sequence[Pt]]) -> List[Anchor]:
     from hoja.sheet_crops import drawing_polygon
 
     if polygon:
@@ -569,13 +587,20 @@ def edge_anchors(page: fitz.Page, clip: Sequence[float], max_paths: int = 200000
     near = max(tol, NEAR_EDGE_PT)
     core = fitz.Rect(inner.x0 + near, inner.y0 + near, inner.x1 - near, inner.y1 - near)
     rot = page.rotation_matrix
+    # Los mismos números de `inner`, `core`, `page.rect` y la matriz de direcciones, leídos UNA vez (antes se
+    # leían en cada trazo y en cada anclaje: `page.rect` relee el diccionario de la hoja).
+    ix0, iy0, ix1, iy1 = inner.x0, inner.y0, inner.x1, inner.y1
+    kx0, ky0, kx1, ky1 = core.x0, core.y0, core.x1, core.y1
+    ox, oy = page.rect.x0, page.rect.y0
+    rot_dir = fitz.Matrix(rot.a, rot.b, rot.c, rot.d, 0, 0)
+    de_siempre = ANCLAJES_DE_SIEMPRE
 
     def inside(x: float, y: float) -> bool:
-        return inner.x0 - tol <= x <= inner.x1 + tol and inner.y0 - tol <= y <= inner.y1 + tol
+        return ix0 - tol <= x <= ix1 + tol and iy0 - tol <= y <= iy1 + tol
 
     def on_border(x: float, y: float) -> bool:
-        return inside(x, y) and (abs(x - inner.x0) <= tol or abs(x - inner.x1) <= tol
-                                 or abs(y - inner.y0) <= tol or abs(y - inner.y1) <= tol)
+        return inside(x, y) and (abs(x - ix0) <= tol or abs(x - ix1) <= tol
+                                 or abs(y - iy0) <= tol or abs(y - iy1) <= tol)
 
     def toward_border(x: float, y: float, ux: float, uy: float) -> bool:
         """(x, y) a ≤ NEAR_EDGE_PT de un lado y (ux, uy) apuntando hacia ese lado."""
@@ -585,16 +610,16 @@ def edge_anchors(page: fitz.Page, clip: Sequence[float], max_paths: int = 200000
         if n < 1e-9:
             return False
         ux, uy = ux / n, uy / n
-        return ((abs(x - inner.x1) <= NEAR_EDGE_PT and ux >= NEAR_EDGE_COS)
-                or (abs(x - inner.x0) <= NEAR_EDGE_PT and -ux >= NEAR_EDGE_COS)
-                or (abs(y - inner.y1) <= NEAR_EDGE_PT and uy >= NEAR_EDGE_COS)
-                or (abs(y - inner.y0) <= NEAR_EDGE_PT and -uy >= NEAR_EDGE_COS))
+        return ((abs(x - ix1) <= NEAR_EDGE_PT and ux >= NEAR_EDGE_COS)
+                or (abs(x - ix0) <= NEAR_EDGE_PT and -ux >= NEAR_EDGE_COS)
+                or (abs(y - iy1) <= NEAR_EDGE_PT and uy >= NEAR_EDGE_COS)
+                or (abs(y - iy0) <= NEAR_EDGE_PT and -uy >= NEAR_EDGE_COS))
 
     def clip_exit(px: float, py: float, qx: float, qy: float) -> Optional[Pt]:
         """p dentro, q fuera → punto donde el segmento sale del rectángulo."""
         t_exit = 1.0
         dx, dy = qx - px, qy - py
-        for lo, hi, d, o in ((inner.x0, inner.x1, dx, px), (inner.y0, inner.y1, dy, py)):
+        for lo, hi, d, o in ((ix0, ix1, dx, px), (iy0, iy1, dy, py)):
             if d > 0 and o + d > hi:
                 t_exit = min(t_exit, (hi - o) / d)
             elif d < 0 and o + d < lo:
@@ -611,9 +636,9 @@ def edge_anchors(page: fitz.Page, clip: Sequence[float], max_paths: int = 200000
         n = math.hypot(ux, uy)
         if n < 1e-6:
             return
-        a = fitz.Point(x, y) * rot
-        d = fitz.Point(ux / n, uy / n) * fitz.Matrix(rot.a, rot.b, rot.c, rot.d, 0, 0)
-        vx, vy = a.x - page.rect.x0, a.y - page.rect.y0
+        a = fitz.Point(x, y) * rot                  # (las cuentas de MuPDF, como siempre: mismos números)
+        d = fitz.Point(ux / n, uy / n) * rot_dir
+        vx, vy = a.x - ox, a.y - oy
         on_inset = any(abs((vx if side in ("left", "right") else vy) - e) <= tol
                        for side, e in inset_edges.items())
         out.append(Anchor(vx, vy, d.x, d.y,
@@ -624,12 +649,17 @@ def edge_anchors(page: fitz.Page, clip: Sequence[float], max_paths: int = 200000
         if i >= max_paths:
             break
         r = path.get("rect")
-        if r is None or core.contains(r):
-            continue                        # lejos del borde: no aporta anclajes
+        if r is None:
+            continue
+        if de_siempre or type(r) is not fitz.Rect:
+            if core.contains(r):
+                continue                    # lejos del borde: no aporta anclajes
+        elif kx0 <= r.x0 <= r.x1 <= kx1 and ky0 <= r.y0 <= r.y1 <= ky1:
+            continue                        # (= `core.contains(r)`, sin copiar r en un Rect nuevo)
         if path.get("type") == "f":
             continue                        # relleno puro (logos, hatch sólido): no es una línea
         # (Rect.intersects es False para rects de área cero: líneas rectas.)
-        if r.x1 < inner.x0 - tol or r.x0 > inner.x1 + tol or r.y1 < inner.y0 - tol or r.y0 > inner.y1 + tol:
+        if r.x1 < ix0 - tol or r.x0 > ix1 + tol or r.y1 < iy0 - tol or r.y0 > iy1 + tol:
             continue                        # totalmente fuera
         items = path.get("items") or ()
         if len(items) > MAX_ANCHOR_ITEMS:
@@ -666,7 +696,16 @@ def edge_anchors(page: fitz.Page, clip: Sequence[float], max_paths: int = 200000
 def _merge_anchors(anchors: Sequence[Anchor], radius: float = ANCHOR_MERGE_PT) -> List[Anchor]:
     """Fusiona anclajes apiñados (≤ `radius`, misma dirección): un símbolo o
     un texto explotado cortado por el borde no debe pesar como cien líneas."""
+    from hoja import composite_puentes as CP
+
     uniq: List[Anchor] = []
+    if not ANCLAJES_DE_SIEMPRE and CP.fusion_apta(anchors, radius):
+        ya = CP.Fusion(radius)                  # «¿alguno ya guardado está cerca?», por celdas (misma respuesta)
+        for an in sorted(anchors, key=lambda a: (a.layer, a.x, a.y)):
+            if not ya.hay_vecino(an):
+                uniq.append(an)
+                ya.poner(an)
+        return uniq
     for an in sorted(anchors, key=lambda a: (a.layer, a.x, a.y)):
         for u in uniq:
             if (u.layer == an.layer and abs(an.x - u.x) <= radius and abs(an.y - u.y) <= radius
@@ -1216,28 +1255,15 @@ def find_bridges(anchors_by_piece: Dict[int, Sequence[Anchor]], max_gap: float =
     """Empareja extremos de piezas distintas que se miran de frente sobre la
     misma capa (nombre corto) con desvío lateral ≤ `perp_tol` y hueco ≤
     `max_gap`. Cada extremo participa en UN puente (el más cercano mutuo)."""
-    from hoja.pdf_layers import short_name
+    from hoja import composite_puentes as CP
 
     items = [(pi, a) for pi, lst in anchors_by_piece.items() for a in lst]
-    best_for: Dict[int, Tuple[float, int]] = {}
-    cands: List[Tuple[float, int, int]] = []
-    for i, (pi, a) in enumerate(items):
-        for j in range(i + 1, len(items)):
-            pj, b = items[j]
-            if pi == pj:
-                continue
-            if short_name(a.layer).casefold() != short_name(b.layer).casefold():
-                continue
-            if a.ux * b.ux + a.uy * b.uy > -BRIDGE_COS:
-                continue
-            vx, vy = b.x - a.x, b.y - a.y
-            along = vx * a.ux + vy * a.uy
-            if along < -perp_tol or along > max_gap:
-                continue
-            lateral = abs(vx * a.uy - vy * a.ux)
-            if lateral > perp_tol:
-                continue
-            cands.append((along + lateral, i, j))
+    # Cada par (i < j) de piezas distintas, misma capa (nombre corto), que se miran de frente, con hueco y
+    # desvío dentro de lo admitido. El nombre corto se calcula una vez por capa y los pares se buscan por
+    # celdas (`composite_puentes.candidatos`: el mismo conjunto que probar todos; 2026-11-21, con 32 mapas
+    # eran 1.4 millones de pares y la ventana quedaba «No responde»).
+    claves = CP.claves_de_capa(a.layer for _pi, a in items)
+    cands = CP.candidatos(items, claves, max_gap, perp_tol, BRIDGE_COS)
     cands.sort()
     used = set()
     out: List[Bridge] = []
@@ -1363,6 +1389,7 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
     if fundidas:                       # antes de las piezas: show_pdf_page relee el contenido
         _add_blend_state(dst, page)
     seen = _ocg_xrefs(dst)
+    ocgs = _OcgsDestino(dst, seen)
     ocg_source: Dict[int, int] = {}
     nombres = _NombresDestino(dst, page)
     for k_av, piece in enumerate(comp.pieces):
@@ -1400,7 +1427,7 @@ def build_document(comp: Composite, docs: Sequence[fitz.Document],
         for poly in cover_polygons(piece, page_sizes(piece), target):
             page.draw_polyline([(x + dx, y + dy) for x, y in poly], color=None,
                                fill=(1, 1, 1), closePath=True)
-        now = _ocg_xrefs(dst)
+        now = _ocg_xrefs(dst) if OCG_DE_SIEMPRE else ocgs.al_dia()
         for xref in now - seen:
             ocg_source[xref] = piece.source
         seen = now
@@ -1654,16 +1681,19 @@ def seam_along_delta(moving: Sequence[Anchor], static: Sequence[Anchor], axis: i
     decenas de pt (cada hoja se recortó con un margen distinto) y el imán normal,
     limitado al radio de pantalla, no llegaba. Devuelve None si no hay al menos
     `min_pairs` parejas de acuerdo: sin evidencia no se mueve nada."""
-    from hoja.pdf_layers import short_name
+    from hoja import composite_puentes as CP
 
     other = 1 - axis
     props: List[float] = []
     pairs: List[Tuple[float, int, int, float, float]] = []
+    claves_m = CP.claves_de_capa(m.layer for m in moving)     # nombre corto de cada capa, una vez (antes, por par)
+    claves_s = CP.claves_de_capa(s_.layer for s_ in static)
     for i, m in enumerate(moving):
+        km = claves_m[i]
         for j, s_ in enumerate(static):
             if m.ux * s_.ux + m.uy * s_.uy > -BRIDGE_COS:
                 continue                                    # no se miran de frente
-            if m.layer and s_.layer and short_name(m.layer).casefold() != short_name(s_.layer).casefold():
+            if m.layer and s_.layer and km != claves_s[j]:
                 continue                                    # cada línea con la suya
             v = (s_.x - m.x, s_.y - m.y)
             if abs(v[other]) > max_gap or v[other] * (m.ux if other == 0 else m.uy) < -tol_lat:
@@ -1712,9 +1742,35 @@ def compute_bridges(comp: Composite, docs: Sequence[fitz.Document]) -> List[Brid
     return out
 
 
-def _ocg_xrefs(doc: fitz.Document) -> set:
+class _OcgsDestino:
+    """Lo mismo que `_ocg_xrefs(dst)` tras cada pieza, sin recorrer TODOS los objetos cada vez: antes, con 32
+    mapas de ~12 500 tiras de imagen, eran ~800 000 lecturas de «/Type» (23 de 31 s de la hoja compuesta,
+    2026-11-21). MuPDF nunca reusa un número de objeto (los nuevos van al final) y copiar una hoja no convierte
+    en capa un objeto que ya estaba: basta mirar los objetos NUEVOS. El conjunto se arma con los mismos `add`
+    en el mismo orden (de menor a mayor) que `_ocg_xrefs`: el mismo conjunto, recorrido en el mismo orden.
+    `OCG_DE_SIEMPRE` = recorrerlos todos (para comparar)."""
+
+    def __init__(self, dst, actuales: set):
+        self.dst = dst
+        self.lista = sorted(actuales)
+        self.hasta = dst.xref_length()
+
+    def al_dia(self) -> set:
+        n = self.dst.xref_length()
+        self.lista.extend(sorted(_ocg_xrefs(self.dst, self.hasta)))
+        self.hasta = n
+        out = set()
+        for xref in self.lista:
+            out.add(xref)
+        return out
+
+
+OCG_DE_SIEMPRE = False
+
+
+def _ocg_xrefs(doc: fitz.Document, desde: int = 1) -> set:
     out = set()
-    for xref in range(1, doc.xref_length()):
+    for xref in range(desde, doc.xref_length()):
         try:
             if doc.xref_get_key(xref, "Type")[1] == "/OCG":
                 out.add(xref)

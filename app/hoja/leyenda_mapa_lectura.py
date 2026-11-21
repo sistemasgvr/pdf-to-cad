@@ -352,9 +352,10 @@ def _leer(page) -> Optional[LeyendaMapa]:
                 vistas.add(clave)
                 filas.append(fila)
         zonas += z
-    _rotulos(page, filas, simbs)
+    letras = _LetrasHoja(page, simbs)       # una vez para la hoja (antes, una por cada leyenda de la compuesta)
+    _rotulos(page, filas, simbs, letras)
     for f in por_hoja:                      # los rótulos también en las filas de cada hoja
-        _rotulos(page, f, simbs)
+        _rotulos(page, f, simbs, letras)
     return LeyendaMapa(filas, utilidad, escala, zonas, "", por_hoja=por_hoja, piezas=piezas, **notas)
 
 
@@ -489,38 +490,73 @@ ROTULO_CELDA_PT = 8.0       # celdas del índice de letras de `_rotulos`
 ROTULO_CON_TEXTO = 0.5       # símbolo con texto DENTRO en ≥ esto de sus apariciones: es un rótulo
 
 
-def _rotulos(page, filas: List[FilaMapa], simbs) -> None:
+class _LetrasHoja:
+    """Las letras de la hoja por celdas (`_rotulos`), armadas UNA vez por hoja: en una hoja compuesta `_rotulos` se
+    llama una vez por cada leyenda (36 en la de 36 mapas) y cada llamada volvía a juntar y repartir ~500 mil letras
+    (13 s de los 68 de interpretar la compuesta, sesión del usuario 2026-11-21). Además recuerda, por símbolo (fuente
+    y clave), si «lleva texto dentro»: depende solo de sus apariciones y de las letras de la hoja, no de la fila.
+    Mismos números que antes (las coordenadas de las letras, como floats exactos)."""
+
+    def __init__(self, page, simbs):
+        self.page, self.simbs = page, simbs
+        self._listo = False
+        self.memo: Dict[tuple, bool] = {}
+
+    def _armar(self):
+        import numpy as np
+        self._listo = True
+        letras = np.array([g.origen for g in texto_pdf.glifos(self.page) if g.letra not in (None, " ")], float)
+        self.vacia = not len(letras)
+        if self.vacia:
+            return
+        lx, ly = letras[:, 0], letras[:, 1]
+        celda = ROTULO_CELDA_PT
+        self.por_celda: Dict[tuple, List[int]] = {}
+        for i, (x, y) in enumerate(zip((lx // celda).astype(int).tolist(), (ly // celda).astype(int).tolist())):
+            self.por_celda.setdefault((x, y), []).append(i)
+        self.lx, self.ly = lx.tolist(), ly.tolist()
+        self.por_clave: Dict[tuple, List] = {}
+        for s in self.simbs:
+            self.por_clave.setdefault((s.fuente, s.clave), []).append(s)
+
+    def con_texto(self, fuente, clave) -> Optional[bool]:
+        """¿El símbolo lleva texto dentro en ≥ `ROTULO_CON_TEXTO` de sus apariciones? None = la hoja no tiene letras."""
+        if not self._listo:
+            self._armar()
+        if self.vacia:
+            return None
+        k = (fuente, clave)
+        if k not in self.memo:
+            celda, lx, ly, por_celda = ROTULO_CELDA_PT, self.lx, self.ly, self.por_celda
+            ss = self.por_clave.get(k, [])
+            con = 0
+            for s in ss:
+                x0, y0, x1, y1 = s.caja
+                mx, my = 0.15 * (x1 - x0), 0.15 * (y1 - y0)
+                cand = [i for cx in range(int(math.floor((x0 + mx) / celda)), int(math.floor((x1 - mx) / celda)) + 1)
+                        for cy in range(int(math.floor((y0 + my) / celda)), int(math.floor((y1 - my) / celda)) + 1)
+                        for i in por_celda.get((cx, cy), ())]
+                con += any(x0 + mx <= lx[i] <= x1 - mx and y0 + my <= ly[i] <= y1 - my for i in cand)
+            self.memo[k] = bool(ss and con >= ROTULO_CON_TEXTO * len(ss))
+        return self.memo[k]
+
+
+def _rotulos(page, filas: List[FilaMapa], simbs, letras: Optional[_LetrasHoja] = None) -> None:
     """Un símbolo que en el mapa lleva texto DENTRO es el RÓTULO del número de una
     estructura, no la estructura: en el alcantarillado de Phoenix «Manhole» es el hexágono
     con el número del buzón (122 de 126 con número dentro), puesto al lado del buzón
-    («Standard Manhole», el círculo chico: 2 de 141). Esas filas pasan a anotación."""
-    import numpy as np
-    letras = np.array([g.origen for g in texto_pdf.glifos(page) if g.letra not in (None, " ")], float)
-    if not len(letras):
-        return
-    lx, ly = letras[:, 0], letras[:, 1]
-    # letras por celdas: cada símbolo mira solo las de su caja (en una hoja compuesta de 36
-    # mapas, todas contra todos eran minutos); mismo resultado
-    celda = ROTULO_CELDA_PT
-    por_celda: Dict[tuple, List[int]] = {}
-    for i, (x, y) in enumerate(zip((lx // celda).astype(int), (ly // celda).astype(int))):
-        por_celda.setdefault((int(x), int(y)), []).append(i)
-    por_clave: Dict[tuple, List] = {}
-    for s in simbs:
-        por_clave.setdefault((s.fuente, s.clave), []).append(s)
+    («Standard Manhole», el círculo chico: 2 de 141). Esas filas pasan a anotación.
+    Letras por celdas: cada símbolo mira solo las de su caja (en una hoja compuesta de 36
+    mapas, todas contra todos eran minutos); mismo resultado."""
+    if letras is None:
+        letras = _LetrasHoja(page, simbs)
     for f in filas:
         if f.rol not in (ESTRUCTURA, ACCESORIO) or not f.simbolo:
             continue
-        ss = por_clave.get((f.simbolo_fuente, f.simbolo), [])
-        con = 0
-        for s in ss:
-            x0, y0, x1, y1 = s.caja
-            mx, my = 0.15 * (x1 - x0), 0.15 * (y1 - y0)
-            cand = [i for cx in range(int(math.floor((x0 + mx) / celda)), int(math.floor((x1 - mx) / celda)) + 1)
-                    for cy in range(int(math.floor((y0 + my) / celda)), int(math.floor((y1 - my) / celda)) + 1)
-                    for i in por_celda.get((cx, cy), ())]
-            con += any(x0 + mx <= lx[i] <= x1 - mx and y0 + my <= ly[i] <= y1 - my for i in cand)
-        if ss and con >= ROTULO_CON_TEXTO * len(ss):
+        si = letras.con_texto(f.simbolo_fuente, f.simbolo)
+        if si is None:
+            return
+        if si:
             f.rol = ANOTACION
 
 
