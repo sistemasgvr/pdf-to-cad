@@ -16,6 +16,7 @@ from PySide6 import QtGui, QtWidgets
 
 from nucleo import dibujar_accesorios, model_ops
 from nucleo import valvulas as V
+from nucleo import valvulas_conectar as V_conectar
 from nucleo.model import Z_MARK
 from traduccion.i18n import t as _tr
 from ui.comun import valvula_item
@@ -157,6 +158,8 @@ class ValvulasMixin:
         cerca = self._cerca_valv_al_dia()
         nuevas = [V.pegar(dict(V.nueva(v["x"], v["y"]), **v), self.pipes, V.tol_pt(v) * zoom, cerca)
                   for v in nuevas]
+        if V_conectar.conectar(self.pipes, nuevas, cerca):       # tubería a cada lado de la válvula (todas las utilidades)
+            self._refresh_lists()
         antes = len(self.valvulas)
         self.valvulas = V.juntar(self.valvulas, nuevas)
         return len(self.valvulas) - antes
