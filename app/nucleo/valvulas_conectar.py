@@ -12,7 +12,7 @@ import math
 from typing import List, Optional, Sequence, Tuple
 
 RADIO_PUNTA = 2.0          # la punta libre está a ≤ esto × el símbolo de la válvula
-LARGO_MAX = 8.0            # y se prolonga a lo más esto × el símbolo (contado desde la punta)
+LARGO_MAX = 2.0            # y se prolonga a lo más esto × el símbolo (el hueco típico del SIG mide ~0.7×; más es otra cosa)
 ANGULO_MIN = 20.0          # la tubería que se encuentra no puede ir casi paralela
 TOCA_PX = 0.6              # una punta que cae a ≤ esto de otra tubería ya está conectada
 SIMBOLO_MIN_PX = 4.0
