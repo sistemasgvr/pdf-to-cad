@@ -610,3 +610,18 @@ def test_compositor_dice_donde_cae_cada_hoja_y_marca_las_ubicadas(app, pdfs):
     finally:
         dlg.close_docs()
         dlg.deleteLater()
+
+
+def test_agregar_utilidad_exige_reconocer_todo_antes():
+    """2026-11-21: agregar sobre una hoja a medio reconocer daba errores; se exige reconocer todo primero."""
+    from nucleo import reconocer_estado as RE
+    assert RE.faltan_para_agregar(None) == []
+    e = RE.nuevo()
+    for p in RE.PARTES:
+        e.filas[p].estado = "bloqueada"
+    assert RE.faltan_para_agregar(e) == []
+    e.filas["AGUA"].estado = "pendiente"
+    e.filas["ROTULOS"].estado = "desactualizada"
+    assert RE.faltan_para_agregar(e) == ["AGUA", "ROTULOS"]
+    e.filas["AGUA"].estado = e.filas["ROTULOS"].estado = "reconocida"
+    assert RE.faltan_para_agregar(e) == []

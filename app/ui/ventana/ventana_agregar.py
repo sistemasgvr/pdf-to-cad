@@ -43,6 +43,12 @@ class AgregarUtilidadMixin:
                 "La hoja del editor es un PDF imagen/escaneo: no tiene un mapa base vectorial con el que "
                 "ubicar otra utilidad."))
             return
+        faltan = RE.faltan_para_agregar(getattr(self, "reconocer_estado", None))
+        if faltan:
+            self.informar(titulo, _tr(
+                "Antes de agregar otra utilidad reconoce todo lo de esta hoja (panel Reconocer → «Reconocer "
+                "todo»). Falta: {faltan}.").format(faltan=", ".join(_tr(RE.ETIQUETAS[x]) for x in faltan)))
+            return
         while True:
             rutas = self._elegir_pdfs_utilidad()
             if not rutas:

@@ -6037,6 +6037,8 @@ EN: dict[str, str] = {
     'Buscando los símbolos de válvulas…': 'Looking for valve symbols…',
     'Contando los rótulos del plano…': 'Counting the labels of the plan…',
     'Leyendo la escala del plano…': 'Reading the scale of the plan…',
+    'Antes de agregar otra utilidad reconoce todo lo de esta hoja (panel Reconocer → «Reconocer todo»). Falta: {faltan}.':
+        'Before adding another utility, recognize everything on this sheet (Recognize panel → “Recognize all”). Missing: {faltan}.',
     'Reconoce antes al menos una utilidad.': 'Recognize at least one utility first.',
     'Reconoce antes las líneas de su red.': 'Recognize the lines of its network first.',
     'Interpreta la hoja antes de reconocer.': 'Interpret the sheet before recognizing.',

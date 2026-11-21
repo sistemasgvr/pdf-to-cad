@@ -193,6 +193,17 @@ def sin_reconocer(estado: Estado) -> List[str]:
     return [u for u in UTILIDADES if estado.filas[u].estado in ("pendiente", "error")]
 
 
+def faltan_para_agregar(estado: Optional[Estado]) -> List[str]:
+    """Partes que aún hay que reconocer antes de agregar una utilidad desde otro PDF (2026-11-21: agregar sobre
+    una hoja a medio reconocer daba errores). Cuentan las utilidades, válvulas, diámetros y rótulos que están
+    pendientes, con error, desactualizadas, o reconociéndose; las bloqueadas (la hoja no las
+    tiene) no. Sin estado (proyecto sin panel Reconocer) no se exige nada."""
+    if estado is None:
+        return []
+    return [p for p in PARTES if estado.filas[p].estado in
+            ("pendiente", "error", "desactualizada", "reconociendo")]
+
+
 def puede(estado: Estado, parte: str) -> Tuple[bool, str, dict]:
     """¿Se puede reconocer `parte` ahora? (sí/no, clave del motivo, datos del motivo).
     La interfaz muestra `t(clave).format(**datos)`."""
