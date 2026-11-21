@@ -74,7 +74,11 @@ class ArmadoMixin:
         if not vs or not ft:
             return []
         from nucleo import valvulas as _V
-        lugares = _V.ubicar_todas(pipes, w.structures, vs, ft, cerca=w._cerca_valv if pipes is w.pipes else None)
+        if pipes is w.pipes:
+            lugares = w._lugares_valvulas()                 # las mismas del plano (memorizadas por modelo)
+        else:                                               # copia: su índice se arma UNA vez
+            from nucleo.indice_plano import IndiceUtilidades
+            lugares = _V.ubicar_todas(pipes, w.structures, vs, ft, cerca=IndiceUtilidades(pipes).cerca)
         return [dict(x=l.x, y=l.y, pipe=l.pipe, tramo=l.tramo, bloque=l.bloque, largo_ft=l.largo_ft,
                      brida_ft=l.brida_ft, diam_in=l.diam_in, union=l.union, material=l.material,
                      estimada=l.estimada, tipo=v.get("tipo") or "")

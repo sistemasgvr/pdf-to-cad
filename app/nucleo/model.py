@@ -161,6 +161,7 @@ def default_network_type(layer):
 
 CHANGELOG = [
     ("2.1.0", [
+        ('fixed', 'Vista 3D con miles de válvulas: ya no deja la ventana trabada minutos al armarse. Cada válvula volvía a comparar la geometría de todas las utilidades; ahora usa las mismas ubicaciones que el plano, calculadas una sola vez.'),
         ('fixed', 'El programa ya no se cierra solo en las pausas largas (por ejemplo al terminar de reconocer las válvulas): el monitor de rendimiento volcaba las pilas de todos los hilos desde otro hilo mientras la ventana trabajaba, y a veces leía memoria ya liberada. Ahora ese volcado está apagado (se enciende solo para depurar con PDFCAD_VIGILANTE_VOLCADOS=1) y la tarjeta «Cargando…» tampoco se pinta a mitad de un import. Además, si la app se trabara o cerrara, el monitor puede reiniciarla y recuperar tu último autoguardado.'),
         ('new', 'Cada botón y cada acción muestra que está trabajando: al pulsar un botón, un aro gira sobre él mientras lo que lanzó sigue en marcha (importar un PDF, componer la hoja, reconocer, trabajos de la IA…), aunque la ventana tarde en responder. Las casillas y los conmutadores no lo llevan: cambian un ajuste al instante. Inventario completo en docs/loader_acciones.md.'),
         ('fixed', 'Componer hoja al agregar una utilidad: «Continuar» ya no está activo mientras la hoja compuesta aún se arma (la búsqueda de dónde cae cada hoja del PDF nuevo sigue en marcha); se activa al terminar y lo dice en el pie.'),
