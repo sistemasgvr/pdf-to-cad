@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from nucleo import actividad as _actividad
+
 from traduccion.i18n import t as _tr
 from ui.comun import ia_estilo, theme, tiempos_carga
 from ui.comun.busy import cifra
@@ -76,6 +78,7 @@ class ProgresoReconocimiento(QtWidgets.QFrame):
         if self.active:
             self.end()
         self.active = True
+        self._ficha_act = _actividad.iniciar("reconocimiento: " + str(text))
         self._text, self._detail, self._cancel = text, detail, cancel
         self._traducir()
         self.cancel_button.setEnabled(cancel is not None)
@@ -177,6 +180,8 @@ class ProgresoReconocimiento(QtWidgets.QFrame):
         if not self.active:
             return
         self.active = False
+        _actividad.terminar(getattr(self, "_ficha_act", None))
+        self._ficha_act = None
         self._timer.stop()
         seg, self._seg = self._seg, None
         if seg is not None:

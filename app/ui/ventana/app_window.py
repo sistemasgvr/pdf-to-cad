@@ -1924,11 +1924,17 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
         else: e.ignore()
 
     # ── autoguardado y recuperación (autoguardado.py) ──
-    def iniciar_autoguardado(self):
+    def iniciar_autoguardado(self, auto=None):
         """Arranca las copias automáticas y, si una sesión anterior se cerró sin
-        guardar, ofrece recuperarla. True si se recuperó un proyecto."""
+        guardar, ofrece recuperarla. True si se recuperó un proyecto. `auto` (≠ None): la app se reinició porque
+        no respondía (`nucleo/reinicio`, `--recuperar [pid]`): recupera SOLA la última copia de esa ventana."""
         from ui.dialogos import dialogs as _dlg
         self.autoguardado.iniciar()
+        if auto is not None:
+            from nucleo import reinicio
+            copia = reinicio.ultima_copia(self.autoguardado.base, auto or None)
+            if copia is not None and self._recuperar_copia(copia):
+                return True
         try:
             copias = autoguardado.recuperables(self.autoguardado.base)
         except Exception:
@@ -2245,6 +2251,18 @@ class Main(AgenteMixin, CopilotoMixin, ConflictosTandaMixin, MenuMixin, PanelIzq
 
 
 def main():
+    # `--recuperar [pid]`: el monitor reinició la app trabada (`nucleo/reinicio`); se quita de argv antes de
+    # que nadie lo tome por un archivo a abrir.
+    auto = None
+    if "--recuperar" in sys.argv:
+        i = sys.argv.index("--recuperar")
+        quitar = [i]
+        auto = 0
+        if i + 1 < len(sys.argv) and sys.argv[i + 1].isdigit():
+            auto = int(sys.argv[i + 1])
+            quitar.append(i + 1)
+        for k in reversed(quitar):
+            del sys.argv[k]
     # La Vista 3D usa QOpenGLWidget: Qt pide esto ANTES de crear la app.
     QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
     from ui.comun import vigia_carga
@@ -2252,6 +2270,8 @@ def main():
     app = QtWidgets.QApplication(sys.argv)
     from ui.comun import errores
     errores.instalar(app)
+    from ui.comun import accion_cargando     # aro de «cargando» en el botón pulsado (2026-11-21)
+    accion_cargando.instalar(app)
     app._no_wheel_filter = _NoWheelFilter(app)
     app.installEventFilter(app._no_wheel_filter)
     # Idioma preferido del usuario. Debe cargarse ANTES de construir Main() para
@@ -2268,7 +2288,7 @@ def main():
     from ui.monitor import monitor_ventana as _monitor
     if _monitor.abrir_al_iniciar():                  # el usuario lo pidió: así ve también lo que pasa al arrancar
         win.abrir_monitor()
-    recuperado = win.iniciar_autoguardado()      # copias automáticas + ofrecer recuperar
+    recuperado = win.iniciar_autoguardado(auto)  # copias automáticas + ofrecer recuperar (o recuperar sola)
     import diagnostico_equipo                    # 1.ª vez de cada versión: informe del equipo, en otro proceso
     diagnostico_equipo.lanzar_si_falta()
     if len(sys.argv) > 1 and not recuperado:

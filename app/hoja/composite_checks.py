@@ -35,9 +35,13 @@ class Check:
 
 
 def checks(n_pieces: int, untaken_area_page: Optional[int] = None,
-           pending_page: Optional[int] = None) -> List[Check]:
-    """Lo que falta, lo más grave primero. Páginas en base 1 (None = nada)."""
+           pending_page: Optional[int] = None, ocupado: bool = False) -> List[Check]:
+    """Lo que falta, lo más grave primero. Páginas en base 1 (None = nada). `ocupado`: la hoja compuesta aún se
+    está armando (p. ej. buscando dónde cae cada hoja del PDF que se agrega): «Continuar» espera (2026-11-21)."""
     out: List[Check] = []
+    if ocupado:
+        out.append(Check(ERROR, "busy", N_("Se está armando la hoja compuesta: «Continuar» se activa al terminar."),
+                         tab=TAB_SOURCE))
     # sin piezas pero con un área marcada no se bloquea: «Continuar» la toma
     if n_pieces <= 0 and untaken_area_page is None:
         out.append(Check(ERROR, "no_pieces",

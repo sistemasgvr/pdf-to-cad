@@ -393,7 +393,8 @@ class CompositeDialog(NoEscapeClose, AgregarCompositorMixin, ChosenSheetMixin, S
     def _checks(self) -> List[CK.Check]:
         return CK.checks(len(self.comp.pieces),
                          self._cur_page + 1 if self._area_untaken() else None,
-                         self._cur_page + 1 if self._page_pending() else None)
+                         self._cur_page + 1 if self._page_pending() else None,
+                         self._ocupado())
 
     def _refresh_checks(self):
         """Pie: lo que falta (con enlace a donde se arregla) o «✔ Lista»;

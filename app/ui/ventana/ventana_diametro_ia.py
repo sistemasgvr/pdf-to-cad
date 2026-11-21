@@ -16,6 +16,7 @@ import base64
 import html
 import json
 import threading
+from nucleo import actividad as _actividad
 import time
 
 from ui.ventana.ventana_comun import *  # noqa: F401,F403
@@ -484,7 +485,7 @@ class DiametroIAMixin(ReplicaDiametroMixin, SenalesDiametroMixin):
             except Exception as e:                    # noqa: BLE001 (ErrorIA, red: el aviso queda como está)
                 r = RE.texto_corto(RE.armar(e, "Diámetro según la IA"))
             self._diam_ia_senales.listo.emit(tok, r)
-        threading.Thread(target=correr, name="pdfcad-ia-diametro", daemon=True).start()
+        _actividad.lanzar(correr, "pdfcad-ia-diametro")
 
     def _diam_ia_consultar(self, prov, f, imagen, capturas, i, tok, mem, parar, estado):
         """La revisión de una línea (en un hilo): sus rótulos y, sin certeza, las zonas que ella decida mirar."""

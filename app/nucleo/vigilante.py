@@ -551,6 +551,12 @@ class Guardia:
     capa «Cargando…» mostraba (`poner_carga`) y la etapa y bloques abiertos de la ventana."""
 
     VOLCADO_S = 0.3
+    # `faulthandler.dump_traceback_later` lee las pilas de TODOS los hilos desde un hilo nativo, SIN el GIL, cada
+    # `VOLCADO_S` mientras la ventana no late: si el hilo de la ventana cambia sus marcos en ese instante (un `import`,
+    # una llamada que vuelve), lee memoria ya liberada → «access violation» en `python314.dll` y la app se cerraba
+    # sola justo en las pausas largas (2026-11-21: 3 volcados idénticos, `<invalid frame>` en `feature_import`).
+    # Apagado por defecto; `PDFCAD_VIGILANTE_VOLCADOS=1` lo enciende solo para depurar una pausa dentro de C.
+    USAR_VOLCADOS = os.environ.get("PDFCAD_VIGILANTE_VOLCADOS") == "1"
 
     def __init__(self, ident_ventana: int, volcados: Optional[str] = None):
         self.ident = ident_ventana
@@ -586,7 +592,7 @@ class Guardia:
         self._ultimo = ahora
         if self._latido is not None:
             self._latido.escribir(time.time())
-        if self._volcados is not None and ahora - self._armado > LATIDO_MS / 1000.0 * 1.5:
+        if self.USAR_VOLCADOS and self._volcados is not None and ahora - self._armado > LATIDO_MS / 1000.0 * 1.5:
             self._armado = ahora
             try:
                 import faulthandler

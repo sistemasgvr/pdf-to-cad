@@ -160,7 +160,7 @@ class Autoguardado(QtCore.QObject):
             return False
         trabajos, presentes = self._preparar(texto)
         meta = {
-            "version": 1, "sesion": self.sesion, "fecha": time.time(),
+            "version": 1, "sesion": self.sesion, "fecha": time.time(), "pid": os.getpid(),
             "proyecto": w.project_path or "",
             "nombre": (os.path.basename(w.project_path) if w.project_path
                        else (model.get("pdf_name") or "")),

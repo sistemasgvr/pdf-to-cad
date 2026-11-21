@@ -5,6 +5,7 @@ La app mide, prueba y aplica; la IA solo elige entre opciones ya validadas. Nada
 from __future__ import annotations
 
 import threading
+from nucleo import actividad as _actividad
 
 from PySide6 import QtCore
 
@@ -154,7 +155,7 @@ class CopilotoMixin:
             except Exception as e:                     # noqa: BLE001 (ErrorIA, red: se dice en el chat)
                 r = str(e)
             self._cop_senales.listo.emit(item, r)
-        threading.Thread(target=correr, name="pdfcad-copiloto", daemon=True).start()
+        _actividad.lanzar(correr, "pdfcad-copiloto")
 
     def _copiloto_listo(self, item, r):
         _i, al_listo, clave, sesion = self._cop_en_vuelo

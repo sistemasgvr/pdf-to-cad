@@ -13,6 +13,7 @@ import time
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from nucleo import reinicio as RS
 from nucleo import vigilante_informe as VI
 from nucleo import vigilante_vivo as VV
 from traduccion.i18n import t as _tr
@@ -23,14 +24,25 @@ from ui.monitor.monitor_util import dur, mb
 LEER_MS = 1000
 LATIDO_MS = 250
 CLAVE_AL_INICIAR = "monitor/al_iniciar"
+CLAVE_AUTO_REINICIO = "monitor/auto_reinicio_min"     # 0 = apagado
+OPCIONES_AUTO_MIN = (0, 3, 5, 10)
 
 
 def _ajustes():
     return QtCore.QSettings("pdf-to-cad", "app")
 
 
+def auto_reinicio_min() -> int:
+    """Minutos sin responder tras los que el monitor reinicia solo la app (0 = no lo hace)."""
+    try:
+        return max(0, int(_ajustes().value(CLAVE_AUTO_REINICIO, 0)))
+    except (TypeError, ValueError):
+        return 0
+
+
 def abrir_al_iniciar() -> bool:
-    return str(_ajustes().value(CLAVE_AL_INICIAR, "false")).lower() in ("true", "1")
+    # con el reinicio automático el monitor TIENE que estar: es quien vigila a la app
+    return auto_reinicio_min() > 0 or str(_ajustes().value(CLAVE_AL_INICIAR, "false")).lower() in ("true", "1")
 
 
 class Punto(QtWidgets.QWidget):
@@ -72,6 +84,7 @@ class Monitor(QtWidgets.QWidget):
         self.ses = None
         self._cambios = -1
         self._res = None
+        self._reiniciados = set()                     # ventanas que ya reinició (una vez cada una)
         raiz = QtWidgets.QVBoxLayout(self)
         raiz.setContentsMargins(16, 14, 16, 14)
         raiz.setSpacing(10)
@@ -106,6 +119,13 @@ class Monitor(QtWidgets.QWidget):
         fila.addWidget(self.punto)
         fila.addWidget(self.lbl_estado)
         fila.addStretch(1)
+        self.btn_reiniciar = QtWidgets.QPushButton(_tr("Reiniciar la app"))
+        self.btn_reiniciar.setProperty("kind", "primary")
+        self.btn_reiniciar.setToolTip(_tr("Cierra la app trabada y la abre otra vez recuperando tu último "
+                                         "autoguardado."))
+        self.btn_reiniciar.clicked.connect(lambda: self.reiniciar_app())
+        self.btn_reiniciar.hide()                     # solo cuando no responde
+        fila.addWidget(self.btn_reiniciar)
         fila.addWidget(QtWidgets.QLabel(_tr("Sesión:")))
         self.cmb_sesion = QtWidgets.QComboBox()
         self.cmb_sesion.setMinimumWidth(230)
@@ -115,6 +135,16 @@ class Monitor(QtWidgets.QWidget):
         menu.addAction(_tr("Exportar informe…"), self.exportar)
         menu.addAction(_tr("Comparar con otra sesión…"), self.comparar)
         menu.addAction(_tr("Abrir la carpeta de la sesión"), self.abrir_carpeta)
+        menu.addSeparator()
+        menu.addAction(_tr("Reiniciar la app (recupera tu trabajo)…"), lambda: self.reiniciar_app())
+        sub = menu.addMenu(_tr("Reiniciar sola si no responde"))
+        grupo = QtGui.QActionGroup(sub)
+        for minutos in OPCIONES_AUTO_MIN:
+            a = sub.addAction(_tr("Nunca") if not minutos else _tr("Tras {m} min sin responder").format(m=minutos))
+            a.setCheckable(True)
+            a.setChecked(minutos == auto_reinicio_min())
+            grupo.addAction(a)
+            a.triggered.connect(lambda _c=False, m=minutos: _ajustes().setValue(CLAVE_AUTO_REINICIO, m))
         menu.addSeparator()
         self.act_inicio = menu.addAction(_tr("Abrir el monitor junto con la app"))
         self.act_inicio.setCheckable(True)
@@ -206,6 +236,16 @@ class Monitor(QtWidgets.QWidget):
             VV.SIN_DATO: (tk.text_muted, _tr("Sin datos de la ventana")),
         }
         color, texto = textos[estado]
+        pid = self.ses.pid_ventana
+        minutos = auto_reinicio_min()
+        murio = estado in (VV.RESPONDE, VV.OCUPADA, VV.NO_RESPONDE) and pid is not None and not RS.vivo(pid)
+        if murio:                                    # el proceso ya no existe: se cerró de golpe (fallo nativo)
+            color, texto = tk.danger, _tr("La app se cerró de golpe")
+        self.btn_reiniciar.setText(_tr("Abrir la app y recuperar") if murio else _tr("Reiniciar la app"))
+        self.btn_reiniciar.setVisible(murio or estado in (VV.NO_RESPONDE, VV.OCUPADA))
+        if minutos and pid not in self._reiniciados and (murio or (estado == VV.NO_RESPONDE and s >= minutos * 60)):
+            self._reiniciados.add(pid)               # una vez por ventana
+            QtCore.QTimer.singleShot(0, lambda: self.reiniciar_app(auto=True))
         self.punto.color = QtGui.QColor(color)
         self.punto.update()
         self.lbl_estado.setText(texto)
@@ -247,9 +287,42 @@ class Monitor(QtWidgets.QWidget):
         lay.addWidget(vista)
         dlg.exec()
 
+    def reiniciar_app(self, auto: bool = False):
+        """Cierra la ventana trabada (y sus procesos de trabajo) y abre la app recuperando su último autoguardado.
+        `auto`: sin preguntar (reinicio automático)."""
+        ses = self.ses
+        if ses is None or ses.pid_ventana is None:
+            return
+        pid = ses.pid_ventana
+        if not auto:
+            copia = RS.ultima_copia(autoguardado_base(), pid)
+            if copia:
+                hace = max(0, int((time.time() - float(copia.get("fecha") or 0)) / 60))
+                detalle = _tr("Se recupera tu último autoguardado, de hace {m} min («{n}»). Lo hecho después no "
+                              "se puede salvar.").format(m=hace, n=copia.get("nombre") or _tr("sin nombre"))
+            else:
+                detalle = _tr("Todavía no hay autoguardado de esta ventana: la app se abrirá vacía.")
+            r = QtWidgets.QMessageBox.question(
+                self, _tr("Reiniciar la app"),
+                _tr("Se cerrará la app que no responde y se abrirá otra.") + "\n\n" + detalle,
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.Cancel, QtWidgets.QMessageBox.Yes)
+            if r != QtWidgets.QMessageBox.Yes:
+                return
+        self._reiniciados.add(pid)
+        otros = [p for p, pr in ses.procesos.items() if p != pid and getattr(pr, "vivo", True)]
+        ok = RS.reiniciar(pid, otros, excepto=[os.getpid()])
+        self.lbl_estado.setText(_tr("Reiniciando la app…") if ok else _tr("No se pudo cerrar la app trabada"))
+        if not ok and not auto:
+            self._reiniciados.discard(pid)
+
     def abrir_carpeta(self):
         if self.ses is not None:
             QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(self.ses.carpeta))
+
+
+def autoguardado_base() -> str:
+    from ui.ventana import autoguardado
+    return autoguardado.carpeta_base()
 
 
 def main(carpeta: str | None = None) -> int:

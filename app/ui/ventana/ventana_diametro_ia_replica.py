@@ -16,6 +16,7 @@ from ia import reporte_error as RE
 import html
 import json
 import threading
+from nucleo import actividad as _actividad
 import time
 
 import shiboken6
@@ -202,7 +203,7 @@ class ReplicaDiametroMixin:
             except Exception as e:                    # noqa: BLE001 (ErrorIA, red)
                 r = RE.texto_corto(RE.armar(e, "Diámetro según la IA · réplica"))
             self._diam_ia_senales.listo.emit(tok, r)
-        threading.Thread(target=correr, name="pdfcad-ia-diametro-replica", daemon=True).start()
+        _actividad.lanzar(correr, "pdfcad-ia-diametro-replica")
 
     def _diam_ia_replica_lista(self, clave, r):
         """Llegó la respuesta: se anota el turno y la nueva propuesta queda (también en la caché de la IA)."""

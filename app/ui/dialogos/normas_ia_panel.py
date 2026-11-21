@@ -10,6 +10,7 @@ from __future__ import annotations
 from ia import reporte_error as RE
 import html
 import threading
+from nucleo import actividad as _actividad
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -146,7 +147,7 @@ class PanelExplicacion(QtWidgets.QWidget):
             except Exception as e:                       # noqa: BLE001 (ErrorIA, ValueError…: reporte corto)
                 r = (None, RE.texto_corto(RE.armar(e, "Normativas · explicar regla")))
             self._senales.listo.emit(pedido, (fila, r))
-        threading.Thread(target=correr, name="pdfcad-ia-norma", daemon=True).start()
+        _actividad.lanzar(correr, "pdfcad-ia-norma")
 
     def _al_trozo(self, pedido, s):
         if pedido != self._pedido:
@@ -209,7 +210,7 @@ class PanelExplicacion(QtWidgets.QWidget):
             except Exception as e:                       # noqa: BLE001 (ErrorIA, ValueError…: reporte corto)
                 r = (RE.texto_corto(RE.armar(e, "Normativas · réplica")), "error")
             self._senales.listo.emit(pedido, ("replica", r))
-        threading.Thread(target=correr, name="pdfcad-ia-norma-replica", daemon=True).start()
+        _actividad.lanzar(correr, "pdfcad-ia-norma-replica")
 
     def _pintar(self):
         """La explicación + las preguntas y respuestas de réplica (la última abajo, a la vista)."""

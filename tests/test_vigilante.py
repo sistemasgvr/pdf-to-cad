@@ -73,6 +73,7 @@ def test_trabajo_con_perfil_que_dice_en_que_funcion_se_fue_el_tiempo(sesion):
 
 def test_la_guardia_anota_un_congelamiento_con_la_funcion_que_trababa(sesion, monkeypatch):
     monkeypatch.setattr(V, "SISTEMA_S", 0.2)
+    monkeypatch.setattr(V.Guardia, "USAR_VOLCADOS", True)    # (opcional: aquí se prueba esa fuente)
     g = V.Guardia(threading.get_ident()).iniciar()
     try:
         V.poner_carga("Armando la hoja compuesta…")
@@ -185,9 +186,10 @@ def _regex_lento():
     return re.match(r"(a+)+$", "a" * 26 + "b")     # ~1.5 s dentro de C sin soltar el intérprete
 
 
-def test_congelamiento_dentro_de_c_con_el_interprete_tomado(sesion):
+def test_congelamiento_dentro_de_c_con_el_interprete_tomado(sesion, monkeypatch):
     """Una llamada larga en C (como PyMuPDF dibujando) no deja correr al hilo de muestreo: la pausa la mide el
-    latido y DÓNDE estaba lo dicen los volcados de `faulthandler`."""
+    latido y DÓNDE estaba lo dicen los volcados de `faulthandler` (opcionales: `USAR_VOLCADOS`)."""
+    monkeypatch.setattr(V.Guardia, "USAR_VOLCADOS", True)
     g = V.Guardia(threading.get_ident()).iniciar()
     try:
         for _ in range(6):
@@ -216,3 +218,21 @@ def test_leer_volcados_de_faulthandler():
              '  File "C:\\x\\main.py", line 2 in main\n')
     (p,) = V.leer_volcados(texto, 0xff)
     assert p[0].endswith(":calcular") and p[1].endswith(":main")
+
+
+def test_el_vigilante_no_vuelca_pilas_desde_otro_hilo_por_defecto():
+    """2026-11-21: `faulthandler.dump_traceback_later` leía las pilas sin el GIL y la app se cerraba sola (access
+    violation en `python314.dll`) en las pausas largas: apagado salvo `PDFCAD_VIGILANTE_VOLCADOS=1`."""
+    import faulthandler
+    assert V.Guardia.USAR_VOLCADOS is False
+    g = V.Guardia(0)
+    llamadas = []
+    original = faulthandler.dump_traceback_later
+    faulthandler.dump_traceback_later = lambda *a, **k: llamadas.append(a)
+    try:
+        g._armado = 0.0
+        g.latido()
+        g.latido()
+    finally:
+        faulthandler.dump_traceback_later = original
+    assert llamadas == []

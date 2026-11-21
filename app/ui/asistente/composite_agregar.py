@@ -152,6 +152,14 @@ class AgregarCompositorMixin:
                 self.lbl_agr.setText(_tr("Ninguna hoja de «{pdf}» cae sobre la hoja del editor. Lo más común es que "
                                          "sea el PDF de otra zona: cancela y elige otro PDF.").format(pdf=nombre))
         self.agr_card.show()
+        if hasattr(self, "btn_ok"):
+            self._refresh_checks()                      # «Continuar» se activa cuando la búsqueda termina
+
+    def _ocupado(self) -> bool:
+        """La búsqueda de dónde cae cada hoja del PDF agregado sigue en marcha: la composición no está terminada y
+        «Continuar» espera (2026-11-21: estaba activo con la composición a medias)."""
+        b = getattr(self, "_agregar", None)
+        return bool(b is not None and b.corriendo())
 
     def _agr_faltan(self) -> List[tuple]:
         b = self._agregar

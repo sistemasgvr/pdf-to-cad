@@ -51,8 +51,26 @@ def _eventos_de_pintar():
     return _EVENTOS_DE_PINTAR
 
 
+def importando_en_la_pila() -> bool:
+    """¿El hilo está EN MEDIO de un `import`? (2026-11-21: el programa se cerraba solo —access violation siempre en
+    `python314.dll +0x2ad5ef`, con el hilo de la ventana dentro de `shibokensupport.feature.feature_import` y el vigía
+    activo— porque el vigía corría Python (pintar la tarjeta) a mitad de un import: PySide envuelve `__import__`, y
+    ese envoltorio no soporta que otro import / código de Qt corra en medio. Nada se pinta desde el vigía con un
+    import a medias; se reintenta al rato.)"""
+    f = sys._getframe(1)
+    while f is not None:
+        c = f.f_code
+        if (c.co_name in ("feature_import", "__import__", "_find_and_load", "_handle_fromlist", "import_module")
+                or c.co_filename.startswith("<frozen importlib") or "shibokensupport" in c.co_filename):
+            return True
+        f = f.f_back
+    return False
+
+
 def pintando_en_la_pila() -> bool:
     from PySide6.QtCore import QEvent
+    if importando_en_la_pila():
+        return True
     f = sys._getframe(1)
     while f is not None:
         nombre = f.f_code.co_name
@@ -75,6 +93,8 @@ def _en_la_ventana(_arg):
     global _pendiente
     _pendiente = False
     try:
+        if importando_en_la_pila():                    # a mitad de un import: no se corre nada de Qt (se reintenta)
+            return 0
         for tarjeta in list(_tarjetas):
             tarjeta.pintar_desde_el_vigia()
     except BaseException:                              # noqa: BLE001 — nunca tumba el trabajo en curso

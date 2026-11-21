@@ -11,6 +11,7 @@ from __future__ import annotations
 import html
 import os
 import threading
+from nucleo import actividad as _actividad
 import time
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -418,7 +419,7 @@ class PreguntaDialog(CopilotoChatMixin, OrdenesMixin, QtWidgets.QDialog):
             except Exception as e:                       # noqa: BLE001 (ErrorIA o lo que sea: reporte en el chat)
                 self._senales.fallo.emit(turno, reporte_de(e, "Chat del proyecto", prov, q))
 
-        threading.Thread(target=correr, name="pdfcad-ia-chat", daemon=True).start()
+        _actividad.lanzar(correr, "pdfcad-ia-chat")
 
     def _al_trozo(self, turno, s):
         turno["texto"] += s

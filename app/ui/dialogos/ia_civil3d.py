@@ -13,6 +13,7 @@ from __future__ import annotations
 import html
 import json
 import threading
+from nucleo import actividad as _actividad
 import time
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -218,7 +219,7 @@ class ChatCivil3D(QtWidgets.QWidget):
                 self._sen.estado.emit(json.loads(txt) if ok else txt)
             except Exception as e:                       # noqa: BLE001 (se muestra en el aviso)
                 self._sen.estado.emit(str(e))
-        threading.Thread(target=correr, name="pdfcad-civil3d-estado", daemon=True).start()
+        _actividad.lanzar(correr, "pdfcad-civil3d-estado")
 
     def showEvent(self, ev):                             # noqa: N802
         super().showEvent(ev)
@@ -316,7 +317,7 @@ class ChatCivil3D(QtWidgets.QWidget):
                 self._sen.fallo.emit(turno, RE.armar(e, "Chat Civil 3D", modelo=cfg.modelo, servidor=cfg.url,
                                                      pregunta=q, pasos=list(turno["pasos"])))
 
-        threading.Thread(target=correr, name="pdfcad-civil3d-chat", daemon=True).start()
+        _actividad.lanzar(correr, "pdfcad-civil3d-chat")
 
     def _proyecto(self):
         """(pipes, pies por px) del proyecto abierto en la app, para comparar con el dibujo; None sin proyecto."""
@@ -434,7 +435,7 @@ class ChatCivil3D(QtWidgets.QWidget):
                 ok, txt = False, str(e)
             self._sen.aplicado.emit(p, aplicar and ok, txt if not ok else "")
 
-        threading.Thread(target=correr, name="pdfcad-civil3d-aplicar", daemon=True).start()
+        _actividad.lanzar(correr, "pdfcad-civil3d-aplicar")
 
     def _decidir_app(self, p, aplicar):
         """Lleva a la app lo cambiado en Civil 3D: un paso de Ctrl+Z (`civil3d_comparar.aplicar`)."""

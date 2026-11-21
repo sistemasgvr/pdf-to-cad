@@ -10,6 +10,7 @@ tarjeta de avance y «Cancelar»; no traba la ventana.
 from ia import reporte_error as RE
 import base64
 import threading
+from nucleo import actividad as _actividad
 
 from ui.ventana.ventana_comun import *  # noqa: F401,F403
 
@@ -89,7 +90,7 @@ class AnotacionesMixin:
                     r = RE.texto_corto(RE.armar(e, "Leer rótulos con la IA"))
                 self._anot_senales.uno.emit(tok, k, r)
             self._anot_senales.fin.emit(tok)
-        threading.Thread(target=correr, name="pdfcad-ia-anotaciones", daemon=True).start()
+        _actividad.lanzar(correr, "pdfcad-ia-anotaciones")
 
     def _anot_uno(self, tok, k, r):
         if tok is not getattr(self, "_anot_tok", None):

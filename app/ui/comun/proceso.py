@@ -29,6 +29,8 @@ from typing import Dict, Optional
 
 from PySide6 import QtCore
 
+from nucleo import actividad as _actividad
+
 from ui.comun import proceso_hijo
 
 SONDEO_MS = 60
@@ -72,6 +74,7 @@ class Tarea(QtCore.QObject):
     def _fin(self, res, err):
         if not self.hecha:
             self.hecha = True
+            _actividad.terminar(getattr(self, "_ficha_act", None))
             _anotar_encargo(self, err)
             self.terminado.emit(res, err)
 
@@ -113,6 +116,7 @@ class Trabajador(QtCore.QObject):
     # ── API ───────────────────────────────────────────────────────────
     def enviar(self, tarea: Tarea) -> Tarea:
         tarea._dueno = self
+        tarea._ficha_act = _actividad.iniciar("trabajo: " + tarea.objetivo)
         tarea.id = next(self._ids)
         tarea._t_enviada = time.perf_counter()
         self._cola.append(tarea)

@@ -12,6 +12,7 @@ import copy
 import dataclasses
 import html
 import threading
+from nucleo import actividad as _actividad
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -255,7 +256,7 @@ class PanelResolver(QtWidgets.QWidget):
                 r = (rec, txt, _tr("La IA no respondió ({e}): recomendación de la app.").format(
                     e=RE.texto_corto(RE.armar(e, "Vista 3D · Resolver"))))
             self._sen.listo.emit(pedido, r)
-        threading.Thread(target=correr, name="pdfcad-ia-resolver-3d", daemon=True).start()
+        _actividad.lanzar(correr, "pdfcad-ia-resolver-3d")
 
     def _al_listo(self, pedido, r):
         if pedido != self._pedido or not self._props:

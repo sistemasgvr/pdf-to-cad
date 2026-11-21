@@ -7,6 +7,7 @@ from __future__ import annotations
 from ia import reporte_error as RE
 import html
 import threading
+from nucleo import actividad as _actividad
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -568,7 +569,7 @@ class SolucionesDialog(QtWidgets.QDialog):
                 r = (rec, txt, _tr("La IA no respondió ({e}): recomendación de la app.").format(
                     e=RE.texto_corto(RE.armar(e, "Resolver conflictos"))))
             self._senales.listo.emit(pedido, r)
-        threading.Thread(target=correr, name="pdfcad-ia-soluciones", daemon=True).start()
+        _actividad.lanzar(correr, "pdfcad-ia-soluciones")
 
     def _al_trozo(self, pedido, s):
         if pedido != self._pedido:

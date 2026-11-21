@@ -12,6 +12,7 @@ from ia import reporte_error as RE
 import html
 import re
 import threading
+from nucleo import actividad as _actividad
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -162,7 +163,7 @@ class PanelAyudaIA(QtWidgets.QWidget):
             except Exception as e:                       # noqa: BLE001 (ErrorIA o lo que sea: reporte corto)
                 r = (None, RE.texto_corto(RE.armar(e, "Manual · pregunta a la IA")), None)
             self._senales.listo.emit(pedido, r)
-        threading.Thread(target=correr, name="pdfcad-ia-ayuda", daemon=True).start()
+        _actividad.lanzar(correr, "pdfcad-ia-ayuda")
 
     def _al_trozo(self, pedido, s):
         if pedido == self._pedido:

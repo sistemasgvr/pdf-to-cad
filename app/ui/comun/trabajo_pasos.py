@@ -18,6 +18,8 @@ import traceback
 
 from PySide6 import QtCore
 
+from nucleo import actividad as _actividad
+
 SONDEO_MS = 100
 
 
@@ -48,6 +50,7 @@ class TrabajoPasos(QtCore.QObject):
 
     def empezar(self):
         self.activo = True
+        self._ficha_act = _actividad.iniciar("pasos")
         QtCore.QTimer.singleShot(0, lambda: self._avanzar(None))
         return self
 
@@ -125,7 +128,7 @@ class TrabajoPasos(QtCore.QObject):
             except BaseException as ex:                    # noqa: BLE001
                 e = ex
             aviso.listo.emit(n, r, e)
-        threading.Thread(target=correr, name="pdfcad-trabajo", daemon=True).start()
+        _actividad.lanzar(correr, "pdfcad-trabajo")
 
     def _hilo_listo(self, n, r, e):
         if n == self._hilo_n and self.activo:
@@ -135,6 +138,7 @@ class TrabajoPasos(QtCore.QObject):
         if not self.activo:
             return
         self.activo = False
+        _actividad.terminar(getattr(self, "_ficha_act", None))
         self.resultado, self.error = resultado, error
         if self.al_terminar is not None:
             try:

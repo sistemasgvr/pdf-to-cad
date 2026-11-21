@@ -12,6 +12,7 @@ Una pregunta normal (o lo que la IA no reconoce como orden) sigue el camino de s
 from __future__ import annotations
 
 import threading
+from nucleo import actividad as _actividad
 
 from PySide6 import QtCore
 
@@ -54,7 +55,7 @@ class OrdenesMixin:
             except Exception as e:                    # noqa: BLE001 (ErrorIA o lo que sea: reporte en el chat)
                 from ui.dialogos.ia_chat import reporte_de
                 self._sen_orden.fallo.emit(turno, reporte_de(e, "Chat del proyecto · orden", prov, q))
-        threading.Thread(target=correr, name="pdfcad-ia-orden", daemon=True).start()
+        _actividad.lanzar(correr, "pdfcad-ia-orden")
 
     def _al_orden(self, turno, interp):
         turno.pop("orden_en_curso", None)

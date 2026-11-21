@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from PySide6 import QtCore, QtWidgets
 
+from nucleo import actividad as _actividad
+
 from traduccion.i18n import t as _tr
 from ui.comun import centro_avisos, theme
 
@@ -110,6 +112,8 @@ class CapaTarjetas:
         self._timer = None
 
     def begin(self, text, detail="", cancel=None, modelo=False, **_kw):
+        if not self.active:
+            self._ficha_act = _actividad.iniciar("avance: " + str(text))
         self.active = True
         self._estado = {"texto": text, "detalle": detail}
         if not modelo:
@@ -183,6 +187,8 @@ class CapaTarjetas:
 
     def end(self, guardar=True):
         """`guardar=False` (cancelado): lo que duró no sirve de ejemplo para la próxima vez."""
+        _actividad.terminar(getattr(self, "_ficha_act", None))
+        self._ficha_act = None
         self.active = False
         if self._timer is not None:
             self._timer.stop()

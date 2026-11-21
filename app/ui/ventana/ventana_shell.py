@@ -62,6 +62,9 @@ def barra_superior_izquierda(win, tb):
     buscar.mousePressEvent = lambda _e: win.abrir_paleta()
     win.campo_buscar = buscar
     tb.addWidget(buscar)
+    from ui.comun.indicador_actividad import IndicadorActividad
+    win.indicador_actividad = IndicadorActividad()       # gira con cualquier trabajo (menú, atajo, paleta…)
+    tb.addWidget(win.indicador_actividad)
     tb.addWidget(_estirable())
 
 

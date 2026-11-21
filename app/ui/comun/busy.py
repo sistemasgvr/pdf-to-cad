@@ -34,6 +34,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from ui.comun import theme as _theme
 from ui.comun import tiempos_carga, vigia_carga
+from nucleo import actividad as _actividad
 from nucleo import vigilante as _vigilante
 from traduccion.i18n import t as _tr
 
@@ -116,6 +117,7 @@ class BusyOverlay(QtWidgets.QWidget):
         self._stack.append({"text": text, "detail": detail, "done": None, "total": None,
                             "cancel": cancel, "modelo": bool(modelo)})
         if len(self._stack) == 1:
+            self._ficha_act = _actividad.iniciar("carga: " + text)      # (aro del botón que la lanzó)
             self._vig_t0 = time.perf_counter()
             _vigilante.poner_carga(text)              # `nucleo/vigilante`: cuánto se esperó con la tarjeta
             self._seg = None if modelo else tiempos_carga.seguidor(text)
@@ -195,6 +197,8 @@ class BusyOverlay(QtWidgets.QWidget):
             self._avisar_centro()
             self.pump()
             return
+        _actividad.terminar(getattr(self, "_ficha_act", None))
+        self._ficha_act = None
         seg, self._seg = self._seg, None
         t0 = getattr(self, "_vig_t0", None)
         if t0 is not None:
@@ -302,7 +306,7 @@ class BusyOverlay(QtWidgets.QWidget):
             self.raise_()
 
     def event(self, ev):
-        if (self._stack and ev.type() == QtCore.QEvent.MouseButtonRelease
+        if (getattr(self, "_stack", None) and ev.type() == QtCore.QEvent.MouseButtonRelease
                 and self._stack[-1].get("cancel") is not None and self._cancel_rect is not None
                 and self._cancel_rect.contains(QtCore.QPointF(ev.position()))):
             fn = self._stack[-1]["cancel"]
@@ -312,7 +316,7 @@ class BusyOverlay(QtWidgets.QWidget):
             QtCore.QTimer.singleShot(0, self, fn)
             ev.accept()
             return True
-        if self._stack and ev.type() in _INPUT_EVENTS:
+        if getattr(self, "_stack", None) and ev.type() in _INPUT_EVENTS:
             ev.accept()               # también ShortcutOverride: así no salta ningún atajo
             return True
         return super().event(ev)
